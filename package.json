@@ -1,0 +1,42 @@
+{
+  "name": "pollavar-front",
+  "private": true,
+  "workspaces": [
+    "apps/admin",
+    "apps/participants"
+  ],
+  "scripts": {
+    "dev:admin": "npm --workspace pollavar-admin run dev",
+    "dev:participants": "npm --workspace pollavar-participants run dev",
+    "build:admin": "npm --workspace pollavar-admin run build",
+    "build:participants": "npm --workspace pollavar-participants run build",
+    "lint:admin": "npm --workspace pollavar-admin run lint",
+    "lint:participants": "npm --workspace pollavar-participants run lint",
+    "test:admin": "vitest run apps/admin",
+    "test:participants": "vitest run apps/participants",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "build": "npm run build:admin && npm run build:participants",
+    "lint": "npm run lint:admin && npm run lint:participants"
+  },
+  "dependencies": {
+    "next": "16.2.6",
+    "react": "19.2.4",
+    "react-dom": "19.2.4"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@vitest/coverage-v8": "^4.1.6",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.6",
+    "jsdom": "^29.1.1",
+    "tailwindcss": "^4",
+    "typescript": "^5",
+    "vitest": "^4.1.6"
+  }
+}
