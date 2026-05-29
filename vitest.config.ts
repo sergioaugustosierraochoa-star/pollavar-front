@@ -8,8 +8,8 @@ export default defineConfig({
       provider: "v8",
       reporter: ["text", "json-summary", "html"],
       all: true,
-      include: ["apps/*/src/**/*.{ts,tsx}"],
-      exclude: ["apps/*/src/**/*.test.{ts,tsx}"],
+      include: ["apps/*/src/**/*.{ts,tsx}", "packages/*/src/**/*.{ts,tsx}"],
+      exclude: ["apps/*/src/**/*.test.{ts,tsx}", "packages/*/src/**/*.test.{ts,tsx}"],
       thresholds: {
         statements: 100,
         branches: 100,

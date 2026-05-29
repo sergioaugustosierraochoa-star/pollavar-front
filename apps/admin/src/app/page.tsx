@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 const adminModules = [
   { name: "Torneos", status: "Modelo base", tone: "bg-sky-100 text-sky-900" },
   { name: "Pollas privadas", status: "Pendiente API", tone: "bg-amber-100 text-amber-900" },
@@ -26,9 +28,20 @@ export default function AdminHome() {
               Configuracion de pollas y torneos
             </h1>
           </div>
-          <span className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700">
-            Admin
-          </span>
+          <nav aria-label="Autenticacion admin" className="flex items-center gap-2">
+            <Link
+              className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:border-zinc-400"
+              href="/login"
+            >
+              Entrar
+            </Link>
+            <Link
+              className="rounded-md bg-zinc-950 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800"
+              href="/register"
+            >
+              Crear cuenta
+            </Link>
+          </nav>
         </div>
       </header>
 
@@ -103,4 +116,3 @@ function Metric({ label, value }: { label: string; value: string }) {
     </div>
   );
 }
-

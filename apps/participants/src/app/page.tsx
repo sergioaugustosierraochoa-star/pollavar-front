@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 const participantActions = [
   { name: "Mis predicciones", status: "Proximo", tone: "bg-sky-100 text-sky-900" },
   { name: "Partidos pendientes", status: "Proximo", tone: "bg-amber-100 text-amber-900" },
@@ -22,9 +24,20 @@ export default function ParticipantsHome() {
               Portal del participante
             </h1>
           </div>
-          <span className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700">
-            Participante
-          </span>
+          <nav aria-label="Autenticacion participantes" className="flex items-center gap-2">
+            <Link
+              className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:border-zinc-400"
+              href="/login"
+            >
+              Entrar
+            </Link>
+            <Link
+              className="rounded-md bg-zinc-950 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800"
+              href="/register"
+            >
+              Crear cuenta
+            </Link>
+          </nav>
         </div>
       </header>
 
@@ -100,4 +113,3 @@ function Metric({ label, value }: { label: string; value: string }) {
     </div>
   );
 }
-

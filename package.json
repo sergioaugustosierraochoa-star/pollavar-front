@@ -3,7 +3,8 @@
   "private": true,
   "workspaces": [
     "apps/admin",
-    "apps/participants"
+    "apps/participants",
+    "packages/*"
   ],
   "scripts": {
     "dev:admin": "npm --workspace pollavar-admin run dev",
