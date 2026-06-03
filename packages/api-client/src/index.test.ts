@@ -4,6 +4,10 @@ import {
   createPollavarClient,
   serializeAuthSession,
   type AuthResult,
+  type Pool,
+  type PredictionSummary,
+  type Tournament,
+  type TournamentSummary,
 } from "./index";
 
 const authResult: AuthResult = {
@@ -17,6 +21,84 @@ const authResult: AuthResult = {
   },
   token: "token",
   expires_at: "2026-05-28T01:00:00Z",
+};
+
+const tournamentSummary: TournamentSummary = {
+  id: "fifa-world-cup-2026",
+  name: "FIFA World Cup 2026",
+  slug: "fifa-world-cup-2026",
+  sport: "football",
+  format_code: "groups_plus_knockout_48_12x4_best8_thirds",
+  starts_at: "2026-06-11T00:00:00Z",
+  ends_at: "2026-07-19T23:59:59Z",
+  group_count: 12,
+  team_count: 48,
+};
+
+const tournament: Tournament = {
+  ...tournamentSummary,
+  groups: [],
+  matches: [
+    {
+      id: "match-id",
+      tournament_id: "fifa-world-cup-2026",
+      stage_id: "group-stage",
+      group_id: "group-a",
+      group_name: "A",
+      match_number: 1,
+      home_team: { id: "MEX", name: "Mexico", short_name: "MEX", country_code: "MEX" },
+      away_team: {
+        id: "RSA",
+        name: "South Africa",
+        short_name: "RSA",
+        country_code: "ZAF",
+      },
+      home_slot: "MEX",
+      away_slot: "RSA",
+      starts_at: "2026-06-11T19:00:00Z",
+      venue: "Mexico City Stadium",
+      status: "scheduled",
+    },
+  ],
+};
+
+const pool: Pool = {
+  id: "pool-id",
+  tournament_id: "fifa-world-cup-2026",
+  name: "Mundial oficina",
+  description: "Polla privada",
+  invite_code: "ABC123",
+  entry_fee_cents: 5000000,
+  currency: "COP",
+  collection_responsible_user_id: "collector-id",
+  prediction_close_hours_before: 6,
+  created_by: "user-id",
+  created_at: "2026-05-27T01:00:00Z",
+  updated_at: "2026-05-27T01:00:00Z",
+  current_user_role: "pool_admin",
+  theme: {
+    id: "theme-id",
+    pool_id: "pool-id",
+    display_name: "Oficina FC",
+    logo_url: "https://cdn.example.com/logo.png",
+    banner_url: "/assets/banner.png",
+    mascot_url: "",
+    primary_color: "#0F766E",
+    secondary_color: "#111827",
+    accent_color: "#F59E0B",
+    created_at: "2026-05-27T01:00:00Z",
+    updated_at: "2026-05-27T01:00:00Z",
+  },
+  participants: [],
+};
+
+const predictionSummary: PredictionSummary = {
+  total_matches: 72,
+  predicted_matches: 18,
+  missing_matches: 54,
+  open_matches: 60,
+  closed_matches: 12,
+  scored_matches: 0,
 };
 
 describe("createPollavarClient", () => {
@@ -121,6 +203,107 @@ describe("createPollavarClient", () => {
         Authorization: "Bearer token",
       },
     });
+  });
+
+  it("loads tournament resources", async () => {
+    const fetcher = vi.fn(async (url: RequestInfo | URL) => {
+      if (String(url).endsWith("/api/v1/tournaments")) {
+        return jsonResponse({ data: [tournamentSummary] });
+      }
+      return jsonResponse({ data: tournament });
+    });
+    const client = createPollavarClient({
+      baseURL: "http://api.local/",
+      fetcher,
+    });
+
+    await expect(client.listTournaments()).resolves.toEqual([tournamentSummary]);
+    await expect(client.getTournament("fifa world cup")).resolves.toEqual(tournament);
+
+    expect(fetcher).toHaveBeenNthCalledWith(1, "http://api.local/api/v1/tournaments", {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
+    expect(fetcher).toHaveBeenNthCalledWith(
+      2,
+      "http://api.local/api/v1/tournaments/fifa%20world%20cup",
+      {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      },
+    );
+  });
+
+  it("loads pool and prediction resources with bearer auth", async () => {
+    const prediction = {
+      id: "prediction-id",
+      pool_id: "pool-id",
+      user_id: "user-id",
+      match_id: "match-id",
+      home_score: 2,
+      away_score: 1,
+      created_at: "2026-06-11T12:00:00Z",
+      updated_at: "2026-06-11T12:30:00Z",
+    };
+    const fetcher = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      const value = String(url);
+      if (value.endsWith("/api/v1/pools")) {
+        return jsonResponse({ data: [pool] });
+      }
+      if (value.endsWith("/summary")) {
+        return jsonResponse({ data: predictionSummary });
+      }
+      if (init?.method === "PUT") {
+        return jsonResponse({ data: prediction });
+      }
+      if (value.endsWith("/predictions")) {
+        return jsonResponse({ data: [prediction] });
+      }
+      return jsonResponse({ data: pool });
+    });
+    const client = createPollavarClient({
+      baseURL: "http://api.local",
+      fetcher,
+    });
+
+    await expect(client.listPools("token")).resolves.toEqual([pool]);
+    await expect(client.getPool("token", "pool id")).resolves.toEqual(pool);
+    await expect(client.listPredictions("token", "pool id")).resolves.toEqual([
+      prediction,
+    ]);
+    await expect(client.getPredictionSummary("token", "pool id")).resolves.toEqual(
+      predictionSummary,
+    );
+    await expect(
+      client.savePrediction("token", "pool id", "match id", {
+        home_score: 2,
+        away_score: 1,
+      }),
+    ).resolves.toEqual(prediction);
+
+    expect(fetcher).toHaveBeenNthCalledWith(2, "http://api.local/api/v1/pools/pool%20id", {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer token",
+      },
+    });
+    expect(fetcher).toHaveBeenNthCalledWith(
+      5,
+      "http://api.local/api/v1/pools/pool%20id/predictions/match%20id",
+      {
+        method: "PUT",
+        body: JSON.stringify({ home_score: 2, away_score: 1 }),
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer token",
+        },
+      },
+    );
   });
 
   it("throws API errors with backend codes", async () => {

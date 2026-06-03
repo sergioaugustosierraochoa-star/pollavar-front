@@ -25,6 +25,119 @@ export type LoginInput = {
   password: string;
 };
 
+export type TournamentSummary = {
+  id: string;
+  name: string;
+  slug: string;
+  sport: string;
+  format_code: string;
+  starts_at: string;
+  ends_at: string;
+  group_count: number;
+  team_count: number;
+};
+
+export type Team = {
+  id: string;
+  name: string;
+  short_name: string;
+  country_code: string;
+};
+
+export type Match = {
+  id: string;
+  tournament_id: string;
+  stage_id: string;
+  group_id: string;
+  group_name: string;
+  match_number: number;
+  home_team?: Team | null;
+  away_team?: Team | null;
+  home_slot: string;
+  away_slot: string;
+  starts_at: string;
+  venue: string;
+  status: string;
+};
+
+export type Tournament = TournamentSummary & {
+  groups: Array<{
+    id: string;
+    name: string;
+    teams: Team[];
+  }>;
+  matches: Match[];
+};
+
+export type PoolTheme = {
+  id: string;
+  pool_id: string;
+  display_name: string;
+  logo_url: string;
+  banner_url: string;
+  mascot_url: string;
+  primary_color: string;
+  secondary_color: string;
+  accent_color: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type PoolParticipant = {
+  id: string;
+  pool_id: string;
+  user_id: string;
+  user_name: string;
+  username: string;
+  role: string;
+  payment_status: string;
+  prize_eligible: boolean;
+  joined_at: string;
+};
+
+export type Pool = {
+  id: string;
+  tournament_id: string;
+  name: string;
+  description: string;
+  invite_code: string;
+  entry_fee_cents: number;
+  currency: string;
+  collection_responsible_user_id: string;
+  prediction_close_hours_before: number;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+  current_user_role: string;
+  theme: PoolTheme;
+  participants: PoolParticipant[];
+};
+
+export type Prediction = {
+  id: string;
+  pool_id: string;
+  user_id: string;
+  match_id: string;
+  home_score: number;
+  away_score: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type PredictionSummary = {
+  total_matches: number;
+  predicted_matches: number;
+  missing_matches: number;
+  open_matches: number;
+  closed_matches: number;
+  scored_matches: number;
+};
+
+export type SavePredictionInput = {
+  home_score: number;
+  away_score: number;
+};
+
 export type PollavarClientOptions = {
   baseURL?: string;
   fetcher?: typeof fetch;
@@ -75,6 +188,67 @@ export function createPollavarClient(options: PollavarClientOptions = {}) {
         },
       });
     },
+    listTournaments() {
+      return request<TournamentSummary[]>(fetcher, `${baseURL}/api/v1/tournaments`, {
+        method: "GET",
+      });
+    },
+    getTournament(slug: string) {
+      return request<Tournament>(
+        fetcher,
+        `${baseURL}/api/v1/tournaments/${encodeURIComponent(slug)}`,
+        {
+          method: "GET",
+        },
+      );
+    },
+    listPools(token: string) {
+      return request<Pool[]>(fetcher, `${baseURL}/api/v1/pools`, {
+        method: "GET",
+        headers: authHeaders(token),
+      });
+    },
+    getPool(token: string, poolID: string) {
+      return request<Pool>(
+        fetcher,
+        `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}`,
+        {
+          method: "GET",
+          headers: authHeaders(token),
+        },
+      );
+    },
+    listPredictions(token: string, poolID: string) {
+      return request<Prediction[]>(
+        fetcher,
+        `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/predictions`,
+        {
+          method: "GET",
+          headers: authHeaders(token),
+        },
+      );
+    },
+    getPredictionSummary(token: string, poolID: string) {
+      return request<PredictionSummary>(
+        fetcher,
+        `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/predictions/summary`,
+        {
+          method: "GET",
+          headers: authHeaders(token),
+        },
+      );
+    },
+    savePrediction(token: string, poolID: string, matchID: string, input: SavePredictionInput) {
+      return request<Prediction>(
+        fetcher,
+        `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/predictions/${encodeURIComponent(matchID)}`,
+        {
+          method: "PUT",
+          body: JSON.stringify(input),
+          headers: authHeaders(token),
+        },
+      );
+    },
   };
 }
 
@@ -113,6 +287,12 @@ function defaultAPIURL() {
 
 function normalizeBaseURL(value: string) {
   return value.replace(/\/+$/, "");
+}
+
+function authHeaders(token: string) {
+  return {
+    Authorization: `Bearer ${token}`,
+  };
 }
 
 function errorCode(payload: DataEnvelope<unknown> | ErrorEnvelope) {

@@ -1,115 +1,801 @@
+"use client";
+
+import {
+  PollavarAPIError,
+  createPollavarClient,
+  type Match,
+  type Pool,
+  type Prediction,
+  type PredictionSummary,
+  type Tournament,
+  type TournamentSummary,
+} from "@pollavar/api-client";
 import Link from "next/link";
+import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-const participantActions = [
-  { name: "Mis predicciones", status: "Proximo", tone: "bg-sky-100 text-sky-900" },
-  { name: "Partidos pendientes", status: "Proximo", tone: "bg-amber-100 text-amber-900" },
-  { name: "Mi pago", status: "Proximo", tone: "bg-emerald-100 text-emerald-900" },
-  { name: "Ranking", status: "Proximo", tone: "bg-indigo-100 text-indigo-900" },
-];
+const sessionStorageKey = "pollavar.participants.session";
 
-const upcomingMatches = [
-  { home: "Mexico", away: "South Africa", group: "Grupo A" },
-  { home: "Canada", away: "Bosnia and Herzegovina", group: "Grupo B" },
-  { home: "Brazil", away: "Morocco", group: "Grupo C" },
-];
+type AuthSession = {
+  token: string;
+  expiresAt: string;
+  user: {
+    id: string;
+    name: string;
+    username: string;
+    email: string;
+    role: string;
+    created_at: string;
+  };
+};
+
+type DashboardStatus = "checking" | "signed-out" | "loading" | "ready" | "error";
+type ScoreDrafts = Record<string, { home: string; away: string }>;
+type LoadedPoolData = {
+  poolDetail: Pool;
+  predictionSummary: PredictionSummary;
+  userPredictions: Prediction[];
+  tournamentDetail: Tournament | null;
+};
 
 export default function ParticipantsHome() {
+  const [session, setSession] = useState<AuthSession | null>(null);
+  const [status, setStatus] = useState<DashboardStatus>("checking");
+  const [message, setMessage] = useState("");
+  const [pools, setPools] = useState<Pool[]>([]);
+  const [selectedPoolID, setSelectedPoolID] = useState("");
+  const [pool, setPool] = useState<Pool | null>(null);
+  const [tournament, setTournament] = useState<Tournament | null>(null);
+  const [summary, setSummary] = useState<PredictionSummary | null>(null);
+  const [predictions, setPredictions] = useState<Prediction[]>([]);
+  const [drafts, setDrafts] = useState<ScoreDrafts>({});
+  const [savingMatchID, setSavingMatchID] = useState("");
+  const [saveMessage, setSaveMessage] = useState("");
+  const dashboardRequestID = useRef(0);
+
+  const predictionsByMatch = useMemo(() => indexPredictions(predictions), [predictions]);
+
+  const signOutParticipant = useCallback(function signOutParticipant() {
+    dashboardRequestID.current += 1;
+    clearStoredSession();
+    setSession(null);
+    setStatus("signed-out");
+    setMessage("");
+    setPools([]);
+    setSelectedPoolID("");
+    setPool(null);
+    setTournament(null);
+    setSummary(null);
+    setPredictions([]);
+    setDrafts({});
+    setSavingMatchID("");
+    setSaveMessage("");
+  }, []);
+
+  const loadPoolData = useCallback(async function loadPoolData(
+    token: string,
+    activePool: Pool,
+    tournamentList: TournamentSummary[],
+  ): Promise<LoadedPoolData> {
+    const client = createPollavarClient();
+    const tournamentSummary = tournamentList.find(
+      (item) => item.id === activePool.tournament_id || item.slug === activePool.tournament_id,
+    );
+    const tournamentRequest = tournamentSummary
+      ? client.getTournament(tournamentSummary.slug)
+      : Promise.resolve(null);
+    const [poolDetail, predictionSummary, userPredictions, tournamentDetail] =
+      await Promise.all([
+        client.getPool(token, activePool.id),
+        client.getPredictionSummary(token, activePool.id),
+        client.listPredictions(token, activePool.id),
+        tournamentRequest,
+      ]);
+
+    return {
+      poolDetail,
+      predictionSummary,
+      userPredictions,
+      tournamentDetail,
+    };
+  }, []);
+
+  const loadDashboard = useCallback(async function loadDashboard(
+    token: string,
+    preferredPoolID?: string,
+  ) {
+    const requestID = dashboardRequestID.current + 1;
+    dashboardRequestID.current = requestID;
+    const isLatestRequest = () => dashboardRequestID.current === requestID;
+
+    setStatus("loading");
+    setMessage("");
+    setSaveMessage("");
+
+    try {
+      const client = createPollavarClient();
+      const [poolList, tournamentList] = await Promise.all([
+        client.listPools(token),
+        client.listTournaments(),
+      ]);
+      const activePool =
+        poolList.find((item) => item.id === preferredPoolID) ?? poolList[0] ?? null;
+
+      if (!isLatestRequest()) {
+        return;
+      }
+
+      setPools(poolList);
+      setSelectedPoolID(activePool?.id ?? "");
+
+      if (!activePool) {
+        setPool(null);
+        setTournament(null);
+        setSummary(null);
+        setPredictions([]);
+        setDrafts({});
+        setStatus("ready");
+        return;
+      }
+
+      const loadedPoolData = await loadPoolData(token, activePool, tournamentList);
+      if (!isLatestRequest()) {
+        return;
+      }
+
+      setPool(loadedPoolData.poolDetail);
+      setSummary(loadedPoolData.predictionSummary);
+      setPredictions(loadedPoolData.userPredictions);
+      setTournament(loadedPoolData.tournamentDetail);
+      setDrafts(
+        hydrateDrafts(
+          loadedPoolData.tournamentDetail?.matches ?? [],
+          loadedPoolData.userPredictions,
+        ),
+      );
+      setStatus("ready");
+    } catch (error) {
+      if (!isLatestRequest()) {
+        return;
+      }
+      if (isUnauthorizedError(error)) {
+        signOutParticipant();
+        return;
+      }
+      setStatus("error");
+      setMessage("No pudimos cargar tus pollas.");
+    }
+  }, [loadPoolData, signOutParticipant]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function bootstrapDashboard() {
+      const storedSession = readStoredSession();
+      if (cancelled) {
+        return;
+      }
+
+      if (!storedSession) {
+        setStatus("signed-out");
+        return;
+      }
+
+      setSession(storedSession);
+      await loadDashboard(storedSession.token);
+    }
+
+    void bootstrapDashboard();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [loadDashboard]);
+
+  async function refreshPredictions(
+    token: string,
+    activePool: Pool,
+    matches: Match[],
+    requestID: number,
+  ) {
+    const client = createPollavarClient();
+    const [predictionSummary, userPredictions] = await Promise.all([
+      client.getPredictionSummary(token, activePool.id),
+      client.listPredictions(token, activePool.id),
+    ]);
+
+    if (dashboardRequestID.current !== requestID) {
+      return;
+    }
+
+    setSummary(predictionSummary);
+    setPredictions(userPredictions);
+    setDrafts(hydrateDrafts(matches, userPredictions));
+  }
+
+  function selectPool(poolID: string) {
+    if (!session) {
+      return;
+    }
+    void loadDashboard(session.token, poolID);
+  }
+
+  function updateDraft(matchID: string, side: "home" | "away", value: string) {
+    setDrafts((current) => ({
+      ...current,
+      [matchID]: {
+        home: current[matchID]?.home ?? "",
+        away: current[matchID]?.away ?? "",
+        [side]: value,
+      },
+    }));
+  }
+
+  async function savePrediction(event: FormEvent<HTMLFormElement>, match: Match) {
+    event.preventDefault();
+    if (!session || !pool || !tournament) {
+      return;
+    }
+
+    const draft = drafts[match.id] ?? { home: "", away: "" };
+    const homeScore = Number(draft.home);
+    const awayScore = Number(draft.away);
+    if (
+      draft.home === "" ||
+      draft.away === "" ||
+      !Number.isInteger(homeScore) ||
+      !Number.isInteger(awayScore) ||
+      homeScore < 0 ||
+      awayScore < 0
+    ) {
+      setSaveMessage("Completa ambos marcadores con numeros validos.");
+      return;
+    }
+
+    setSavingMatchID(match.id);
+    setSaveMessage("");
+    const requestID = dashboardRequestID.current;
+    try {
+      const client = createPollavarClient();
+      await client.savePrediction(session.token, pool.id, match.id, {
+        home_score: homeScore,
+        away_score: awayScore,
+      });
+      if (dashboardRequestID.current !== requestID) {
+        return;
+      }
+      await refreshPredictions(session.token, pool, tournament.matches, requestID);
+      if (dashboardRequestID.current !== requestID) {
+        return;
+      }
+      setSaveMessage("Pronostico guardado.");
+    } catch (error) {
+      if (isUnauthorizedError(error)) {
+        signOutParticipant();
+        return;
+      }
+      setSaveMessage("No pudimos guardar el pronostico.");
+    } finally {
+      if (dashboardRequestID.current === requestID) {
+        setSavingMatchID("");
+      }
+    }
+  }
+
   return (
     <main className="min-h-screen bg-[#f8faf9] text-[#191b1f]">
       <header className="border-b border-zinc-200 bg-white">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-4">
+        <div className="mx-auto flex max-w-7xl flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="text-sm font-medium text-emerald-700">PollaVAR</p>
+            <p className="text-sm font-medium text-emerald-700">PollaVAR Participantes</p>
             <h1 className="text-2xl font-semibold tracking-normal text-zinc-950">
-              Portal del participante
+              Mis pronosticos
             </h1>
           </div>
-          <nav aria-label="Autenticacion participantes" className="flex items-center gap-2">
-            <Link
-              className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:border-zinc-400"
-              href="/login"
-            >
-              Entrar
-            </Link>
-            <Link
-              className="rounded-md bg-zinc-950 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800"
-              href="/register"
-            >
-              Crear cuenta
-            </Link>
-          </nav>
+          {session ? (
+            <div className="flex items-center gap-3 text-sm text-zinc-600">
+              <span>{session.user.username}</span>
+              <button
+                className="rounded-md border border-zinc-300 px-3 py-2 font-medium text-zinc-700 hover:border-zinc-400"
+                onClick={() => {
+                  void loadDashboard(session.token, selectedPoolID);
+                }}
+                type="button"
+              >
+                Actualizar
+              </button>
+            </div>
+          ) : (
+            <nav aria-label="Autenticacion participantes" className="flex items-center gap-2">
+              <Link
+                className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:border-zinc-400"
+                href="/login"
+              >
+                Entrar
+              </Link>
+              <Link
+                className="rounded-md bg-zinc-950 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800"
+                href="/register"
+              >
+                Crear cuenta
+              </Link>
+            </nav>
+          )}
         </div>
       </header>
 
-      <section className="mx-auto grid max-w-6xl gap-6 px-5 py-8 lg:grid-cols-[0.95fr_1.05fr]">
-        <div className="rounded-lg border border-zinc-200 bg-white p-6 shadow-sm">
-          <p className="text-sm font-medium text-sky-700">
-            Mundial 2026 como primera plantilla
-          </p>
-          <h2 className="mt-2 text-3xl font-semibold tracking-normal text-zinc-950">
-            Haz tus picks, revisa tu pago y compite por el ranking
-          </h2>
-          <p className="mt-3 max-w-3xl text-base leading-7 text-zinc-600">
-            Esta app sera usada por participantes para unirse a una polla, completar
-            predicciones antes del cierre, consultar puntos y ver premios.
-          </p>
+      {status === "checking" || status === "loading" ? <LoadingState /> : null}
+      {status === "signed-out" ? <SignedOutState /> : null}
+      {status === "error" ? (
+        <StatusState
+          title="No pudimos cargar tu informacion"
+          message={message}
+          action={
+            session
+              ? () => {
+                  void loadDashboard(session.token, selectedPoolID);
+                }
+              : undefined
+          }
+        />
+      ) : null}
+      {status === "ready" && session ? (
+        <Dashboard
+          drafts={drafts}
+          onSave={savePrediction}
+          onSelectPool={selectPool}
+          onUpdateDraft={updateDraft}
+          pool={pool}
+          pools={pools}
+          predictionsByMatch={predictionsByMatch}
+          saveMessage={saveMessage}
+          savingMatchID={savingMatchID}
+          selectedPoolID={selectedPoolID}
+          summary={summary}
+          tournament={tournament}
+        />
+      ) : null}
+    </main>
+  );
+}
 
-          <div className="mt-8 grid gap-3 sm:grid-cols-3">
-            <Metric label="Puntos" value="0" />
-            <Metric label="Posicion" value="-" />
-            <Metric label="Pendientes" value="0" />
-          </div>
+function Dashboard({
+  drafts,
+  onSave,
+  onSelectPool,
+  onUpdateDraft,
+  pool,
+  pools,
+  predictionsByMatch,
+  saveMessage,
+  savingMatchID,
+  selectedPoolID,
+  summary,
+  tournament,
+}: {
+  drafts: ScoreDrafts;
+  onSave: (event: FormEvent<HTMLFormElement>, match: Match) => void;
+  onSelectPool: (poolID: string) => void;
+  onUpdateDraft: (matchID: string, side: "home" | "away", value: string) => void;
+  pool: Pool | null;
+  pools: Pool[];
+  predictionsByMatch: Map<string, Prediction>;
+  saveMessage: string;
+  savingMatchID: string;
+  selectedPoolID: string;
+  summary: PredictionSummary | null;
+  tournament: Tournament | null;
+}) {
+  if (pools.length === 0) {
+    return (
+      <StatusState
+        title="Aun no tienes pollas"
+        message="Cuando te unas a una polla, tus partidos y pronosticos apareceran aqui."
+      />
+    );
+  }
+
+  return (
+    <section className="mx-auto grid max-w-7xl gap-5 px-5 py-6 lg:grid-cols-[280px_1fr]">
+      <aside className="h-fit rounded-lg border border-zinc-200 bg-white shadow-sm">
+        <div className="border-b border-zinc-200 px-4 py-3">
+          <h2 className="text-sm font-semibold text-zinc-950">Mis pollas</h2>
         </div>
+        <div className="grid gap-2 p-3">
+          {pools.map((item) => (
+            <button
+              className={`rounded-md border px-3 py-3 text-left text-sm transition ${
+                item.id === selectedPoolID
+                  ? "border-emerald-600 bg-emerald-50 text-emerald-950"
+                  : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-300"
+              }`}
+              key={item.id}
+              onClick={() => onSelectPool(item.id)}
+              type="button"
+            >
+              <span className="block font-semibold">{item.name}</span>
+              <span className="mt-1 block text-xs text-zinc-500">{item.currency}</span>
+            </button>
+          ))}
+        </div>
+      </aside>
 
-        <aside className="rounded-lg border border-zinc-200 bg-white p-6 shadow-sm">
-          <h2 className="text-lg font-semibold text-zinc-950">Proximos partidos</h2>
-          <div className="mt-4 space-y-3">
-            {upcomingMatches.map((match) => (
-              <div key={`${match.home}-${match.away}`} className="rounded-lg border border-zinc-200 p-4">
-                <p className="text-xs font-medium text-zinc-500">{match.group}</p>
-                <div className="mt-2 flex items-center justify-between gap-3 text-sm font-semibold text-zinc-950">
-                  <span>{match.home}</span>
+      <div className="grid gap-5">
+        <PoolHeader pool={pool} tournament={tournament} />
+        <SummaryGrid summary={summary} />
+        <PredictionList
+          drafts={drafts}
+          onSave={onSave}
+          onUpdateDraft={onUpdateDraft}
+          pool={pool}
+          predictionsByMatch={predictionsByMatch}
+          saveMessage={saveMessage}
+          savingMatchID={savingMatchID}
+          tournament={tournament}
+        />
+      </div>
+    </section>
+  );
+}
+
+function PoolHeader({
+  pool,
+  tournament,
+}: {
+  pool: Pool | null;
+  tournament: Tournament | null;
+}) {
+  return (
+    <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
+      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+        <div>
+          <p className="text-sm font-medium text-sky-700">
+            {tournament?.name ?? "Torneo pendiente"}
+          </p>
+          <h2 className="mt-1 text-2xl font-semibold tracking-normal text-zinc-950">
+            {pool?.theme.display_name || pool?.name || "Polla"}
+          </h2>
+          <p className="mt-2 text-sm leading-6 text-zinc-600">{pool?.description}</p>
+        </div>
+        <dl className="grid min-w-56 gap-2 text-sm text-zinc-600">
+          <div className="flex justify-between gap-4">
+            <dt>Invitacion</dt>
+            <dd className="font-semibold text-zinc-950">{pool?.invite_code ?? "-"}</dd>
+          </div>
+          <div className="flex justify-between gap-4">
+            <dt>Cierre</dt>
+            <dd className="font-semibold text-zinc-950">
+              {pool ? `${pool.prediction_close_hours_before}h antes` : "-"}
+            </dd>
+          </div>
+          <div className="flex justify-between gap-4">
+            <dt>Participantes</dt>
+            <dd className="font-semibold text-zinc-950">
+              {pool?.participants.length ?? 0}
+            </dd>
+          </div>
+        </dl>
+      </div>
+    </section>
+  );
+}
+
+function SummaryGrid({ summary }: { summary: PredictionSummary | null }) {
+  const metrics = [
+    { label: "Partidos", value: summary?.total_matches ?? 0 },
+    { label: "Pronosticados", value: summary?.predicted_matches ?? 0 },
+    { label: "Faltantes", value: summary?.missing_matches ?? 0 },
+    { label: "Abiertos", value: summary?.open_matches ?? 0 },
+    { label: "Cerrados", value: summary?.closed_matches ?? 0 },
+    { label: "Puntuados", value: summary?.scored_matches ?? 0 },
+  ];
+
+  return (
+    <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
+      {metrics.map((metric) => (
+        <div
+          className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm"
+          key={metric.label}
+        >
+          <p className="text-xs font-medium uppercase text-zinc-500">{metric.label}</p>
+          <p className="mt-2 text-2xl font-semibold text-zinc-950">{metric.value}</p>
+        </div>
+      ))}
+    </section>
+  );
+}
+
+function PredictionList({
+  drafts,
+  onSave,
+  onUpdateDraft,
+  pool,
+  predictionsByMatch,
+  saveMessage,
+  savingMatchID,
+  tournament,
+}: {
+  drafts: ScoreDrafts;
+  onSave: (event: FormEvent<HTMLFormElement>, match: Match) => void;
+  onUpdateDraft: (matchID: string, side: "home" | "away", value: string) => void;
+  pool: Pool | null;
+  predictionsByMatch: Map<string, Prediction>;
+  saveMessage: string;
+  savingMatchID: string;
+  tournament: Tournament | null;
+}) {
+  if (!tournament) {
+    return (
+      <StatusState
+        title="Torneo no disponible"
+        message="No encontramos el fixture asociado a esta polla."
+      />
+    );
+  }
+
+  return (
+    <section className="rounded-lg border border-zinc-200 bg-white shadow-sm">
+      <div className="flex flex-col gap-2 border-b border-zinc-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+        <h2 className="text-lg font-semibold text-zinc-950">Partidos por pronosticar</h2>
+        {saveMessage ? (
+          <p className="text-sm font-medium text-emerald-700" role="status">
+            {saveMessage}
+          </p>
+        ) : null}
+      </div>
+      <div className="divide-y divide-zinc-200">
+        {tournament.matches.map((match) => {
+          const prediction = predictionsByMatch.get(match.id);
+          const closed = pool ? isMatchClosed(match, pool.prediction_close_hours_before) : false;
+          const homeName = match.home_team?.name ?? match.home_slot;
+          const awayName = match.away_team?.name ?? match.away_slot;
+          const draft = drafts[match.id] ?? { home: "", away: "" };
+
+          return (
+            <form
+              className="grid gap-3 px-5 py-4 lg:grid-cols-[minmax(0,1fr)_220px_120px]"
+              key={match.id}
+              onSubmit={(event) => onSave(event, match)}
+            >
+              <div>
+                <p className="text-xs font-medium text-zinc-500">
+                  Partido {match.match_number} - Grupo {match.group_name}
+                </p>
+                <div className="mt-1 flex flex-wrap items-center gap-2 text-sm font-semibold text-zinc-950">
+                  <span>{homeName}</span>
                   <span className="text-zinc-400">vs</span>
-                  <span>{match.away}</span>
+                  <span>{awayName}</span>
                 </div>
-              </div>
-            ))}
-          </div>
-        </aside>
-      </section>
-
-      <section className="mx-auto max-w-6xl px-5 pb-10">
-        <div className="rounded-lg border border-zinc-200 bg-white shadow-sm">
-          <div className="border-b border-zinc-200 px-6 py-4">
-            <h2 className="text-lg font-semibold text-zinc-950">Acciones del participante</h2>
-          </div>
-          <div className="grid gap-0 md:grid-cols-2 lg:grid-cols-4">
-            {participantActions.map((action) => (
-              <div key={action.name} className="border-b border-zinc-200 p-6 lg:border-r">
-                <div className="flex items-center justify-between gap-3">
-                  <h3 className="font-semibold text-zinc-950">{action.name}</h3>
-                  <span className={`rounded-md px-2 py-1 text-xs font-medium ${action.tone}`}>
-                    {action.status}
-                  </span>
-                </div>
-                <p className="mt-3 text-sm leading-6 text-zinc-600">
-                  Flujo separado del administrador para mantener una experiencia
-                  limpia y enfocada en jugar la polla.
+                <p className="mt-1 text-xs text-zinc-500">
+                  {formatMatchDate(match.starts_at)} - {match.venue}
                 </p>
               </div>
-            ))}
-          </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <label className="grid gap-1 text-xs font-medium text-zinc-600">
+                  <span>{match.home_team?.short_name ?? match.home_slot}</span>
+                  <input
+                    aria-label={`Marcador ${homeName}`}
+                    className="h-10 rounded-md border border-zinc-300 px-3 text-base font-semibold text-zinc-950 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100 disabled:bg-zinc-100"
+                    disabled={closed}
+                    min={0}
+                    onChange={(event) => onUpdateDraft(match.id, "home", event.target.value)}
+                    step={1}
+                    type="number"
+                    value={draft.home}
+                  />
+                </label>
+                <label className="grid gap-1 text-xs font-medium text-zinc-600">
+                  <span>{match.away_team?.short_name ?? match.away_slot}</span>
+                  <input
+                    aria-label={`Marcador ${awayName}`}
+                    className="h-10 rounded-md border border-zinc-300 px-3 text-base font-semibold text-zinc-950 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100 disabled:bg-zinc-100"
+                    disabled={closed}
+                    min={0}
+                    onChange={(event) => onUpdateDraft(match.id, "away", event.target.value)}
+                    step={1}
+                    type="number"
+                    value={draft.away}
+                  />
+                </label>
+              </div>
+
+              <div className="flex items-end gap-2 lg:justify-end">
+                <span
+                  className={`rounded-md px-2 py-1 text-xs font-medium ${
+                    closed
+                      ? "bg-zinc-100 text-zinc-600"
+                      : prediction
+                        ? "bg-emerald-100 text-emerald-800"
+                        : "bg-amber-100 text-amber-800"
+                  }`}
+                >
+                  {closed ? "Cerrado" : prediction ? "Guardado" : "Pendiente"}
+                </span>
+                <button
+                  className="h-10 rounded-md bg-zinc-950 px-3 text-sm font-semibold text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-400"
+                  disabled={closed || savingMatchID === match.id}
+                  type="submit"
+                >
+                  {savingMatchID === match.id ? "Guardando" : "Guardar"}
+                </button>
+              </div>
+            </form>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function LoadingState() {
+  return (
+    <StatusState
+      title="Cargando tus pollas"
+      message="Estamos consultando tus pronosticos."
+    />
+  );
+}
+
+function SignedOutState() {
+  return (
+    <section className="mx-auto grid max-w-5xl gap-6 px-5 py-10 lg:grid-cols-[0.9fr_1.1fr]">
+      <div className="rounded-lg border border-zinc-200 bg-white p-6 shadow-sm">
+        <p className="text-sm font-medium text-sky-700">Portal del participante</p>
+        <h2 className="mt-2 text-3xl font-semibold tracking-normal text-zinc-950">
+          Entra para completar tus marcadores
+        </h2>
+        <p className="mt-3 text-base leading-7 text-zinc-600">
+          Tus pollas, partidos pendientes y resumen de avance quedan disponibles
+          despues de iniciar sesion.
+        </p>
+        <div className="mt-6 flex gap-2">
+          <Link
+            className="rounded-md bg-zinc-950 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800"
+            href="/login"
+          >
+            Entrar
+          </Link>
+          <Link
+            className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-700 hover:border-zinc-400"
+            href="/register"
+          >
+            Crear cuenta
+          </Link>
         </div>
-      </section>
-    </main>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
+        <Metric label="Resumen" value="0/0" />
+        <Metric label="Faltantes" value="0" />
+        <Metric label="Cerrados" value="0" />
+      </div>
+    </section>
+  );
+}
+
+function StatusState({
+  action,
+  message,
+  title,
+}: {
+  action?: () => void;
+  message: string;
+  title: string;
+}) {
+  return (
+    <section className="mx-auto max-w-5xl px-5 py-10">
+      <div className="rounded-lg border border-zinc-200 bg-white p-6 shadow-sm">
+        <h2 className="text-xl font-semibold text-zinc-950">{title}</h2>
+        <p className="mt-2 text-sm leading-6 text-zinc-600">{message}</p>
+        {action ? (
+          <button
+            className="mt-4 rounded-md bg-zinc-950 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800"
+            onClick={action}
+            type="button"
+          >
+            Reintentar
+          </button>
+        ) : null}
+      </div>
+    </section>
   );
 }
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-zinc-200 p-4">
+    <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
       <p className="text-sm text-zinc-500">{label}</p>
-      <p className="mt-1 text-lg font-semibold">{value}</p>
+      <p className="mt-1 text-lg font-semibold text-zinc-950">{value}</p>
     </div>
   );
+}
+
+function readStoredSession() {
+  const rawSession = window.localStorage.getItem(sessionStorageKey);
+  if (!rawSession) {
+    return null;
+  }
+
+  try {
+    const storedSession = JSON.parse(rawSession) as unknown;
+    if (!isAuthSession(storedSession) || isSessionExpired(storedSession)) {
+      clearStoredSession();
+      return null;
+    }
+
+    return storedSession;
+  } catch {
+    clearStoredSession();
+    return null;
+  }
+}
+
+function clearStoredSession() {
+  window.localStorage.removeItem(sessionStorageKey);
+}
+
+function isAuthSession(value: unknown): value is AuthSession {
+  if (!isRecord(value) || !isRecord(value.user)) {
+    return false;
+  }
+
+  return (
+    typeof value.token === "string" &&
+    value.token.trim() !== "" &&
+    typeof value.expiresAt === "string" &&
+    typeof value.user.id === "string" &&
+    typeof value.user.username === "string"
+  );
+}
+
+function isSessionExpired(session: AuthSession) {
+  const expiresAt = Date.parse(session.expiresAt);
+  return Number.isNaN(expiresAt) || expiresAt <= Date.now();
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isUnauthorizedError(error: unknown) {
+  return error instanceof PollavarAPIError && error.status === 401;
+}
+
+function indexPredictions(predictions: Prediction[]) {
+  const indexed = new Map<string, Prediction>();
+  for (const prediction of predictions) {
+    indexed.set(prediction.match_id, prediction);
+  }
+  return indexed;
+}
+
+function hydrateDrafts(matches: Match[], predictions: Prediction[]) {
+  const indexed = indexPredictions(predictions);
+  const nextDrafts: ScoreDrafts = {};
+  for (const match of matches) {
+    const prediction = indexed.get(match.id);
+    nextDrafts[match.id] = {
+      home: prediction ? String(prediction.home_score) : "",
+      away: prediction ? String(prediction.away_score) : "",
+    };
+  }
+  return nextDrafts;
+}
+
+function isMatchClosed(match: Match, closeHours: number) {
+  const startsAt = Date.parse(match.starts_at);
+  if (Number.isNaN(startsAt)) {
+    return false;
+  }
+  return Date.now() >= startsAt - closeHours * 60 * 60 * 1000;
+}
+
+function formatMatchDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "Fecha pendiente";
+  }
+  return new Intl.DateTimeFormat("es-CO", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date);
 }

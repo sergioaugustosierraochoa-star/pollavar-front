@@ -1,65 +1,451 @@
-import { render, screen, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import ParticipantsHome from "./page";
 
+const session = {
+  token: "token",
+  expiresAt: "2099-05-28T01:00:00Z",
+  user: {
+    id: "user-id",
+    name: "Participante",
+    username: "participante",
+    email: "participante@example.com",
+    role: "participant",
+    created_at: "2026-05-27T01:00:00Z",
+  },
+};
+
+const pool = {
+  id: "pool-id",
+  tournament_id: "fifa-world-cup-2026",
+  name: "Mundial oficina",
+  description: "Polla privada",
+  invite_code: "ABC123",
+  entry_fee_cents: 5000000,
+  currency: "COP",
+  collection_responsible_user_id: "collector-id",
+  prediction_close_hours_before: 6,
+  created_by: "user-id",
+  created_at: "2026-05-27T01:00:00Z",
+  updated_at: "2026-05-27T01:00:00Z",
+  current_user_role: "participant",
+  theme: {
+    id: "theme-id",
+    pool_id: "pool-id",
+    display_name: "Oficina FC",
+    logo_url: "",
+    banner_url: "",
+    mascot_url: "",
+    primary_color: "#0F766E",
+    secondary_color: "#111827",
+    accent_color: "#F59E0B",
+    created_at: "2026-05-27T01:00:00Z",
+    updated_at: "2026-05-27T01:00:00Z",
+  },
+  participants: [
+    {
+      id: "participant-id",
+      pool_id: "pool-id",
+      user_id: "user-id",
+      user_name: "Participante",
+      username: "participante",
+      role: "participant",
+      payment_status: "pending",
+      prize_eligible: true,
+      joined_at: "2026-05-27T01:00:00Z",
+    },
+  ],
+};
+
+const tournamentSummary = {
+  id: "fifa-world-cup-2026",
+  name: "FIFA World Cup 2026",
+  slug: "fifa-world-cup-2026",
+  sport: "football",
+  format_code: "groups",
+  starts_at: "2026-06-11T00:00:00Z",
+  ends_at: "2026-07-19T23:59:59Z",
+  group_count: 12,
+  team_count: 48,
+};
+
+const tournament = {
+  ...tournamentSummary,
+  groups: [],
+  matches: [
+    {
+      id: "match-1",
+      tournament_id: "fifa-world-cup-2026",
+      stage_id: "group-stage",
+      group_id: "group-a",
+      group_name: "A",
+      match_number: 1,
+      home_team: { id: "MEX", name: "Mexico", short_name: "MEX", country_code: "MEX" },
+      away_team: {
+        id: "RSA",
+        name: "South Africa",
+        short_name: "RSA",
+        country_code: "ZAF",
+      },
+      home_slot: "MEX",
+      away_slot: "RSA",
+      starts_at: "2099-06-11T19:00:00Z",
+      venue: "Mexico City Stadium",
+      status: "scheduled",
+    },
+    {
+      id: "match-2",
+      tournament_id: "fifa-world-cup-2026",
+      stage_id: "group-stage",
+      group_id: "group-b",
+      group_name: "B",
+      match_number: 2,
+      home_team: { id: "CAN", name: "Canada", short_name: "CAN", country_code: "CAN" },
+      away_team: {
+        id: "BIH",
+        name: "Bosnia and Herzegovina",
+        short_name: "BIH",
+        country_code: "BIH",
+      },
+      home_slot: "CAN",
+      away_slot: "BIH",
+      starts_at: "2099-06-12T19:00:00Z",
+      venue: "Toronto Stadium",
+      status: "scheduled",
+    },
+  ],
+};
+
+const summary = {
+  total_matches: 2,
+  predicted_matches: 1,
+  missing_matches: 1,
+  open_matches: 2,
+  closed_matches: 0,
+  scored_matches: 0,
+};
+
+const prediction = {
+  id: "prediction-id",
+  pool_id: "pool-id",
+  user_id: "user-id",
+  match_id: "match-1",
+  home_score: 2,
+  away_score: 1,
+  created_at: "2026-06-11T12:00:00Z",
+  updated_at: "2026-06-11T12:30:00Z",
+};
+
 describe("Participants home", () => {
-  it("renders the participant portal header and summary metrics", () => {
+  afterEach(() => {
+    window.localStorage.clear();
+    vi.unstubAllGlobals();
+  });
+
+  it("renders sign-in actions when there is no participant session", async () => {
     render(<ParticipantsHome />);
 
-    expect(
-      screen.getByRole("heading", {
-        name: "Portal del participante",
-        level: 1,
+    expect(await screen.findByText("Entra para completar tus marcadores")).toBeInTheDocument();
+    expect(screen.getAllByRole("link", { name: "Entrar" })[0]).toHaveAttribute(
+      "href",
+      "/login",
+    );
+    expect(screen.getAllByRole("link", { name: "Crear cuenta" })[0]).toHaveAttribute(
+      "href",
+      "/register",
+    );
+  });
+
+  it("clears a corrupted session and renders the signed-out state", async () => {
+    window.localStorage.setItem("pollavar.participants.session", "{");
+
+    render(<ParticipantsHome />);
+
+    expect(await screen.findByText("Entra para completar tus marcadores")).toBeInTheDocument();
+    expect(window.localStorage.getItem("pollavar.participants.session")).toBeNull();
+  });
+
+  it("clears an expired session and renders the signed-out state", async () => {
+    window.localStorage.setItem(
+      "pollavar.participants.session",
+      JSON.stringify({ ...session, expiresAt: "2020-01-01T00:00:00Z" }),
+    );
+
+    render(<ParticipantsHome />);
+
+    expect(await screen.findByText("Entra para completar tus marcadores")).toBeInTheDocument();
+    expect(window.localStorage.getItem("pollavar.participants.session")).toBeNull();
+  });
+
+  it("loads pools, progress summary and editable match predictions", async () => {
+    storeSession();
+    const fetcher = vi.fn(dashboardFetch);
+    vi.stubGlobal("fetch", fetcher);
+
+    render(<ParticipantsHome />);
+
+    expect(await screen.findByRole("heading", { name: "Oficina FC" })).toBeInTheDocument();
+    expect(screen.getByText("FIFA World Cup 2026")).toBeInTheDocument();
+    expect(screen.getByText("ABC123")).toBeInTheDocument();
+    expect(screen.getByText("6h antes")).toBeInTheDocument();
+    expect(screen.getByText("Pronosticados")).toBeInTheDocument();
+    expect(screen.getByText("Faltantes")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("2")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("1")).toBeInTheDocument();
+    expect(screen.getByLabelText("Marcador Canada")).toHaveValue(null);
+    expect(screen.getByRole("button", { name: "Actualizar" })).toBeInTheDocument();
+    expect(fetcher).toHaveBeenCalledWith(
+      "http://localhost:8080/api/v1/pools",
+      expect.objectContaining({
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer token",
+        },
       }),
-    ).toBeInTheDocument();
-    expect(screen.getByText("PollaVAR")).toBeInTheDocument();
-    expect(screen.getByText("Mundial 2026 como primera plantilla")).toBeInTheDocument();
-    expect(
-      screen.getByText("Haz tus picks, revisa tu pago y compite por el ranking"),
-    ).toBeInTheDocument();
-    expect(screen.getByText("Puntos")).toBeInTheDocument();
-    expect(screen.getByText("Posicion")).toBeInTheDocument();
-    expect(screen.getByText("Pendientes")).toBeInTheDocument();
-    expect(screen.getAllByText("0")).toHaveLength(2);
-    expect(screen.getByText("-")).toBeInTheDocument();
+    );
   });
 
-  it("renders every upcoming match", () => {
+  it("keeps the newest dashboard response when refreshes overlap", async () => {
+    storeSession();
+    const stalePool = {
+      ...pool,
+      theme: { ...pool.theme, display_name: "Respuesta vieja" },
+    };
+    const freshPool = {
+      ...pool,
+      theme: { ...pool.theme, display_name: "Respuesta nueva" },
+    };
+    const firstRefresh = deferred<Response>();
+    const secondRefresh = deferred<Response>();
+    let poolDetailCalls = 0;
+    const fetcher = vi.fn(async (url: RequestInfo | URL) => {
+      const value = String(url);
+      if (value.endsWith("/api/v1/pools")) {
+        return jsonResponse({ data: [pool] });
+      }
+      if (value.endsWith("/api/v1/tournaments")) {
+        return jsonResponse({ data: [tournamentSummary] });
+      }
+      if (value.endsWith("/api/v1/pools/pool-id")) {
+        poolDetailCalls += 1;
+        if (poolDetailCalls === 1) {
+          return jsonResponse({ data: pool });
+        }
+        if (poolDetailCalls === 2) {
+          return firstRefresh.promise;
+        }
+        return secondRefresh.promise;
+      }
+      if (value.endsWith("/summary")) {
+        return jsonResponse({ data: summary });
+      }
+      if (value.endsWith("/predictions")) {
+        return jsonResponse({ data: [prediction] });
+      }
+      if (value.endsWith("/api/v1/tournaments/fifa-world-cup-2026")) {
+        return jsonResponse({ data: tournament });
+      }
+      return jsonResponse({ code: "not_found" }, { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetcher);
+
     render(<ParticipantsHome />);
 
-    const matches = screen.getByRole("heading", { name: "Proximos partidos" })
-      .closest("aside");
+    expect(await screen.findByRole("heading", { name: "Oficina FC" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Actualizar" }));
+    await waitFor(() => {
+      expect(poolDetailCalls).toBe(2);
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Actualizar" }));
 
-    expect(matches).not.toBeNull();
-    expect(within(matches as HTMLElement).getByText("Grupo A")).toBeInTheDocument();
-    expect(within(matches as HTMLElement).getByText("Mexico")).toBeInTheDocument();
-    expect(within(matches as HTMLElement).getByText("South Africa")).toBeInTheDocument();
-    expect(within(matches as HTMLElement).getByText("Grupo B")).toBeInTheDocument();
-    expect(within(matches as HTMLElement).getByText("Canada")).toBeInTheDocument();
-    expect(
-      within(matches as HTMLElement).getByText("Bosnia and Herzegovina"),
-    ).toBeInTheDocument();
-    expect(within(matches as HTMLElement).getByText("Grupo C")).toBeInTheDocument();
-    expect(within(matches as HTMLElement).getByText("Brazil")).toBeInTheDocument();
-    expect(within(matches as HTMLElement).getByText("Morocco")).toBeInTheDocument();
-    expect(within(matches as HTMLElement).getAllByText("vs")).toHaveLength(3);
+    await waitFor(() => {
+      expect(poolDetailCalls).toBe(3);
+    });
+
+    secondRefresh.resolve(jsonResponse({ data: freshPool }));
+    expect(await screen.findByRole("heading", { name: "Respuesta nueva" })).toBeInTheDocument();
+
+    firstRefresh.resolve(jsonResponse({ data: stalePool }));
+    await waitFor(() => {
+      expect(screen.queryByRole("heading", { name: "Respuesta vieja" })).not.toBeInTheDocument();
+    });
+    expect(screen.getByRole("heading", { name: "Respuesta nueva" })).toBeInTheDocument();
   });
 
-  it("renders every participant action with its status", () => {
+  it("saves a match prediction and refreshes the participant progress", async () => {
+    storeSession();
+    const fetcher = vi.fn(dashboardFetch);
+    vi.stubGlobal("fetch", fetcher);
+
     render(<ParticipantsHome />);
 
-    expect(
-      screen.getByRole("heading", { name: "Acciones del participante" }),
-    ).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Mis predicciones" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Partidos pendientes" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Mi pago" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Ranking" })).toBeInTheDocument();
-    expect(screen.getAllByText("Proximo")).toHaveLength(4);
-    expect(
-      screen.getAllByText(
-        "Flujo separado del administrador para mantener una experiencia limpia y enfocada en jugar la polla.",
-      ),
-    ).toHaveLength(4);
+    const homeInput = await screen.findByLabelText("Marcador Canada");
+    const form = homeInput.closest("form");
+    expect(form).not.toBeNull();
+
+    fireEvent.change(homeInput, { target: { value: "1" } });
+    fireEvent.change(screen.getByLabelText("Marcador Bosnia and Herzegovina"), {
+      target: { value: "0" },
+    });
+    fireEvent.click(within(form as HTMLFormElement).getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("status")).toHaveTextContent("Pronostico guardado.");
+    });
+    expect(fetcher).toHaveBeenCalledWith(
+      "http://localhost:8080/api/v1/pools/pool-id/predictions/match-2",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({ home_score: 1, away_score: 0 }),
+      }),
+    );
+  });
+
+  it("shows a validation message before saving incomplete scores", async () => {
+    storeSession();
+    vi.stubGlobal("fetch", vi.fn(dashboardFetch));
+
+    render(<ParticipantsHome />);
+
+    const homeInput = await screen.findByLabelText("Marcador Canada");
+    const form = homeInput.closest("form");
+    expect(form).not.toBeNull();
+
+    fireEvent.change(homeInput, { target: { value: "1" } });
+    fireEvent.click(within(form as HTMLFormElement).getByRole("button", { name: "Guardar" }));
+
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Completa ambos marcadores con numeros validos.",
+    );
+  });
+
+  it("shows an empty state when the participant has no pools", async () => {
+    storeSession();
+    const fetcher = vi.fn(async (url: RequestInfo | URL) => {
+      if (String(url).endsWith("/api/v1/pools")) {
+        return jsonResponse({ data: [] });
+      }
+      return jsonResponse({ data: [] });
+    });
+    vi.stubGlobal("fetch", fetcher);
+
+    render(<ParticipantsHome />);
+
+    expect(await screen.findByText("Aun no tienes pollas")).toBeInTheDocument();
+  });
+
+  it("shows an error state when loading fails", async () => {
+    storeSession();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse({ code: "internal_error" }, { status: 500 })),
+    );
+
+    render(<ParticipantsHome />);
+
+    expect(await screen.findByText("No pudimos cargar tu informacion")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reintentar" })).toBeInTheDocument();
+  });
+
+  it("clears the stored session when the API returns unauthorized", async () => {
+    storeSession();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse({ code: "unauthorized" }, { status: 401 })),
+    );
+
+    render(<ParticipantsHome />);
+
+    expect(await screen.findByText("Entra para completar tus marcadores")).toBeInTheDocument();
+    expect(window.localStorage.getItem("pollavar.participants.session")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Reintentar" })).not.toBeInTheDocument();
+  });
+
+  it("shows a tournament missing state when no tournament matches the pool", async () => {
+    storeSession();
+    const fetcher = vi.fn(async (url: RequestInfo | URL) => {
+      const value = String(url);
+      if (value.endsWith("/api/v1/pools")) {
+        return jsonResponse({ data: [pool] });
+      }
+      if (value.endsWith("/api/v1/tournaments")) {
+        return jsonResponse({ data: [] });
+      }
+      if (value.endsWith("/summary")) {
+        return jsonResponse({ data: summary });
+      }
+      if (value.endsWith("/predictions")) {
+        return jsonResponse({ data: [] });
+      }
+      return jsonResponse({ data: pool });
+    });
+    vi.stubGlobal("fetch", fetcher);
+
+    render(<ParticipantsHome />);
+
+    expect(await screen.findByText("Torneo no disponible")).toBeInTheDocument();
   });
 });
+
+function storeSession() {
+  window.localStorage.setItem(
+    "pollavar.participants.session",
+    JSON.stringify(session),
+  );
+}
+
+async function dashboardFetch(url: RequestInfo | URL, init?: RequestInit) {
+  const value = String(url);
+  if (value.endsWith("/api/v1/pools")) {
+    return jsonResponse({ data: [pool] });
+  }
+  if (value.endsWith("/api/v1/tournaments")) {
+    return jsonResponse({ data: [tournamentSummary] });
+  }
+  if (value.endsWith("/api/v1/pools/pool-id")) {
+    return jsonResponse({ data: pool });
+  }
+  if (value.endsWith("/summary")) {
+    return jsonResponse({ data: summary });
+  }
+  if (init?.method === "PUT") {
+    return jsonResponse({
+      data: {
+        ...prediction,
+        id: "prediction-2",
+        match_id: "match-2",
+        home_score: 1,
+        away_score: 0,
+      },
+    });
+  }
+  if (value.endsWith("/predictions")) {
+    return jsonResponse({ data: [prediction] });
+  }
+  if (value.endsWith("/api/v1/tournaments/fifa-world-cup-2026")) {
+    return jsonResponse({ data: tournament });
+  }
+  return jsonResponse({ code: "not_found" }, { status: 404 });
+}
+
+function jsonResponse(payload: unknown, init?: ResponseInit) {
+  return new Response(JSON.stringify(payload), {
+    status: 200,
+    headers: {
+      "Content-Type": "application/json",
+    },
+    ...init,
+  });
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+
+  return { promise, reject, resolve };
+}
