@@ -188,11 +188,18 @@ describe("Participants home", () => {
     expect(screen.getByText("FIFA World Cup 2026")).toBeInTheDocument();
     expect(screen.getByText("ABC123")).toBeInTheDocument();
     expect(screen.getByText("6h antes")).toBeInTheDocument();
-    expect(screen.getByText("Pronosticados")).toBeInTheDocument();
-    expect(screen.getByText("Faltantes")).toBeInTheDocument();
+    expect(screen.getAllByText("Pronosticados").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Faltantes").length).toBeGreaterThan(0);
     expect(screen.getByDisplayValue("2")).toBeInTheDocument();
     expect(screen.getByDisplayValue("1")).toBeInTheDocument();
     expect(screen.getByLabelText("Marcador Canada")).toHaveValue(null);
+    const groupA = screen.getByRole("heading", { name: "Grupo A" }).closest("section");
+    const groupB = screen.getByRole("heading", { name: "Grupo B" }).closest("section");
+    expect(groupA).not.toBeNull();
+    expect(groupB).not.toBeNull();
+    expect(within(groupA as HTMLElement).getByText("Fase de grupos")).toBeInTheDocument();
+    expect(within(groupA as HTMLElement).getByText("1/1")).toBeInTheDocument();
+    expect(within(groupB as HTMLElement).getByText("0/1")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Actualizar" })).toBeInTheDocument();
     expect(fetcher).toHaveBeenCalledWith(
       "http://localhost:8080/api/v1/pools",

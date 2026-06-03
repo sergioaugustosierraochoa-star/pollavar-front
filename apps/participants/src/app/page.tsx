@@ -36,6 +36,18 @@ type LoadedPoolData = {
   userPredictions: Prediction[];
   tournamentDetail: Tournament | null;
 };
+type PredictionGroup = {
+  id: string;
+  title: string;
+  subtitle: string;
+  matches: Match[];
+  stats: {
+    total: number;
+    predicted: number;
+    missing: number;
+    closed: number;
+  };
+};
 
 export default function ParticipantsHome() {
   const [session, setSession] = useState<AuthSession | null>(null);
@@ -532,6 +544,21 @@ function PredictionList({
     );
   }
 
+  const predictionGroups = groupMatchesForPredictions(
+    tournament.matches,
+    predictionsByMatch,
+    pool?.prediction_close_hours_before,
+  );
+
+  if (predictionGroups.length === 0) {
+    return (
+      <StatusState
+        title="Fixture sin partidos"
+        message="Este torneo aun no tiene partidos configurados para pronosticar."
+      />
+    );
+  }
+
   return (
     <section className="rounded-lg border border-zinc-200 bg-white shadow-sm">
       <div className="flex flex-col gap-2 border-b border-zinc-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
@@ -543,87 +570,149 @@ function PredictionList({
         ) : null}
       </div>
       <div className="divide-y divide-zinc-200">
-        {tournament.matches.map((match) => {
-          const prediction = predictionsByMatch.get(match.id);
-          const closed = pool ? isMatchClosed(match, pool.prediction_close_hours_before) : false;
-          const homeName = match.home_team?.name ?? match.home_slot;
-          const awayName = match.away_team?.name ?? match.away_slot;
-          const draft = drafts[match.id] ?? { home: "", away: "" };
-
-          return (
-            <form
-              className="grid gap-3 px-5 py-4 lg:grid-cols-[minmax(0,1fr)_220px_120px]"
-              key={match.id}
-              onSubmit={(event) => onSave(event, match)}
-            >
+        {predictionGroups.map((group) => (
+          <section aria-labelledby={`${group.id}-title`} key={group.id}>
+            <div className="grid gap-3 bg-zinc-50 px-5 py-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
               <div>
-                <p className="text-xs font-medium text-zinc-500">
-                  Partido {match.match_number} - Grupo {match.group_name}
-                </p>
-                <div className="mt-1 flex flex-wrap items-center gap-2 text-sm font-semibold text-zinc-950">
-                  <span>{homeName}</span>
-                  <span className="text-zinc-400">vs</span>
-                  <span>{awayName}</span>
-                </div>
-                <p className="mt-1 text-xs text-zinc-500">
-                  {formatMatchDate(match.starts_at)} - {match.venue}
-                </p>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <label className="grid gap-1 text-xs font-medium text-zinc-600">
-                  <span>{match.home_team?.short_name ?? match.home_slot}</span>
-                  <input
-                    aria-label={`Marcador ${homeName}`}
-                    className="h-10 rounded-md border border-zinc-300 px-3 text-base font-semibold text-zinc-950 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100 disabled:bg-zinc-100"
-                    disabled={closed}
-                    min={0}
-                    onChange={(event) => onUpdateDraft(match.id, "home", event.target.value)}
-                    step={1}
-                    type="number"
-                    value={draft.home}
-                  />
-                </label>
-                <label className="grid gap-1 text-xs font-medium text-zinc-600">
-                  <span>{match.away_team?.short_name ?? match.away_slot}</span>
-                  <input
-                    aria-label={`Marcador ${awayName}`}
-                    className="h-10 rounded-md border border-zinc-300 px-3 text-base font-semibold text-zinc-950 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100 disabled:bg-zinc-100"
-                    disabled={closed}
-                    min={0}
-                    onChange={(event) => onUpdateDraft(match.id, "away", event.target.value)}
-                    step={1}
-                    type="number"
-                    value={draft.away}
-                  />
-                </label>
-              </div>
-
-              <div className="flex items-end gap-2 lg:justify-end">
-                <span
-                  className={`rounded-md px-2 py-1 text-xs font-medium ${
-                    closed
-                      ? "bg-zinc-100 text-zinc-600"
-                      : prediction
-                        ? "bg-emerald-100 text-emerald-800"
-                        : "bg-amber-100 text-amber-800"
-                  }`}
+                <p className="text-xs font-medium uppercase text-sky-700">{group.subtitle}</p>
+                <h3
+                  className="mt-1 text-base font-semibold tracking-normal text-zinc-950"
+                  id={`${group.id}-title`}
                 >
-                  {closed ? "Cerrado" : prediction ? "Guardado" : "Pendiente"}
-                </span>
-                <button
-                  className="h-10 rounded-md bg-zinc-950 px-3 text-sm font-semibold text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-400"
-                  disabled={closed || savingMatchID === match.id}
-                  type="submit"
-                >
-                  {savingMatchID === match.id ? "Guardando" : "Guardar"}
-                </button>
+                  {group.title}
+                </h3>
               </div>
-            </form>
-          );
-        })}
+              <dl className="grid gap-2 text-xs text-zinc-600 sm:grid-cols-4">
+                <MetricItem label="Partidos" value={group.stats.total} />
+                <MetricItem
+                  label="Pronosticados"
+                  value={`${group.stats.predicted}/${group.stats.total}`}
+                />
+                <MetricItem label="Faltantes" value={group.stats.missing} />
+                <MetricItem label="Cerrados" value={group.stats.closed} />
+              </dl>
+            </div>
+            <div className="divide-y divide-zinc-100">
+              {group.matches.map((match) => (
+                <MatchPredictionForm
+                  draft={drafts[match.id] ?? { home: "", away: "" }}
+                  key={match.id}
+                  match={match}
+                  onSave={onSave}
+                  onUpdateDraft={onUpdateDraft}
+                  prediction={predictionsByMatch.get(match.id)}
+                  predictionCloseHoursBefore={pool?.prediction_close_hours_before}
+                  savingMatchID={savingMatchID}
+                />
+              ))}
+            </div>
+          </section>
+        ))}
       </div>
     </section>
+  );
+}
+
+function MetricItem({ label, value }: { label: string; value: number | string }) {
+  return (
+    <div className="min-w-20">
+      <dt className="font-medium text-zinc-500">{label}</dt>
+      <dd className="mt-1 font-semibold text-zinc-950">{value}</dd>
+    </div>
+  );
+}
+
+function MatchPredictionForm({
+  draft,
+  match,
+  onSave,
+  onUpdateDraft,
+  prediction,
+  predictionCloseHoursBefore,
+  savingMatchID,
+}: {
+  draft: { home: string; away: string };
+  match: Match;
+  onSave: (event: FormEvent<HTMLFormElement>, match: Match) => void;
+  onUpdateDraft: (matchID: string, side: "home" | "away", value: string) => void;
+  prediction?: Prediction;
+  predictionCloseHoursBefore?: number;
+  savingMatchID: string;
+}) {
+  const closed =
+    typeof predictionCloseHoursBefore === "number"
+      ? isMatchClosed(match, predictionCloseHoursBefore)
+      : false;
+  const homeName = match.home_team?.name ?? match.home_slot;
+  const awayName = match.away_team?.name ?? match.away_slot;
+
+  return (
+    <form
+      className="grid gap-3 px-5 py-4 lg:grid-cols-[minmax(0,1fr)_220px_120px]"
+      onSubmit={(event) => onSave(event, match)}
+    >
+      <div>
+        <p className="text-xs font-medium text-zinc-500">Partido {match.match_number}</p>
+        <div className="mt-1 flex flex-wrap items-center gap-2 text-sm font-semibold text-zinc-950">
+          <span>{homeName}</span>
+          <span className="text-zinc-400">vs</span>
+          <span>{awayName}</span>
+        </div>
+        <p className="mt-1 text-xs text-zinc-500">
+          {formatMatchDate(match.starts_at)} - {match.venue}
+        </p>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <label className="grid gap-1 text-xs font-medium text-zinc-600">
+          <span>{match.home_team?.short_name ?? match.home_slot}</span>
+          <input
+            aria-label={`Marcador ${homeName}`}
+            className="h-10 rounded-md border border-zinc-300 px-3 text-base font-semibold text-zinc-950 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100 disabled:bg-zinc-100"
+            disabled={closed}
+            min={0}
+            onChange={(event) => onUpdateDraft(match.id, "home", event.target.value)}
+            step={1}
+            type="number"
+            value={draft.home}
+          />
+        </label>
+        <label className="grid gap-1 text-xs font-medium text-zinc-600">
+          <span>{match.away_team?.short_name ?? match.away_slot}</span>
+          <input
+            aria-label={`Marcador ${awayName}`}
+            className="h-10 rounded-md border border-zinc-300 px-3 text-base font-semibold text-zinc-950 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100 disabled:bg-zinc-100"
+            disabled={closed}
+            min={0}
+            onChange={(event) => onUpdateDraft(match.id, "away", event.target.value)}
+            step={1}
+            type="number"
+            value={draft.away}
+          />
+        </label>
+      </div>
+
+      <div className="flex items-end gap-2 lg:justify-end">
+        <span
+          className={`rounded-md px-2 py-1 text-xs font-medium ${
+            closed
+              ? "bg-zinc-100 text-zinc-600"
+              : prediction
+                ? "bg-emerald-100 text-emerald-800"
+                : "bg-amber-100 text-amber-800"
+          }`}
+        >
+          {closed ? "Cerrado" : prediction ? "Guardado" : "Pendiente"}
+        </span>
+        <button
+          className="h-10 rounded-md bg-zinc-950 px-3 text-sm font-semibold text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-400"
+          disabled={closed || savingMatchID === match.id}
+          type="submit"
+        >
+          {savingMatchID === match.id ? "Guardando" : "Guardar"}
+        </button>
+      </div>
+    </form>
   );
 }
 
@@ -758,6 +847,119 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isUnauthorizedError(error: unknown) {
   return error instanceof PollavarAPIError && error.status === 401;
+}
+
+function groupMatchesForPredictions(
+  matches: Match[],
+  predictionsByMatch: Map<string, Prediction>,
+  predictionCloseHoursBefore?: number,
+) {
+  const indexedGroups = new Map<string, Omit<PredictionGroup, "stats">>();
+
+  for (const match of matches) {
+    const groupID = predictionGroupID(match);
+    const currentGroup =
+      indexedGroups.get(groupID) ??
+      ({
+        id: groupID,
+        title: predictionGroupTitle(match),
+        subtitle: predictionGroupSubtitle(match),
+        matches: [],
+      } satisfies Omit<PredictionGroup, "stats">);
+
+    currentGroup.matches.push(match);
+    indexedGroups.set(groupID, currentGroup);
+  }
+
+  return [...indexedGroups.values()]
+    .map((group) => {
+      const sortedMatches = [...group.matches].sort(
+        (first, second) => first.match_number - second.match_number,
+      );
+      const predicted = sortedMatches.filter((match) => predictionsByMatch.has(match.id)).length;
+      const closed =
+        typeof predictionCloseHoursBefore === "number"
+          ? sortedMatches.filter((match) => isMatchClosed(match, predictionCloseHoursBefore)).length
+          : 0;
+
+      return {
+        ...group,
+        matches: sortedMatches,
+        stats: {
+          total: sortedMatches.length,
+          predicted,
+          missing: sortedMatches.length - predicted,
+          closed,
+        },
+      };
+    })
+    .sort((first, second) => first.matches[0].match_number - second.matches[0].match_number);
+}
+
+function predictionGroupID(match: Match) {
+  const stageID = normalizeGroupPart(match.stage_id || "stage-pending");
+  const groupID = normalizeGroupPart(match.group_id || match.group_name || "general");
+  return `prediction-group-${stageID}-${groupID}`;
+}
+
+function predictionGroupTitle(match: Match) {
+  const groupName = match.group_name.trim();
+  if (groupName) {
+    return `Grupo ${groupName}`;
+  }
+
+  return formatStageName(match.stage_id);
+}
+
+function predictionGroupSubtitle(match: Match) {
+  if (match.group_name.trim()) {
+    return formatStageName(match.stage_id);
+  }
+
+  return "Ronda";
+}
+
+function formatStageName(stageID: string) {
+  const normalizedStage = stageID.toLowerCase();
+  if (normalizedStage.includes("group")) {
+    return "Fase de grupos";
+  }
+  if (normalizedStage.includes("round-of-32") || normalizedStage.includes("r32")) {
+    return "Ronda de 32";
+  }
+  if (normalizedStage.includes("round-of-16") || normalizedStage.includes("r16")) {
+    return "Octavos de final";
+  }
+  if (normalizedStage.includes("quarter")) {
+    return "Cuartos de final";
+  }
+  if (normalizedStage.includes("semi")) {
+    return "Semifinales";
+  }
+  if (normalizedStage.includes("third")) {
+    return "Tercer puesto";
+  }
+  if (normalizedStage.includes("final")) {
+    return "Final";
+  }
+
+  return toTitleCase(stageID.replace(/[-_]+/g, " "));
+}
+
+function normalizeGroupPart(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function toTitleCase(value: string) {
+  return value
+    .split(" ")
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
 }
 
 function indexPredictions(predictions: Prediction[]) {
