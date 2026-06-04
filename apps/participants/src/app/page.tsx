@@ -41,12 +41,27 @@ type PredictionGroup = {
   title: string;
   subtitle: string;
   matches: Match[];
+  standings: SuggestedStandingRow[];
   stats: {
     total: number;
     predicted: number;
     missing: number;
     closed: number;
   };
+};
+type PredictionGroupDraft = Omit<PredictionGroup, "standings" | "stats">;
+type SuggestedStandingRow = {
+  key: string;
+  position: number;
+  teamName: string;
+  teamShortName: string;
+  played: number;
+  expectedMatches: number;
+  points: number;
+  goalsFor: number;
+  goalsAgainst: number;
+  goalDifference: number;
+  complete: boolean;
 };
 
 export default function ParticipantsHome() {
@@ -592,6 +607,9 @@ function PredictionList({
                 <MetricItem label="Cerrados" value={group.stats.closed} />
               </dl>
             </div>
+            {group.standings.length > 0 ? (
+              <SuggestedStandingsTable rows={group.standings} />
+            ) : null}
             <div className="divide-y divide-zinc-100">
               {group.matches.map((match) => (
                 <MatchPredictionForm
@@ -610,6 +628,64 @@ function PredictionList({
         ))}
       </div>
     </section>
+  );
+}
+
+function SuggestedStandingsTable({ rows }: { rows: SuggestedStandingRow[] }) {
+  return (
+    <div className="border-t border-zinc-200 px-5 py-4">
+      <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+        <h4 className="text-sm font-semibold text-zinc-950">Tabla sugerida</h4>
+        <p className="text-xs text-zinc-500">Calculada con tus marcadores guardados</p>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[620px] border-collapse text-left text-sm">
+          <thead>
+            <tr className="border-y border-zinc-200 text-xs uppercase text-zinc-500">
+              <th className="w-10 py-2 pr-3 font-medium">#</th>
+              <th className="py-2 pr-3 font-medium">Equipo</th>
+              <th className="py-2 pr-3 text-right font-medium">PJ</th>
+              <th className="py-2 pr-3 text-right font-medium">Pts</th>
+              <th className="py-2 pr-3 text-right font-medium">GF</th>
+              <th className="py-2 pr-3 text-right font-medium">GC</th>
+              <th className="py-2 pr-3 text-right font-medium">DG</th>
+              <th className="py-2 text-right font-medium">Estado</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr className="border-b border-zinc-100" key={row.key}>
+                <td className="py-2 pr-3 font-semibold text-zinc-950">{row.position}</td>
+                <td className="py-2 pr-3">
+                  <span className="font-semibold text-zinc-950">{row.teamName}</span>
+                  <span className="ml-2 text-xs text-zinc-500">{row.teamShortName}</span>
+                </td>
+                <td className="py-2 pr-3 text-right text-zinc-700">{row.played}</td>
+                <td className="py-2 pr-3 text-right font-semibold text-zinc-950">
+                  {row.points}
+                </td>
+                <td className="py-2 pr-3 text-right text-zinc-700">{row.goalsFor}</td>
+                <td className="py-2 pr-3 text-right text-zinc-700">{row.goalsAgainst}</td>
+                <td className="py-2 pr-3 text-right text-zinc-700">
+                  {formatGoalDifference(row.goalDifference)}
+                </td>
+                <td className="py-2 text-right">
+                  <span
+                    className={`rounded-md px-2 py-1 text-xs font-medium ${
+                      row.complete
+                        ? "bg-emerald-100 text-emerald-800"
+                        : "bg-zinc-100 text-zinc-600"
+                    }`}
+                  >
+                    {row.complete ? "Completo" : "Incompleto"}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 }
 
@@ -854,7 +930,7 @@ function groupMatchesForPredictions(
   predictionsByMatch: Map<string, Prediction>,
   predictionCloseHoursBefore?: number,
 ) {
-  const indexedGroups = new Map<string, Omit<PredictionGroup, "stats">>();
+  const indexedGroups = new Map<string, PredictionGroupDraft>();
 
   for (const match of matches) {
     const groupID = predictionGroupID(match);
@@ -865,7 +941,7 @@ function groupMatchesForPredictions(
         title: predictionGroupTitle(match),
         subtitle: predictionGroupSubtitle(match),
         matches: [],
-      } satisfies Omit<PredictionGroup, "stats">);
+      } satisfies PredictionGroupDraft);
 
     currentGroup.matches.push(match);
     indexedGroups.set(groupID, currentGroup);
@@ -885,6 +961,7 @@ function groupMatchesForPredictions(
       return {
         ...group,
         matches: sortedMatches,
+        standings: buildSuggestedStandings(sortedMatches, predictionsByMatch),
         stats: {
           total: sortedMatches.length,
           predicted,
@@ -894,6 +971,147 @@ function groupMatchesForPredictions(
       };
     })
     .sort((first, second) => first.matches[0].match_number - second.matches[0].match_number);
+}
+
+function buildSuggestedStandings(matches: Match[], predictionsByMatch: Map<string, Prediction>) {
+  if (!shouldBuildStandings(matches)) {
+    return [];
+  }
+
+  const rowsByTeam = new Map<string, Omit<SuggestedStandingRow, "complete" | "position">>();
+
+  for (const match of matches) {
+    const homeKey = matchTeamKey(match.home_team, match.home_slot);
+    const awayKey = matchTeamKey(match.away_team, match.away_slot);
+
+    ensureStandingRow(rowsByTeam, match.home_team, match.home_slot).expectedMatches += 1;
+    ensureStandingRow(rowsByTeam, match.away_team, match.away_slot).expectedMatches += 1;
+
+    const prediction = predictionsByMatch.get(match.id);
+    if (!prediction) {
+      continue;
+    }
+
+    const homeRow = rowsByTeam.get(homeKey);
+    const awayRow = rowsByTeam.get(awayKey);
+    if (!homeRow || !awayRow) {
+      continue;
+    }
+
+    homeRow.played += 1;
+    awayRow.played += 1;
+    homeRow.goalsFor += prediction.home_score;
+    homeRow.goalsAgainst += prediction.away_score;
+    awayRow.goalsFor += prediction.away_score;
+    awayRow.goalsAgainst += prediction.home_score;
+
+    if (prediction.home_score > prediction.away_score) {
+      homeRow.points += 3;
+    } else if (prediction.home_score < prediction.away_score) {
+      awayRow.points += 3;
+    } else {
+      homeRow.points += 1;
+      awayRow.points += 1;
+    }
+  }
+
+  return [...rowsByTeam.values()]
+    .map((row) => ({
+      ...row,
+      complete: row.played === row.expectedMatches,
+      goalDifference: row.goalsFor - row.goalsAgainst,
+      position: 0,
+    }))
+    .sort(compareStandingRows)
+    .map((row, index) => ({
+      ...row,
+      position: index + 1,
+    }));
+}
+
+function shouldBuildStandings(matches: Match[]) {
+  if (matches.length === 0) {
+    return false;
+  }
+
+  return matches.some(hasStandingContext) || uniqueStandingTeamKeys(matches).size > 2;
+}
+
+function hasStandingContext(match: Match) {
+  const groupName = match.group_name.trim();
+  const groupID = match.group_id.toLowerCase();
+  const stageID = match.stage_id.toLowerCase();
+  return (
+    groupName !== "" ||
+    groupID.includes("group") ||
+    stageID.includes("group") ||
+    stageID.includes("league") ||
+    stageID.includes("regular") ||
+    stageID.includes("round-robin")
+  );
+}
+
+function uniqueStandingTeamKeys(matches: Match[]) {
+  const teamKeys = new Set<string>();
+  for (const match of matches) {
+    teamKeys.add(matchTeamKey(match.home_team, match.home_slot));
+    teamKeys.add(matchTeamKey(match.away_team, match.away_slot));
+  }
+  return teamKeys;
+}
+
+function ensureStandingRow(
+  rowsByTeam: Map<string, Omit<SuggestedStandingRow, "complete" | "position">>,
+  team: Match["home_team"],
+  slot: string,
+) {
+  const key = matchTeamKey(team, slot);
+  const existingRow = rowsByTeam.get(key);
+  if (existingRow) {
+    return existingRow;
+  }
+
+  const row = {
+    key,
+    teamName: matchTeamName(team, slot),
+    teamShortName: matchTeamShortName(team, slot),
+    played: 0,
+    expectedMatches: 0,
+    points: 0,
+    goalsFor: 0,
+    goalsAgainst: 0,
+    goalDifference: 0,
+  };
+  rowsByTeam.set(key, row);
+  return row;
+}
+
+function compareStandingRows(first: SuggestedStandingRow, second: SuggestedStandingRow) {
+  return (
+    second.points - first.points ||
+    second.goalDifference - first.goalDifference ||
+    second.goalsFor - first.goalsFor ||
+    first.teamName.localeCompare(second.teamName)
+  );
+}
+
+function matchTeamKey(team: Match["home_team"], slot: string) {
+  return team?.id || slot;
+}
+
+function matchTeamName(team: Match["home_team"], slot: string) {
+  return team?.name || slot;
+}
+
+function matchTeamShortName(team: Match["home_team"], slot: string) {
+  return team?.short_name || slot;
+}
+
+function formatGoalDifference(value: number) {
+  if (value > 0) {
+    return `+${value}`;
+  }
+  return String(value);
 }
 
 function predictionGroupID(match: Match) {

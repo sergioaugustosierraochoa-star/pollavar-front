@@ -116,6 +116,73 @@ const tournament = {
   ],
 };
 
+const standingsTournament = {
+  ...tournamentSummary,
+  groups: [],
+  matches: [
+    {
+      id: "standing-match-1",
+      tournament_id: "fifa-world-cup-2026",
+      stage_id: "regular-season",
+      group_id: "",
+      group_name: "",
+      match_number: 1,
+      home_team: { id: "ALP", name: "Alpha", short_name: "ALP", country_code: "ALP" },
+      away_team: { id: "BET", name: "Beta", short_name: "BET", country_code: "BET" },
+      home_slot: "ALP",
+      away_slot: "BET",
+      starts_at: "2099-06-11T19:00:00Z",
+      venue: "League Stadium",
+      status: "scheduled",
+    },
+    {
+      id: "standing-match-2",
+      tournament_id: "fifa-world-cup-2026",
+      stage_id: "regular-season",
+      group_id: "",
+      group_name: "",
+      match_number: 2,
+      home_team: { id: "GAM", name: "Gamma", short_name: "GAM", country_code: "GAM" },
+      away_team: { id: "DEL", name: "Delta", short_name: "DEL", country_code: "DEL" },
+      home_slot: "GAM",
+      away_slot: "DEL",
+      starts_at: "2099-06-12T19:00:00Z",
+      venue: "League Stadium",
+      status: "scheduled",
+    },
+    {
+      id: "standing-match-3",
+      tournament_id: "fifa-world-cup-2026",
+      stage_id: "regular-season",
+      group_id: "",
+      group_name: "",
+      match_number: 3,
+      home_team: { id: "ALP", name: "Alpha", short_name: "ALP", country_code: "ALP" },
+      away_team: { id: "GAM", name: "Gamma", short_name: "GAM", country_code: "GAM" },
+      home_slot: "ALP",
+      away_slot: "GAM",
+      starts_at: "2099-06-13T19:00:00Z",
+      venue: "League Stadium",
+      status: "scheduled",
+    },
+    {
+      id: "standing-match-4",
+      tournament_id: "fifa-world-cup-2026",
+      stage_id: "regular-season",
+      group_id: "",
+      group_name: "",
+      match_number: 4,
+      home_team: { id: "BET", name: "Beta", short_name: "BET", country_code: "BET" },
+      away_team: { id: "DEL", name: "Delta", short_name: "DEL", country_code: "DEL" },
+      home_slot: "BET",
+      away_slot: "DEL",
+      starts_at: "2099-06-14T19:00:00Z",
+      venue: "League Stadium",
+      status: "scheduled",
+    },
+  ],
+};
+
 const summary = {
   total_matches: 2,
   predicted_matches: 1,
@@ -135,6 +202,30 @@ const prediction = {
   created_at: "2026-06-11T12:00:00Z",
   updated_at: "2026-06-11T12:30:00Z",
 };
+
+const standingsPredictions = [
+  {
+    ...prediction,
+    id: "standing-prediction-1",
+    match_id: "standing-match-1",
+    home_score: 1,
+    away_score: 0,
+  },
+  {
+    ...prediction,
+    id: "standing-prediction-2",
+    match_id: "standing-match-2",
+    home_score: 2,
+    away_score: 0,
+  },
+  {
+    ...prediction,
+    id: "standing-prediction-3",
+    match_id: "standing-match-3",
+    home_score: 0,
+    away_score: 0,
+  },
+];
 
 describe("Participants home", () => {
   afterEach(() => {
@@ -200,6 +291,18 @@ describe("Participants home", () => {
     expect(within(groupA as HTMLElement).getByText("Fase de grupos")).toBeInTheDocument();
     expect(within(groupA as HTMLElement).getByText("1/1")).toBeInTheDocument();
     expect(within(groupB as HTMLElement).getByText("0/1")).toBeInTheDocument();
+    const groupATable = within(groupA as HTMLElement).getByRole("table");
+    expect(
+      within(groupATable).getByRole("row", {
+        name: /1 Mexico\s*MEX 1 3 2 1 \+1 Completo/,
+      }),
+    ).toBeInTheDocument();
+    expect(
+      within(groupATable).getByRole("row", {
+        name: /2 South Africa\s*RSA 1 0 1 2 -1 Completo/,
+      }),
+    ).toBeInTheDocument();
+    expect(within(groupB as HTMLElement).getAllByText("Incompleto")).toHaveLength(2);
     expect(screen.getByRole("button", { name: "Actualizar" })).toBeInTheDocument();
     expect(fetcher).toHaveBeenCalledWith(
       "http://localhost:8080/api/v1/pools",
@@ -211,6 +314,36 @@ describe("Participants home", () => {
         },
       }),
     );
+  });
+
+  it("renders suggested standings for league stages with tiebreakers and incomplete teams", async () => {
+    storeSession();
+    vi.stubGlobal("fetch", vi.fn(standingsFetch));
+
+    render(<ParticipantsHome />);
+
+    expect(await screen.findByRole("heading", { name: "Regular Season" })).toBeInTheDocument();
+    const table = screen.getByRole("table");
+    expect(
+      within(table).getByRole("row", {
+        name: /1 Gamma\s*GAM 2 4 2 0 \+2 Completo/,
+      }),
+    ).toBeInTheDocument();
+    expect(
+      within(table).getByRole("row", {
+        name: /2 Alpha\s*ALP 2 4 1 0 \+1 Completo/,
+      }),
+    ).toBeInTheDocument();
+    expect(
+      within(table).getByRole("row", {
+        name: /3 Beta\s*BET 1 0 0 1 -1 Incompleto/,
+      }),
+    ).toBeInTheDocument();
+    expect(
+      within(table).getByRole("row", {
+        name: /4 Delta\s*DEL 1 0 0 2 -2 Incompleto/,
+      }),
+    ).toBeInTheDocument();
   });
 
   it("keeps the newest dashboard response when refreshes overlap", async () => {
@@ -432,6 +565,36 @@ async function dashboardFetch(url: RequestInfo | URL, init?: RequestInit) {
   }
   if (value.endsWith("/api/v1/tournaments/fifa-world-cup-2026")) {
     return jsonResponse({ data: tournament });
+  }
+  return jsonResponse({ code: "not_found" }, { status: 404 });
+}
+
+async function standingsFetch(url: RequestInfo | URL) {
+  const value = String(url);
+  if (value.endsWith("/api/v1/pools")) {
+    return jsonResponse({ data: [pool] });
+  }
+  if (value.endsWith("/api/v1/tournaments")) {
+    return jsonResponse({ data: [tournamentSummary] });
+  }
+  if (value.endsWith("/api/v1/pools/pool-id")) {
+    return jsonResponse({ data: pool });
+  }
+  if (value.endsWith("/summary")) {
+    return jsonResponse({
+      data: {
+        ...summary,
+        total_matches: 4,
+        predicted_matches: 3,
+        missing_matches: 1,
+      },
+    });
+  }
+  if (value.endsWith("/predictions")) {
+    return jsonResponse({ data: standingsPredictions });
+  }
+  if (value.endsWith("/api/v1/tournaments/fifa-world-cup-2026")) {
+    return jsonResponse({ data: standingsTournament });
   }
   return jsonResponse({ code: "not_found" }, { status: 404 });
 }
