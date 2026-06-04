@@ -4,10 +4,12 @@ import {
   PollavarAPIError,
   createPollavarClient,
   type Match,
+  type PointEventDetail,
   type Pool,
   type Prediction,
   type PredictionMatchStatus,
   type PredictionSummary,
+  type RankingEntry,
   type ScoringRule,
   type StandingPrediction,
   type Tournament,
@@ -45,6 +47,7 @@ type LoadedPoolData = {
   userPredictionStatuses: PredictionMatchStatus[];
   scoringRules: ScoringRule[];
   userStandingPredictions: StandingPrediction[];
+  ranking: RankingEntry[];
   tournamentDetail: Tournament | null;
 };
 type PredictionGroup = {
@@ -86,8 +89,15 @@ export default function ParticipantsHome() {
   const [summary, setSummary] = useState<PredictionSummary | null>(null);
   const [predictions, setPredictions] = useState<Prediction[]>([]);
   const [predictionStatuses, setPredictionStatuses] = useState<PredictionMatchStatus[]>([]);
+  const [ranking, setRanking] = useState<RankingEntry[]>([]);
   const [scoringRules, setScoringRules] = useState<ScoringRule[]>([]);
   const [standingPredictions, setStandingPredictions] = useState<StandingPrediction[]>([]);
+  const [selectedRankingUserID, setSelectedRankingUserID] = useState("");
+  const [pointDetailsByUserID, setPointDetailsByUserID] = useState<
+    Record<string, PointEventDetail[]>
+  >({});
+  const [pointDetailsLoadingUserID, setPointDetailsLoadingUserID] = useState("");
+  const [pointDetailsMessage, setPointDetailsMessage] = useState("");
   const [drafts, setDrafts] = useState<ScoreDrafts>({});
   const [standingDrafts, setStandingDrafts] = useState<StandingDrafts>({});
   const [savingMatchID, setSavingMatchID] = useState("");
@@ -120,8 +130,13 @@ export default function ParticipantsHome() {
     setSummary(null);
     setPredictions([]);
     setPredictionStatuses([]);
+    setRanking([]);
     setScoringRules([]);
     setStandingPredictions([]);
+    setSelectedRankingUserID("");
+    setPointDetailsByUserID({});
+    setPointDetailsLoadingUserID("");
+    setPointDetailsMessage("");
     setDrafts({});
     setStandingDrafts({});
     setSavingMatchID("");
@@ -149,6 +164,7 @@ export default function ParticipantsHome() {
       userPredictionStatuses,
       scoringRules,
       userStandingPredictions,
+      ranking,
       tournamentDetail,
     ] = await Promise.all([
       client.getPool(token, activePool.id),
@@ -157,6 +173,7 @@ export default function ParticipantsHome() {
       listPredictionStatusesWithFallback(client, token, activePool.id),
       listScoringRulesWithFallback(client, token, activePool.id),
       client.listStandingPredictions(token, activePool.id),
+      listRankingWithFallback(client, token, activePool.id),
       tournamentRequest,
     ]);
 
@@ -167,6 +184,7 @@ export default function ParticipantsHome() {
       userPredictionStatuses,
       scoringRules,
       userStandingPredictions,
+      ranking,
       tournamentDetail,
     };
   }, []);
@@ -206,8 +224,13 @@ export default function ParticipantsHome() {
         setSummary(null);
         setPredictions([]);
         setPredictionStatuses([]);
+        setRanking([]);
         setScoringRules([]);
         setStandingPredictions([]);
+        setSelectedRankingUserID("");
+        setPointDetailsByUserID({});
+        setPointDetailsLoadingUserID("");
+        setPointDetailsMessage("");
         setDrafts({});
         setStandingDrafts({});
         setStatus("ready");
@@ -223,8 +246,13 @@ export default function ParticipantsHome() {
       setSummary(loadedPoolData.predictionSummary);
       setPredictions(loadedPoolData.userPredictions);
       setPredictionStatuses(loadedPoolData.userPredictionStatuses);
+      setRanking(loadedPoolData.ranking);
       setScoringRules(loadedPoolData.scoringRules);
       setStandingPredictions(loadedPoolData.userStandingPredictions);
+      setSelectedRankingUserID("");
+      setPointDetailsByUserID({});
+      setPointDetailsLoadingUserID("");
+      setPointDetailsMessage("");
       setTournament(loadedPoolData.tournamentDetail);
       setDrafts(
         hydrateDrafts(
@@ -314,6 +342,49 @@ export default function ParticipantsHome() {
       return;
     }
     void loadDashboard(session.token, poolID);
+  }
+
+  async function loadPointDetails(userID: string) {
+    if (!session || !pool) {
+      return;
+    }
+
+    setSelectedRankingUserID(userID);
+    setPointDetailsMessage("");
+    if (Object.prototype.hasOwnProperty.call(pointDetailsByUserID, userID)) {
+      return;
+    }
+
+    const requestID = dashboardRequestID.current;
+    setPointDetailsLoadingUserID(userID);
+    try {
+      const client = createPollavarClient();
+      const details = await listPointDetailsWithFallback(
+        client,
+        session.token,
+        pool.id,
+        userID,
+      );
+      if (dashboardRequestID.current !== requestID) {
+        return;
+      }
+      setPointDetailsByUserID((current) => ({
+        ...current,
+        [userID]: details,
+      }));
+    } catch (error) {
+      if (isUnauthorizedError(error)) {
+        signOutParticipant();
+        return;
+      }
+      if (dashboardRequestID.current === requestID) {
+        setPointDetailsMessage("No pudimos cargar el detalle de puntos.");
+      }
+    } finally {
+      if (dashboardRequestID.current === requestID) {
+        setPointDetailsLoadingUserID("");
+      }
+    }
   }
 
   function updateDraft(matchID: string, side: "home" | "away", value: string) {
@@ -511,7 +582,9 @@ export default function ParticipantsHome() {
       {status === "ready" && session ? (
         <Dashboard
           drafts={drafts}
+          currentUserID={session.user.id}
           onSave={savePrediction}
+          onSelectRankingUser={loadPointDetails}
           onSaveStanding={saveStandingPrediction}
           onSelectPool={selectPool}
           onMoveStanding={moveStandingTeam}
@@ -520,11 +593,16 @@ export default function ParticipantsHome() {
           pools={pools}
           predictionsByMatch={predictionsByMatch}
           predictionStatusesByMatch={predictionStatusesByMatch}
+          pointDetailsByUserID={pointDetailsByUserID}
+          pointDetailsLoadingUserID={pointDetailsLoadingUserID}
+          pointDetailsMessage={pointDetailsMessage}
+          ranking={ranking}
           scoringRules={scoringRules}
           saveMessage={saveMessage}
           savingMatchID={savingMatchID}
           savingStandingGroupID={savingStandingGroupID}
           selectedPoolID={selectedPoolID}
+          selectedRankingUserID={selectedRankingUserID}
           clockTick={clockTick}
           standingDrafts={standingDrafts}
           standingPredictionsByGroup={standingPredictionsByGroup}
@@ -539,8 +617,10 @@ export default function ParticipantsHome() {
 
 function Dashboard({
   clockTick,
+  currentUserID,
   drafts,
   onSave,
+  onSelectRankingUser,
   onSaveStanding,
   onSelectPool,
   onMoveStanding,
@@ -549,11 +629,16 @@ function Dashboard({
   pools,
   predictionsByMatch,
   predictionStatusesByMatch,
+  pointDetailsByUserID,
+  pointDetailsLoadingUserID,
+  pointDetailsMessage,
+  ranking,
   scoringRules,
   saveMessage,
   savingMatchID,
   savingStandingGroupID,
   selectedPoolID,
+  selectedRankingUserID,
   standingDrafts,
   standingPredictionsByGroup,
   standingSaveMessage,
@@ -561,8 +646,10 @@ function Dashboard({
   tournament,
 }: {
   clockTick: number;
+  currentUserID: string;
   drafts: ScoreDrafts;
   onSave: (event: FormEvent<HTMLFormElement>, match: Match) => void;
+  onSelectRankingUser: (userID: string) => void;
   onSaveStanding: (group: PredictionGroup) => void;
   onSelectPool: (poolID: string) => void;
   onMoveStanding: (group: PredictionGroup, teamID: string, direction: -1 | 1) => void;
@@ -571,11 +658,16 @@ function Dashboard({
   pools: Pool[];
   predictionsByMatch: Map<string, Prediction>;
   predictionStatusesByMatch: Map<string, PredictionMatchStatus>;
+  pointDetailsByUserID: Record<string, PointEventDetail[]>;
+  pointDetailsLoadingUserID: string;
+  pointDetailsMessage: string;
+  ranking: RankingEntry[];
   scoringRules: ScoringRule[];
   saveMessage: string;
   savingMatchID: string;
   savingStandingGroupID: string;
   selectedPoolID: string;
+  selectedRankingUserID: string;
   standingDrafts: StandingDrafts;
   standingPredictionsByGroup: Map<string, StandingPrediction>;
   standingSaveMessage: string;
@@ -619,6 +711,15 @@ function Dashboard({
       <div className="grid gap-5">
         <PoolHeader pool={pool} tournament={tournament} />
         <SummaryGrid summary={summary} />
+        <RankingPanel
+          currentUserID={currentUserID}
+          detailsByUserID={pointDetailsByUserID}
+          loadingUserID={pointDetailsLoadingUserID}
+          message={pointDetailsMessage}
+          onSelectUser={onSelectRankingUser}
+          ranking={ranking}
+          selectedUserID={selectedRankingUserID}
+        />
         <ScoringRulesPanel rules={scoringRules} />
         <PredictionList
           drafts={drafts}
@@ -733,6 +834,158 @@ function ScoringRulesPanel({ rules }: { rules: ScoringRule[] }) {
           ))}
         </div>
       </div>
+    </section>
+  );
+}
+
+function RankingPanel({
+  currentUserID,
+  detailsByUserID,
+  loadingUserID,
+  message,
+  onSelectUser,
+  ranking,
+  selectedUserID,
+}: {
+  currentUserID: string;
+  detailsByUserID: Record<string, PointEventDetail[]>;
+  loadingUserID: string;
+  message: string;
+  onSelectUser: (userID: string) => void;
+  ranking: RankingEntry[];
+  selectedUserID: string;
+}) {
+  const selectedEntry = ranking.find((entry) => entry.user_id === selectedUserID) ?? null;
+  const selectedDetails = selectedUserID ? detailsByUserID[selectedUserID] : undefined;
+  const isLoading = selectedUserID !== "" && loadingUserID === selectedUserID;
+
+  return (
+    <section className="rounded-lg border border-zinc-200 bg-white shadow-sm">
+      <div className="flex flex-col gap-2 border-b border-zinc-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-zinc-950">Ranking general</h2>
+          <p className="mt-1 text-sm text-zinc-500">
+            Posiciones calculadas con los puntos oficiales ya registrados.
+          </p>
+        </div>
+        <span className="w-fit rounded-md bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800">
+          {ranking.length} participantes
+        </span>
+      </div>
+
+      {ranking.length === 0 ? (
+        <div className="px-5 py-5 text-sm text-zinc-600">
+          Aun no hay puntos registrados para esta polla.
+        </div>
+      ) : (
+        <div className="grid lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.8fr)]">
+          <ol className="divide-y divide-zinc-100">
+            {ranking.map((entry) => {
+              const isSelected = entry.user_id === selectedUserID;
+              const isCurrentUser = entry.user_id === currentUserID;
+              const displayName = rankingDisplayName(entry);
+              return (
+                <li key={entry.user_id}>
+                  <button
+                    aria-label={`Ver detalle de ${displayName}`}
+                    aria-pressed={isSelected}
+                    className={`grid min-h-16 w-full grid-cols-[3rem_minmax(0,1fr)_auto] items-center gap-3 px-5 py-3 text-left text-sm transition ${
+                      isSelected
+                        ? "bg-emerald-50 text-emerald-950"
+                        : "bg-white text-zinc-700 hover:bg-zinc-50"
+                    }`}
+                    onClick={() => onSelectUser(entry.user_id)}
+                    type="button"
+                  >
+                    <span className="text-lg font-semibold text-zinc-950">
+                      {entry.position}
+                    </span>
+                    <span className="min-w-0">
+                      <span className="flex min-w-0 flex-wrap items-center gap-2">
+                        <span className="truncate font-semibold text-zinc-950">
+                          {displayName}
+                        </span>
+                        {isCurrentUser ? (
+                          <span className="rounded-md bg-sky-100 px-2 py-1 text-xs font-semibold text-sky-800">
+                            Tu
+                          </span>
+                        ) : null}
+                      </span>
+                      <span className="mt-1 block truncate text-xs text-zinc-500">
+                        {participantHandle(entry)} - {paymentStatusLabel(entry.payment_status)} -{" "}
+                        {entry.prize_eligible ? "Elegible a premio" : "Sin premio"}
+                      </span>
+                    </span>
+                    <span className="text-right">
+                      <span className="block text-xl font-semibold text-zinc-950">
+                        {entry.points}
+                      </span>
+                      <span className="text-xs font-medium text-zinc-500">pts</span>
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ol>
+
+          <div className="border-t border-zinc-200 px-5 py-4 lg:border-l lg:border-t-0">
+            <h3 className="text-sm font-semibold text-zinc-950">Detalle de puntos</h3>
+            {message ? (
+              <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                {message}
+              </p>
+            ) : null}
+            {!selectedEntry ? (
+              <p className="mt-3 text-sm leading-6 text-zinc-600">
+                Selecciona un participante para revisar de donde salieron sus puntos.
+              </p>
+            ) : null}
+            {selectedEntry ? (
+              <div className="mt-3">
+                <p className="text-sm font-semibold text-zinc-950">
+                  {rankingDisplayName(selectedEntry)}
+                </p>
+                <p className="text-xs text-zinc-500">
+                  {selectedEntry.event_count} eventos puntuados
+                </p>
+              </div>
+            ) : null}
+            {isLoading ? (
+              <p className="mt-3 text-sm text-zinc-600">Cargando detalle...</p>
+            ) : null}
+            {!isLoading && selectedEntry && selectedDetails?.length === 0 ? (
+              <p className="mt-3 text-sm leading-6 text-zinc-600">
+                Este participante aun no tiene puntos detallados.
+              </p>
+            ) : null}
+            {!isLoading && selectedDetails && selectedDetails.length > 0 ? (
+              <ul className="mt-4 divide-y divide-zinc-100 rounded-md border border-zinc-200">
+                {selectedDetails.map((detail) => (
+                  <li
+                    className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 px-3 py-3 text-sm"
+                    key={`${detail.prediction_id}-${detail.rule_code}-${detail.created_at}`}
+                  >
+                    <span className="min-w-0">
+                      <span className="block font-semibold text-zinc-950">
+                        {pointEventTitle(detail)}
+                      </span>
+                      <span className="mt-1 block text-xs text-zinc-500">
+                        {scoringRuleLabel(detail.rule_code)} - {detail.explanation}
+                      </span>
+                    </span>
+                    <span className="text-right">
+                      <span className="block font-semibold text-emerald-800">
+                        {formatRankingPoints(detail.points)}
+                      </span>
+                      <span className="text-xs text-zinc-500">pts</span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        </div>
+      )}
     </section>
   );
 }
@@ -1295,6 +1548,37 @@ async function listScoringRulesWithFallback(
   }
 }
 
+async function listRankingWithFallback(
+  client: ReturnType<typeof createPollavarClient>,
+  token: string,
+  poolID: string,
+) {
+  try {
+    return await client.listRanking(token, poolID);
+  } catch (error) {
+    if (isMissingEndpointError(error)) {
+      return [];
+    }
+    throw error;
+  }
+}
+
+async function listPointDetailsWithFallback(
+  client: ReturnType<typeof createPollavarClient>,
+  token: string,
+  poolID: string,
+  userID: string,
+) {
+  try {
+    return await client.listPointDetails(token, poolID, userID);
+  } catch (error) {
+    if (isMissingEndpointError(error)) {
+      return [];
+    }
+    throw error;
+  }
+}
+
 function isMissingEndpointError(error: unknown) {
   return error instanceof PollavarAPIError && error.status === 404 && error.code === "unknown_error";
 }
@@ -1686,6 +1970,37 @@ function scoringRuleLabel(code: ScoringRule["code"]) {
     default:
       return code;
   }
+}
+
+function rankingDisplayName(entry: RankingEntry) {
+  return entry.user_name || entry.username || entry.user_id;
+}
+
+function participantHandle(entry: RankingEntry) {
+  return entry.username ? `@${entry.username}` : entry.user_id;
+}
+
+function paymentStatusLabel(status: string) {
+  switch (status) {
+    case "confirmed":
+      return "Pago confirmado";
+    case "rejected":
+      return "Pago rechazado";
+    case "pending":
+    default:
+      return "Pago pendiente";
+  }
+}
+
+function pointEventTitle(detail: PointEventDetail) {
+  if (detail.match_number > 0) {
+    return `Partido ${detail.match_number}`;
+  }
+  return "Evento global";
+}
+
+function formatRankingPoints(points: number) {
+  return points > 0 ? `+${points}` : String(points);
 }
 
 function formatPoints(points: number) {

@@ -178,6 +178,30 @@ export type PredictionMatchStatus = {
   official_result?: MatchResult | null;
 };
 
+export type RankingEntry = {
+  position: number;
+  user_id: string;
+  user_name: string;
+  username: string;
+  points: number;
+  event_count: number;
+  payment_status: string;
+  prize_eligible: boolean;
+  participant: PoolParticipant;
+};
+
+export type PointEventDetail = {
+  pool_id: string;
+  user_id: string;
+  prediction_id: string;
+  match_id: string;
+  match_number: number;
+  rule_code: ScoringRuleCode;
+  points: number;
+  explanation: string;
+  created_at: string;
+};
+
 export type StandingPrediction = {
   id: string;
   pool_id: string;
@@ -301,6 +325,26 @@ export function createPollavarClient(options: PollavarClientOptions = {}) {
       return request<PredictionMatchStatus[]>(
         fetcher,
         `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/predictions/statuses`,
+        {
+          method: "GET",
+          headers: authHeaders(token),
+        },
+      );
+    },
+    listRanking(token: string, poolID: string) {
+      return request<RankingEntry[]>(
+        fetcher,
+        `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/ranking`,
+        {
+          method: "GET",
+          headers: authHeaders(token),
+        },
+      );
+    },
+    listPointDetails(token: string, poolID: string, userID: string) {
+      return request<PointEventDetail[]>(
+        fetcher,
+        `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/ranking/${encodeURIComponent(userID)}/points`,
         {
           method: "GET",
           headers: authHeaders(token),

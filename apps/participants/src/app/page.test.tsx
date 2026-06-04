@@ -238,6 +238,34 @@ const scoringRules = [
   { code: "match_result", points: 3, enabled: true },
 ];
 
+const rankingEntries = [
+  {
+    position: 1,
+    user_id: "user-id",
+    user_name: "Participante",
+    username: "participante",
+    points: 8,
+    event_count: 2,
+    payment_status: "pending",
+    prize_eligible: true,
+    participant: pool.participants[0],
+  },
+];
+
+const pointDetails = [
+  {
+    pool_id: "pool-id",
+    user_id: "user-id",
+    prediction_id: "prediction-id",
+    match_id: "match-1",
+    match_number: 1,
+    rule_code: "exact_score",
+    points: 5,
+    explanation: "Marcador exacto acertado",
+    created_at: "2026-06-11T22:00:00Z",
+  },
+];
+
 const standingsPredictions = [
   {
     ...prediction,
@@ -346,6 +374,36 @@ describe("Participants home", () => {
     expect(screen.getByText("5 pts")).toBeInTheDocument();
     expect(screen.getByText("Resultado correcto")).toBeInTheDocument();
     expect(screen.getByText("3 pts")).toBeInTheDocument();
+    const rankingSection = screen.getByRole("heading", { name: "Ranking general" }).closest("section");
+    expect(rankingSection).not.toBeNull();
+    expect(within(rankingSection as HTMLElement).getByText("8")).toBeInTheDocument();
+    expect(
+      within(rankingSection as HTMLElement).getByText(
+        "@participante - Pago pendiente - Elegible a premio",
+      ),
+    ).toBeInTheDocument();
+    fireEvent.click(
+      within(rankingSection as HTMLElement).getByRole("button", {
+        name: "Ver detalle de Participante",
+      }),
+    );
+    await waitFor(() => {
+      expect(
+        within(rankingSection as HTMLElement).getByText(
+          "Marcador exacto - Marcador exacto acertado",
+        ),
+      ).toBeInTheDocument();
+    });
+    expect(fetcher).toHaveBeenCalledWith(
+      "http://localhost:8080/api/v1/pools/pool-id/ranking/user-id/points",
+      expect.objectContaining({
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer token",
+        },
+      }),
+    );
     const groupA = screen.getByRole("heading", { name: "Grupo A" }).closest("section");
     const groupB = screen.getByRole("heading", { name: "Grupo B" }).closest("section");
     expect(groupA).not.toBeNull();
@@ -562,6 +620,9 @@ describe("Participants home", () => {
       if (value.endsWith("/statuses")) {
         return jsonResponse({ data: predictionStatuses });
       }
+      if (value.endsWith("/ranking")) {
+        return jsonResponse({ data: rankingEntries });
+      }
       if (value.endsWith("/scoring-rules")) {
         return jsonResponse({ data: scoringRules });
       }
@@ -706,6 +767,9 @@ describe("Participants home", () => {
       if (value.endsWith("/statuses")) {
         return jsonResponse({ data: [] });
       }
+      if (value.endsWith("/ranking")) {
+        return jsonResponse({ data: rankingEntries });
+      }
       if (value.endsWith("/scoring-rules")) {
         return jsonResponse({ data: scoringRules });
       }
@@ -748,6 +812,12 @@ async function dashboardFetch(url: RequestInfo | URL, init?: RequestInit) {
   }
   if (value.endsWith("/statuses")) {
     return jsonResponse({ data: predictionStatuses });
+  }
+  if (value.endsWith("/ranking")) {
+    return jsonResponse({ data: rankingEntries });
+  }
+  if (value.endsWith("/ranking/user-id/points")) {
+    return jsonResponse({ data: pointDetails });
   }
   if (value.endsWith("/scoring-rules")) {
     return jsonResponse({ data: scoringRules });
@@ -802,6 +872,12 @@ async function standingsFetch(url: RequestInfo | URL, init?: RequestInit) {
   }
   if (value.endsWith("/statuses")) {
     return jsonResponse({ data: [] });
+  }
+  if (value.endsWith("/ranking")) {
+    return jsonResponse({ data: rankingEntries });
+  }
+  if (value.endsWith("/ranking/user-id/points")) {
+    return jsonResponse({ data: pointDetails });
   }
   if (value.endsWith("/scoring-rules")) {
     return jsonResponse({ data: scoringRules });
