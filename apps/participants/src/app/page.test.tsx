@@ -237,8 +237,17 @@ const standingOrderPrediction = {
   updated_at: "2026-06-11T12:30:00Z",
 };
 
+const closedStandingsTournament = {
+  ...standingsTournament,
+  matches: standingsTournament.matches.map((match, index) => ({
+    ...match,
+    starts_at: `2020-06-${String(11 + index).padStart(2, "0")}T19:00:00Z`,
+  })),
+};
+
 describe("Participants home", () => {
   afterEach(() => {
+    vi.useRealTimers();
     window.localStorage.clear();
     vi.unstubAllGlobals();
   });
@@ -385,6 +394,43 @@ describe("Participants home", () => {
         body: JSON.stringify({ team_ids: ["ALP", "GAM", "BET", "DEL"] }),
       }),
     );
+  });
+
+  it("disables final standing order changes when the group is closed", async () => {
+    storeSession();
+    vi.stubGlobal("fetch", vi.fn(closedStandingOrderFetch));
+
+    render(<ParticipantsHome />);
+
+    expect(await screen.findByRole("heading", { name: "Regular Season" })).toBeInTheDocument();
+    const section = screen.getByRole("heading", { name: "Regular Season" }).closest("section");
+    expect(section).not.toBeNull();
+
+    expect(within(section as HTMLElement).getAllByText("Cerrado").length).toBeGreaterThan(0);
+    expect(within(section as HTMLElement).getByRole("button", { name: "Subir Alpha" })).toBeDisabled();
+    expect(within(section as HTMLElement).getByRole("button", { name: "Guardar orden" })).toBeDisabled();
+  });
+
+  it("refreshes final standing closure state while the dashboard stays open", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date("2099-06-11T12:59:00Z"));
+    storeSession({ expiresAt: "2100-01-01T00:00:00Z" });
+    vi.stubGlobal("fetch", vi.fn(standingsFetch));
+
+    render(<ParticipantsHome />);
+
+    expect(await screen.findByRole("heading", { name: "Regular Season" })).toBeInTheDocument();
+    const section = screen.getByRole("heading", { name: "Regular Season" }).closest("section");
+    expect(section).not.toBeNull();
+    expect(within(section as HTMLElement).getByText("Abierto")).toBeInTheDocument();
+
+    vi.setSystemTime(new Date("2099-06-11T13:00:00Z"));
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    await waitFor(() => {
+      expect(within(section as HTMLElement).getAllByText("Cerrado").length).toBeGreaterThan(0);
+    });
+    expect(within(section as HTMLElement).getByRole("button", { name: "Guardar orden" })).toBeDisabled();
   });
 
   it("keeps the newest dashboard response when refreshes overlap", async () => {
@@ -575,10 +621,10 @@ describe("Participants home", () => {
   });
 });
 
-function storeSession() {
+function storeSession(overrides: Partial<typeof session> = {}) {
   window.localStorage.setItem(
     "pollavar.participants.session",
-    JSON.stringify(session),
+    JSON.stringify({ ...session, ...overrides }),
   );
 }
 
@@ -662,6 +708,14 @@ async function standingsFetch(url: RequestInfo | URL, init?: RequestInit) {
 
 async function standingOrderFetch(url: RequestInfo | URL, init?: RequestInit) {
   return standingsFetch(url, init);
+}
+
+async function closedStandingOrderFetch(url: RequestInfo | URL, init?: RequestInit) {
+  const response = await standingsFetch(url, init);
+  if (String(url).endsWith("/api/v1/tournaments/fifa-world-cup-2026")) {
+    return jsonResponse({ data: closedStandingsTournament });
+  }
+  return response;
 }
 
 function jsonResponse(payload: unknown, init?: ResponseInit) {

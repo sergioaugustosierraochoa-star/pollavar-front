@@ -84,6 +84,7 @@ export default function ParticipantsHome() {
   const [savingStandingGroupID, setSavingStandingGroupID] = useState("");
   const [saveMessage, setSaveMessage] = useState("");
   const [standingSaveMessage, setStandingSaveMessage] = useState("");
+  const [clockTick, setClockTick] = useState(0);
   const dashboardRequestID = useRef(0);
 
   const predictionsByMatch = useMemo(() => indexPredictions(predictions), [predictions]);
@@ -240,6 +241,20 @@ export default function ParticipantsHome() {
     };
   }, [loadDashboard]);
 
+  useEffect(() => {
+    if (status !== "ready") {
+      return undefined;
+    }
+
+    const intervalID = window.setInterval(() => {
+      setClockTick((current) => current + 1);
+    }, 60_000);
+
+    return () => {
+      window.clearInterval(intervalID);
+    };
+  }, [status]);
+
   async function refreshPredictions(
     token: string,
     activePool: Pool,
@@ -364,6 +379,10 @@ export default function ParticipantsHome() {
       setStandingSaveMessage("Necesitas al menos dos equipos para guardar posiciones.");
       return;
     }
+    if (isStandingPredictionClosed(group.matches, pool.prediction_close_hours_before)) {
+      setStandingSaveMessage("El pronostico de posiciones de este grupo esta cerrado.");
+      return;
+    }
 
     setSavingStandingGroupID(group.id);
     setStandingSaveMessage("");
@@ -385,6 +404,10 @@ export default function ParticipantsHome() {
     } catch (error) {
       if (isUnauthorizedError(error)) {
         signOutParticipant();
+        return;
+      }
+      if (isPredictionClosedError(error)) {
+        setStandingSaveMessage("El pronostico de posiciones de este grupo esta cerrado.");
         return;
       }
       setStandingSaveMessage("No pudimos guardar el orden de posiciones.");
@@ -467,6 +490,7 @@ export default function ParticipantsHome() {
           savingMatchID={savingMatchID}
           savingStandingGroupID={savingStandingGroupID}
           selectedPoolID={selectedPoolID}
+          clockTick={clockTick}
           standingDrafts={standingDrafts}
           standingPredictionsByGroup={standingPredictionsByGroup}
           standingSaveMessage={standingSaveMessage}
@@ -479,6 +503,7 @@ export default function ParticipantsHome() {
 }
 
 function Dashboard({
+  clockTick,
   drafts,
   onSave,
   onSaveStanding,
@@ -498,6 +523,7 @@ function Dashboard({
   summary,
   tournament,
 }: {
+  clockTick: number;
   drafts: ScoreDrafts;
   onSave: (event: FormEvent<HTMLFormElement>, match: Match) => void;
   onSaveStanding: (group: PredictionGroup) => void;
@@ -556,6 +582,7 @@ function Dashboard({
         <SummaryGrid summary={summary} />
         <PredictionList
           drafts={drafts}
+          clockTick={clockTick}
           onSave={onSave}
           onSaveStanding={onSaveStanding}
           onMoveStanding={onMoveStanding}
@@ -643,6 +670,7 @@ function SummaryGrid({ summary }: { summary: PredictionSummary | null }) {
 }
 
 function PredictionList({
+  clockTick,
   drafts,
   onSave,
   onSaveStanding,
@@ -658,6 +686,7 @@ function PredictionList({
   standingSaveMessage,
   tournament,
 }: {
+  clockTick: number;
   drafts: ScoreDrafts;
   onSave: (event: FormEvent<HTMLFormElement>, match: Match) => void;
   onSaveStanding: (group: PredictionGroup) => void;
@@ -686,6 +715,7 @@ function PredictionList({
     tournament.matches,
     predictionsByMatch,
     pool?.prediction_close_hours_before,
+    clockTick,
   );
 
   if (predictionGroups.length === 0) {
@@ -740,6 +770,10 @@ function PredictionList({
                 <SuggestedStandingsTable rows={group.standings} />
                 <StandingOrderEditor
                   group={group}
+                  isClosed={isStandingPredictionClosed(
+                    group.matches,
+                    pool?.prediction_close_hours_before,
+                  )}
                   isSaving={savingStandingGroupID === group.id}
                   onMove={onMoveStanding}
                   onSave={onSaveStanding}
@@ -835,12 +869,14 @@ function SuggestedStandingsTable({ rows }: { rows: SuggestedStandingRow[] }) {
 
 function StandingOrderEditor({
   group,
+  isClosed,
   isSaving,
   onMove,
   onSave,
   rows,
 }: {
   group: PredictionGroup;
+  isClosed: boolean;
   isSaving: boolean;
   onMove: (group: PredictionGroup, teamID: string, direction: -1 | 1) => void;
   onSave: (group: PredictionGroup) => void;
@@ -850,7 +886,13 @@ function StandingOrderEditor({
     <div className="px-5 py-4">
       <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
         <h4 className="text-sm font-semibold text-zinc-950">Mi orden final</h4>
-        <p className="text-xs text-zinc-500">Puedes cambiarlo sin alterar marcadores</p>
+        <span
+          className={`w-fit rounded-md px-2 py-1 text-xs font-medium ${
+            isClosed ? "bg-zinc-100 text-zinc-600" : "bg-emerald-100 text-emerald-800"
+          }`}
+        >
+          {isClosed ? "Cerrado" : "Abierto"}
+        </span>
       </div>
       <ol className="divide-y divide-zinc-100 rounded-md border border-zinc-200">
         {rows.map((row, index) => (
@@ -867,7 +909,7 @@ function StandingOrderEditor({
               <button
                 aria-label={`Subir ${row.teamName}`}
                 className="min-w-14 rounded-md border border-zinc-300 px-2 py-1 text-xs font-medium text-zinc-700 disabled:cursor-not-allowed disabled:opacity-40"
-                disabled={index === 0 || isSaving}
+                disabled={index === 0 || isClosed || isSaving}
                 onClick={() => onMove(group, row.key, -1)}
                 type="button"
               >
@@ -876,7 +918,7 @@ function StandingOrderEditor({
               <button
                 aria-label={`Bajar ${row.teamName}`}
                 className="min-w-14 rounded-md border border-zinc-300 px-2 py-1 text-xs font-medium text-zinc-700 disabled:cursor-not-allowed disabled:opacity-40"
-                disabled={index === rows.length - 1 || isSaving}
+                disabled={index === rows.length - 1 || isClosed || isSaving}
                 onClick={() => onMove(group, row.key, 1)}
                 type="button"
               >
@@ -889,7 +931,7 @@ function StandingOrderEditor({
       <div className="mt-3 flex justify-end">
         <button
           className="rounded-md bg-zinc-950 px-3 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-400"
-          disabled={isSaving}
+          disabled={isClosed || isSaving}
           onClick={() => onSave(group)}
           type="button"
         >
@@ -1136,11 +1178,17 @@ function isUnauthorizedError(error: unknown) {
   return error instanceof PollavarAPIError && error.status === 401;
 }
 
+function isPredictionClosedError(error: unknown) {
+  return error instanceof PollavarAPIError && error.status === 409 && error.code === "prediction_closed";
+}
+
 function groupMatchesForPredictions(
   matches: Match[],
   predictionsByMatch: Map<string, Prediction>,
   predictionCloseHoursBefore?: number,
+  clockTick = 0,
 ) {
+  void clockTick;
   const indexedGroups = new Map<string, PredictionGroupDraft>();
 
   for (const match of matches) {
@@ -1478,6 +1526,22 @@ function isMatchClosed(match: Match, closeHours: number) {
     return false;
   }
   return Date.now() >= startsAt - closeHours * 60 * 60 * 1000;
+}
+
+function isStandingPredictionClosed(matches: Match[], closeHours?: number) {
+  if (typeof closeHours !== "number") {
+    return false;
+  }
+
+  const startsAtValues = matches
+    .map((match) => Date.parse(match.starts_at))
+    .filter((startsAt) => !Number.isNaN(startsAt));
+  if (startsAtValues.length === 0) {
+    return false;
+  }
+
+  const firstStartsAt = Math.min(...startsAtValues);
+  return Date.now() >= firstStartsAt - closeHours * 60 * 60 * 1000;
 }
 
 function formatMatchDate(value: string) {
