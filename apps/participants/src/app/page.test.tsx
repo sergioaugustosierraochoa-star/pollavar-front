@@ -233,6 +233,11 @@ const predictionStatuses = [
   },
 ];
 
+const scoringRules = [
+  { code: "exact_score", points: 5, enabled: true },
+  { code: "match_result", points: 3, enabled: true },
+];
+
 const standingsPredictions = [
   {
     ...prediction,
@@ -336,6 +341,11 @@ describe("Participants home", () => {
     expect(screen.getByText("Puntuado")).toBeInTheDocument();
     expect(screen.getByText("+5 pts")).toBeInTheDocument();
     expect(screen.getByText("Resultado 2-1")).toBeInTheDocument();
+    expect(screen.getByText("Reglas de puntaje")).toBeInTheDocument();
+    expect(screen.getByText("Marcador exacto")).toBeInTheDocument();
+    expect(screen.getByText("5 pts")).toBeInTheDocument();
+    expect(screen.getByText("Resultado correcto")).toBeInTheDocument();
+    expect(screen.getByText("3 pts")).toBeInTheDocument();
     const groupA = screen.getByRole("heading", { name: "Grupo A" }).closest("section");
     const groupB = screen.getByRole("heading", { name: "Grupo B" }).closest("section");
     expect(groupA).not.toBeNull();
@@ -390,6 +400,31 @@ describe("Participants home", () => {
     expect(screen.getByDisplayValue("1")).toBeInTheDocument();
     expect(screen.getAllByText("Completo").length).toBeGreaterThan(0);
     expect(screen.queryByText("Puntuado")).not.toBeInTheDocument();
+  });
+
+  it("loads default scoring rules when the scoring endpoint is not deployed yet", async () => {
+    storeSession();
+    const fetcher = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      if (String(url).endsWith("/scoring-rules")) {
+        return new Response("404 page not found\n", {
+          status: 404,
+          headers: {
+            "Content-Type": "text/plain",
+          },
+        });
+      }
+      return dashboardFetch(url, init);
+    });
+    vi.stubGlobal("fetch", fetcher);
+
+    render(<ParticipantsHome />);
+
+    expect(await screen.findByRole("heading", { name: "Oficina FC" })).toBeInTheDocument();
+    expect(screen.getByText("Reglas de puntaje")).toBeInTheDocument();
+    expect(screen.getByText("Marcador exacto")).toBeInTheDocument();
+    expect(screen.getByText("5 pts")).toBeInTheDocument();
+    expect(screen.getByText("Resultado correcto")).toBeInTheDocument();
+    expect(screen.getByText("3 pts")).toBeInTheDocument();
   });
 
   it("renders suggested standings for league stages with tiebreakers and incomplete teams", async () => {
@@ -526,6 +561,9 @@ describe("Participants home", () => {
       }
       if (value.endsWith("/statuses")) {
         return jsonResponse({ data: predictionStatuses });
+      }
+      if (value.endsWith("/scoring-rules")) {
+        return jsonResponse({ data: scoringRules });
       }
       if (value.endsWith("/standing-predictions")) {
         return jsonResponse({ data: [] });
@@ -668,6 +706,9 @@ describe("Participants home", () => {
       if (value.endsWith("/statuses")) {
         return jsonResponse({ data: [] });
       }
+      if (value.endsWith("/scoring-rules")) {
+        return jsonResponse({ data: scoringRules });
+      }
       if (value.endsWith("/standing-predictions")) {
         return jsonResponse({ data: [] });
       }
@@ -707,6 +748,9 @@ async function dashboardFetch(url: RequestInfo | URL, init?: RequestInit) {
   }
   if (value.endsWith("/statuses")) {
     return jsonResponse({ data: predictionStatuses });
+  }
+  if (value.endsWith("/scoring-rules")) {
+    return jsonResponse({ data: scoringRules });
   }
   if (value.endsWith("/standing-predictions")) {
     return jsonResponse({ data: [] });
@@ -758,6 +802,9 @@ async function standingsFetch(url: RequestInfo | URL, init?: RequestInit) {
   }
   if (value.endsWith("/statuses")) {
     return jsonResponse({ data: [] });
+  }
+  if (value.endsWith("/scoring-rules")) {
+    return jsonResponse({ data: scoringRules });
   }
   if (value.endsWith("/standing-predictions")) {
     return jsonResponse({ data: [] });

@@ -8,6 +8,7 @@ import {
   type Prediction,
   type PredictionMatchStatus,
   type PredictionSummary,
+  type ScoringRule,
   type StandingPrediction,
   type Tournament,
   type TournamentSummary,
@@ -33,11 +34,16 @@ type AuthSession = {
 type DashboardStatus = "checking" | "signed-out" | "loading" | "ready" | "error";
 type ScoreDrafts = Record<string, { home: string; away: string }>;
 type StandingDrafts = Record<string, string[]>;
+const defaultScoringRules: ScoringRule[] = [
+  { code: "exact_score", points: 5, enabled: true },
+  { code: "match_result", points: 3, enabled: true },
+];
 type LoadedPoolData = {
   poolDetail: Pool;
   predictionSummary: PredictionSummary;
   userPredictions: Prediction[];
   userPredictionStatuses: PredictionMatchStatus[];
+  scoringRules: ScoringRule[];
   userStandingPredictions: StandingPrediction[];
   tournamentDetail: Tournament | null;
 };
@@ -80,6 +86,7 @@ export default function ParticipantsHome() {
   const [summary, setSummary] = useState<PredictionSummary | null>(null);
   const [predictions, setPredictions] = useState<Prediction[]>([]);
   const [predictionStatuses, setPredictionStatuses] = useState<PredictionMatchStatus[]>([]);
+  const [scoringRules, setScoringRules] = useState<ScoringRule[]>([]);
   const [standingPredictions, setStandingPredictions] = useState<StandingPrediction[]>([]);
   const [drafts, setDrafts] = useState<ScoreDrafts>({});
   const [standingDrafts, setStandingDrafts] = useState<StandingDrafts>({});
@@ -113,6 +120,7 @@ export default function ParticipantsHome() {
     setSummary(null);
     setPredictions([]);
     setPredictionStatuses([]);
+    setScoringRules([]);
     setStandingPredictions([]);
     setDrafts({});
     setStandingDrafts({});
@@ -139,6 +147,7 @@ export default function ParticipantsHome() {
       predictionSummary,
       userPredictions,
       userPredictionStatuses,
+      scoringRules,
       userStandingPredictions,
       tournamentDetail,
     ] = await Promise.all([
@@ -146,6 +155,7 @@ export default function ParticipantsHome() {
       client.getPredictionSummary(token, activePool.id),
       client.listPredictions(token, activePool.id),
       listPredictionStatusesWithFallback(client, token, activePool.id),
+      listScoringRulesWithFallback(client, token, activePool.id),
       client.listStandingPredictions(token, activePool.id),
       tournamentRequest,
     ]);
@@ -155,6 +165,7 @@ export default function ParticipantsHome() {
       predictionSummary,
       userPredictions,
       userPredictionStatuses,
+      scoringRules,
       userStandingPredictions,
       tournamentDetail,
     };
@@ -195,6 +206,7 @@ export default function ParticipantsHome() {
         setSummary(null);
         setPredictions([]);
         setPredictionStatuses([]);
+        setScoringRules([]);
         setStandingPredictions([]);
         setDrafts({});
         setStandingDrafts({});
@@ -211,6 +223,7 @@ export default function ParticipantsHome() {
       setSummary(loadedPoolData.predictionSummary);
       setPredictions(loadedPoolData.userPredictions);
       setPredictionStatuses(loadedPoolData.userPredictionStatuses);
+      setScoringRules(loadedPoolData.scoringRules);
       setStandingPredictions(loadedPoolData.userStandingPredictions);
       setTournament(loadedPoolData.tournamentDetail);
       setDrafts(
@@ -507,6 +520,7 @@ export default function ParticipantsHome() {
           pools={pools}
           predictionsByMatch={predictionsByMatch}
           predictionStatusesByMatch={predictionStatusesByMatch}
+          scoringRules={scoringRules}
           saveMessage={saveMessage}
           savingMatchID={savingMatchID}
           savingStandingGroupID={savingStandingGroupID}
@@ -535,6 +549,7 @@ function Dashboard({
   pools,
   predictionsByMatch,
   predictionStatusesByMatch,
+  scoringRules,
   saveMessage,
   savingMatchID,
   savingStandingGroupID,
@@ -556,6 +571,7 @@ function Dashboard({
   pools: Pool[];
   predictionsByMatch: Map<string, Prediction>;
   predictionStatusesByMatch: Map<string, PredictionMatchStatus>;
+  scoringRules: ScoringRule[];
   saveMessage: string;
   savingMatchID: string;
   savingStandingGroupID: string;
@@ -603,6 +619,7 @@ function Dashboard({
       <div className="grid gap-5">
         <PoolHeader pool={pool} tournament={tournament} />
         <SummaryGrid summary={summary} />
+        <ScoringRulesPanel rules={scoringRules} />
         <PredictionList
           drafts={drafts}
           clockTick={clockTick}
@@ -689,6 +706,33 @@ function SummaryGrid({ summary }: { summary: PredictionSummary | null }) {
           <p className="mt-2 text-2xl font-semibold text-zinc-950">{metric.value}</p>
         </div>
       ))}
+    </section>
+  );
+}
+
+function ScoringRulesPanel({ rules }: { rules: ScoringRule[] }) {
+  const activeRules = rules.filter((rule) => rule.enabled);
+
+  if (activeRules.length === 0) {
+    return null;
+  }
+
+  return (
+    <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <h2 className="text-lg font-semibold text-zinc-950">Reglas de puntaje</h2>
+        <div className="flex flex-wrap gap-2">
+          {activeRules.map((rule) => (
+            <div
+              className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950"
+              key={rule.code}
+            >
+              <span className="font-medium">{scoringRuleLabel(rule.code)}</span>
+              <span className="ml-2 text-amber-800">{rule.points} pts</span>
+            </div>
+          ))}
+        </div>
+      </div>
     </section>
   );
 }
@@ -1229,14 +1273,29 @@ async function listPredictionStatusesWithFallback(
   try {
     return await client.listPredictionStatuses(token, poolID);
   } catch (error) {
-    if (isMissingPredictionStatusesEndpoint(error)) {
+    if (isMissingEndpointError(error)) {
       return [];
     }
     throw error;
   }
 }
 
-function isMissingPredictionStatusesEndpoint(error: unknown) {
+async function listScoringRulesWithFallback(
+  client: ReturnType<typeof createPollavarClient>,
+  token: string,
+  poolID: string,
+) {
+  try {
+    return await client.listScoringRules(token, poolID);
+  } catch (error) {
+    if (isMissingEndpointError(error)) {
+      return defaultScoringRules;
+    }
+    throw error;
+  }
+}
+
+function isMissingEndpointError(error: unknown) {
   return error instanceof PollavarAPIError && error.status === 404 && error.code === "unknown_error";
 }
 
@@ -1615,6 +1674,17 @@ function predictionStatusBadgeClass(status: PredictionMatchStatus["status"]) {
     case "pending":
     default:
       return "bg-amber-100 text-amber-800";
+  }
+}
+
+function scoringRuleLabel(code: ScoringRule["code"]) {
+  switch (code) {
+    case "exact_score":
+      return "Marcador exacto";
+    case "match_result":
+      return "Resultado correcto";
+    default:
+      return code;
   }
 }
 

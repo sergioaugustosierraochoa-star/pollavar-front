@@ -7,6 +7,7 @@ import {
   type Pool,
   type PredictionMatchStatus,
   type PredictionSummary,
+  type ScoringRule,
   type StandingPrediction,
   type Tournament,
   type TournamentSummary,
@@ -120,6 +121,11 @@ const predictionStatus: PredictionMatchStatus = {
     recorded_at: "2026-06-11T22:00:00Z",
   },
 };
+
+const scoringRules: ScoringRule[] = [
+  { code: "exact_score", points: 5, enabled: true },
+  { code: "match_result", points: 3, enabled: true },
+];
 
 const standingPrediction: StandingPrediction = {
   id: "standing-id",
@@ -290,6 +296,12 @@ describe("createPollavarClient", () => {
       if (value.endsWith("/statuses")) {
         return jsonResponse({ data: [predictionStatus] });
       }
+      if (value.endsWith("/scoring-rules") && init?.method === "PUT") {
+        return jsonResponse({ data: scoringRules });
+      }
+      if (value.endsWith("/scoring-rules")) {
+        return jsonResponse({ data: scoringRules });
+      }
       if (value.endsWith("/standing-predictions")) {
         return jsonResponse({ data: [standingPrediction] });
       }
@@ -320,6 +332,17 @@ describe("createPollavarClient", () => {
     await expect(client.listPredictionStatuses("token", "pool id")).resolves.toEqual([
       predictionStatus,
     ]);
+    await expect(client.listScoringRules("token", "pool id")).resolves.toEqual(
+      scoringRules,
+    );
+    await expect(
+      client.updateScoringRules("token", "pool id", {
+        rules: [
+          { code: "exact_score", points: 5, enabled: true },
+          { code: "match_result", points: 3, enabled: true },
+        ],
+      }),
+    ).resolves.toEqual(scoringRules);
     await expect(
       client.savePrediction("token", "pool id", "match id", {
         home_score: 2,
@@ -355,6 +378,34 @@ describe("createPollavarClient", () => {
     );
     expect(fetcher).toHaveBeenNthCalledWith(
       6,
+      "http://api.local/api/v1/pools/pool%20id/scoring-rules",
+      {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer token",
+        },
+      },
+    );
+    expect(fetcher).toHaveBeenNthCalledWith(
+      7,
+      "http://api.local/api/v1/pools/pool%20id/scoring-rules",
+      {
+        method: "PUT",
+        body: JSON.stringify({
+          rules: [
+            { code: "exact_score", points: 5, enabled: true },
+            { code: "match_result", points: 3, enabled: true },
+          ],
+        }),
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer token",
+        },
+      },
+    );
+    expect(fetcher).toHaveBeenNthCalledWith(
+      8,
       "http://api.local/api/v1/pools/pool%20id/predictions/match%20id",
       {
         method: "PUT",
@@ -366,7 +417,7 @@ describe("createPollavarClient", () => {
       },
     );
     expect(fetcher).toHaveBeenNthCalledWith(
-      8,
+      10,
       "http://api.local/api/v1/pools/pool%20id/standing-predictions/group%20a",
       {
         method: "PUT",

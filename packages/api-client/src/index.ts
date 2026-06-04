@@ -133,6 +133,24 @@ export type PredictionSummary = {
   scored_matches: number;
 };
 
+export type ScoringRuleCode = "exact_score" | "match_result";
+
+export type ScoringRule = {
+  code: ScoringRuleCode;
+  points: number;
+  enabled: boolean;
+};
+
+export type SaveScoringRuleInput = {
+  code: ScoringRuleCode;
+  points: number;
+  enabled?: boolean;
+};
+
+export type UpdateScoringRulesInput = {
+  rules: SaveScoringRuleInput[];
+};
+
 export type PredictionMatchStatusCode =
   | "pending"
   | "complete"
@@ -285,6 +303,27 @@ export function createPollavarClient(options: PollavarClientOptions = {}) {
         `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/predictions/statuses`,
         {
           method: "GET",
+          headers: authHeaders(token),
+        },
+      );
+    },
+    listScoringRules(token: string, poolID: string) {
+      return request<ScoringRule[]>(
+        fetcher,
+        `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/scoring-rules`,
+        {
+          method: "GET",
+          headers: authHeaders(token),
+        },
+      );
+    },
+    updateScoringRules(token: string, poolID: string, input: UpdateScoringRulesInput) {
+      return request<ScoringRule[]>(
+        fetcher,
+        `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/scoring-rules`,
+        {
+          method: "PUT",
+          body: JSON.stringify(input),
           headers: authHeaders(token),
         },
       );
