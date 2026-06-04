@@ -7,6 +7,7 @@ import {
   type PointEventDetail,
   type Pool,
   type PredictionMatchStatus,
+  type PredictionSnapshot,
   type PredictionSummary,
   type RankingEntry,
   type ScoringRule,
@@ -122,6 +123,29 @@ const predictionStatus: PredictionMatchStatus = {
     result_status: "final",
     recorded_at: "2026-06-11T22:00:00Z",
   },
+};
+
+const predictionSnapshot: PredictionSnapshot = {
+  id: "snapshot-id",
+  pool_id: "pool-id",
+  match_id: "match-id",
+  generated_at: "2026-06-11T22:00:00Z",
+  row_count: 1,
+  checksum: "checksum",
+  entries: [
+    {
+      id: "entry-id",
+      snapshot_id: "snapshot-id",
+      prediction_id: "prediction-id",
+      user_id: "user-id",
+      participant_name: "Participante",
+      has_prediction: true,
+      home_score: 2,
+      away_score: 1,
+      predicted_at: "2026-06-11T12:00:00Z",
+      updated_at: "2026-06-11T12:30:00Z",
+    },
+  ],
 };
 
 const scoringRules: ScoringRule[] = [
@@ -332,6 +356,15 @@ describe("createPollavarClient", () => {
       if (value.endsWith("/statuses")) {
         return jsonResponse({ data: [predictionStatus] });
       }
+      if (value.endsWith("/prediction-snapshot.csv")) {
+        return new Response("snapshot_id,pool_id\nsnapshot-id,pool-id\n", {
+          status: 200,
+          headers: { "Content-Type": "text/csv" },
+        });
+      }
+      if (value.endsWith("/prediction-snapshot")) {
+        return jsonResponse({ data: predictionSnapshot });
+      }
       if (value.endsWith("/ranking")) {
         return jsonResponse({ data: [rankingEntry] });
       }
@@ -374,6 +407,12 @@ describe("createPollavarClient", () => {
     await expect(client.listPredictionStatuses("token", "pool id")).resolves.toEqual([
       predictionStatus,
     ]);
+    await expect(client.getPredictionSnapshot("token", "pool id", "match id")).resolves.toEqual(
+      predictionSnapshot,
+    );
+    await expect(
+      client.downloadPredictionSnapshotCSV("token", "pool id", "match id"),
+    ).resolves.toContain("snapshot-id");
     await expect(client.listRanking("token", "pool id")).resolves.toEqual([
       rankingEntry,
     ]);
@@ -426,7 +465,7 @@ describe("createPollavarClient", () => {
     );
     expect(fetcher).toHaveBeenNthCalledWith(
       6,
-      "http://api.local/api/v1/pools/pool%20id/ranking",
+      "http://api.local/api/v1/pools/pool%20id/matches/match%20id/prediction-snapshot",
       {
         method: "GET",
         headers: {
@@ -437,18 +476,17 @@ describe("createPollavarClient", () => {
     );
     expect(fetcher).toHaveBeenNthCalledWith(
       7,
-      "http://api.local/api/v1/pools/pool%20id/ranking/user%20id/points",
+      "http://api.local/api/v1/pools/pool%20id/matches/match%20id/prediction-snapshot.csv",
       {
         method: "GET",
         headers: {
-          "Content-Type": "application/json",
           Authorization: "Bearer token",
         },
       },
     );
     expect(fetcher).toHaveBeenNthCalledWith(
       8,
-      "http://api.local/api/v1/pools/pool%20id/scoring-rules",
+      "http://api.local/api/v1/pools/pool%20id/ranking",
       {
         method: "GET",
         headers: {
@@ -459,6 +497,28 @@ describe("createPollavarClient", () => {
     );
     expect(fetcher).toHaveBeenNthCalledWith(
       9,
+      "http://api.local/api/v1/pools/pool%20id/ranking/user%20id/points",
+      {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer token",
+        },
+      },
+    );
+    expect(fetcher).toHaveBeenNthCalledWith(
+      10,
+      "http://api.local/api/v1/pools/pool%20id/scoring-rules",
+      {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer token",
+        },
+      },
+    );
+    expect(fetcher).toHaveBeenNthCalledWith(
+      11,
       "http://api.local/api/v1/pools/pool%20id/scoring-rules",
       {
         method: "PUT",
@@ -475,7 +535,7 @@ describe("createPollavarClient", () => {
       },
     );
     expect(fetcher).toHaveBeenNthCalledWith(
-      10,
+      12,
       "http://api.local/api/v1/pools/pool%20id/predictions/match%20id",
       {
         method: "PUT",
@@ -487,7 +547,7 @@ describe("createPollavarClient", () => {
       },
     );
     expect(fetcher).toHaveBeenNthCalledWith(
-      12,
+      14,
       "http://api.local/api/v1/pools/pool%20id/standing-predictions/group%20a",
       {
         method: "PUT",

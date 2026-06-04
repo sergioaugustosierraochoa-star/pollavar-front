@@ -178,6 +178,29 @@ export type PredictionMatchStatus = {
   official_result?: MatchResult | null;
 };
 
+export type PredictionSnapshotEntry = {
+  id: string;
+  snapshot_id: string;
+  prediction_id: string;
+  user_id: string;
+  participant_name: string;
+  has_prediction: boolean;
+  home_score: number | null;
+  away_score: number | null;
+  predicted_at: string | null;
+  updated_at: string | null;
+};
+
+export type PredictionSnapshot = {
+  id: string;
+  pool_id: string;
+  match_id: string;
+  generated_at: string;
+  row_count: number;
+  checksum: string;
+  entries: PredictionSnapshotEntry[];
+};
+
 export type RankingEntry = {
   position: number;
   user_id: string;
@@ -331,6 +354,26 @@ export function createPollavarClient(options: PollavarClientOptions = {}) {
         },
       );
     },
+    getPredictionSnapshot(token: string, poolID: string, matchID: string) {
+      return request<PredictionSnapshot>(
+        fetcher,
+        `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/matches/${encodeURIComponent(matchID)}/prediction-snapshot`,
+        {
+          method: "GET",
+          headers: authHeaders(token),
+        },
+      );
+    },
+    downloadPredictionSnapshotCSV(token: string, poolID: string, matchID: string) {
+      return requestText(
+        fetcher,
+        `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/matches/${encodeURIComponent(matchID)}/prediction-snapshot.csv`,
+        {
+          method: "GET",
+          headers: authHeaders(token),
+        },
+      );
+    },
     listRanking(token: string, poolID: string) {
       return request<RankingEntry[]>(
         fetcher,
@@ -441,6 +484,22 @@ async function request<T>(
   return (payload as DataEnvelope<T>).data;
 }
 
+async function requestText(fetcher: typeof fetch, url: string, init: RequestInit) {
+  const response = await fetcher(url, {
+    ...init,
+    headers: {
+      ...init.headers,
+    },
+  });
+  const payload = await response.text();
+
+  if (!response.ok) {
+    throw new PollavarAPIError(response.status, textErrorCode(payload));
+  }
+
+  return payload;
+}
+
 async function responsePayload<T>(response: Response): Promise<DataEnvelope<T> | ErrorEnvelope> {
   try {
     return (await response.json()) as DataEnvelope<T> | ErrorEnvelope;
@@ -469,4 +528,13 @@ function authHeaders(token: string) {
 
 function errorCode(payload: DataEnvelope<unknown> | ErrorEnvelope) {
   return "code" in payload && payload.code ? payload.code : "unknown_error";
+}
+
+function textErrorCode(payload: string) {
+  try {
+    const parsed = JSON.parse(payload) as ErrorEnvelope;
+    return parsed.code || "unknown_error";
+  } catch {
+    return "unknown_error";
+  }
 }

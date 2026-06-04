@@ -233,6 +233,41 @@ const predictionStatuses = [
   },
 ];
 
+const predictionSnapshot = {
+  id: "snapshot-id",
+  pool_id: "pool-id",
+  match_id: "match-1",
+  generated_at: "2026-06-11T22:00:00Z",
+  row_count: 2,
+  checksum: "checksum-value",
+  entries: [
+    {
+      id: "entry-1",
+      snapshot_id: "snapshot-id",
+      prediction_id: "prediction-id",
+      user_id: "user-id",
+      participant_name: "Participante",
+      has_prediction: true,
+      home_score: 2,
+      away_score: 1,
+      predicted_at: "2026-06-11T12:00:00Z",
+      updated_at: "2026-06-11T12:30:00Z",
+    },
+    {
+      id: "entry-2",
+      snapshot_id: "snapshot-id",
+      prediction_id: "",
+      user_id: "missing-user-id",
+      participant_name: "Sin marcador",
+      has_prediction: false,
+      home_score: null,
+      away_score: null,
+      predicted_at: null,
+      updated_at: null,
+    },
+  ],
+};
+
 const scoringRules = [
   { code: "exact_score", points: 5, enabled: true },
   { code: "match_result", points: 3, enabled: true },
@@ -430,6 +465,73 @@ describe("Participants home", () => {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
+          Authorization: "Bearer token",
+        },
+      }),
+    );
+  });
+
+  it("loads closed prediction snapshots on demand", async () => {
+    storeSession();
+    const fetcher = vi.fn(dashboardFetch);
+    vi.stubGlobal("fetch", fetcher);
+
+    render(<ParticipantsHome />);
+
+    expect(await screen.findByRole("heading", { name: "Oficina FC" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Ver pronosticos" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Sin marcador")).toBeInTheDocument();
+    });
+    expect(screen.getByText("Pronosticado")).toBeInTheDocument();
+    expect(screen.getByText("Sin pronostico")).toBeInTheDocument();
+    expect(screen.getByText("2-1")).toBeInTheDocument();
+    expect(fetcher).toHaveBeenCalledWith(
+      "http://localhost:8080/api/v1/pools/pool-id/matches/match-1/prediction-snapshot",
+      expect.objectContaining({
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer token",
+        },
+      }),
+    );
+  });
+
+  it("downloads closed prediction snapshots as CSV", async () => {
+    storeSession();
+    const fetcher = vi.fn(dashboardFetch);
+    const createObjectURL = vi.fn(() => "blob:prediction-snapshot");
+    const revokeObjectURL = vi.fn();
+    const anchorClick = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(() => undefined);
+    Object.defineProperty(window.URL, "createObjectURL", {
+      configurable: true,
+      value: createObjectURL,
+    });
+    Object.defineProperty(window.URL, "revokeObjectURL", {
+      configurable: true,
+      value: revokeObjectURL,
+    });
+    vi.stubGlobal("fetch", fetcher);
+
+    render(<ParticipantsHome />);
+
+    expect(await screen.findByRole("heading", { name: "Oficina FC" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Descargar CSV" }));
+
+    await waitFor(() => {
+      expect(anchorClick).toHaveBeenCalled();
+    });
+    expect(createObjectURL).toHaveBeenCalledWith(expect.any(Blob));
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:prediction-snapshot");
+    expect(fetcher).toHaveBeenCalledWith(
+      "http://localhost:8080/api/v1/pools/pool-id/matches/match-1/prediction-snapshot.csv",
+      expect.objectContaining({
+        method: "GET",
+        headers: {
           Authorization: "Bearer token",
         },
       }),
@@ -812,6 +914,15 @@ async function dashboardFetch(url: RequestInfo | URL, init?: RequestInit) {
   }
   if (value.endsWith("/statuses")) {
     return jsonResponse({ data: predictionStatuses });
+  }
+  if (value.endsWith("/prediction-snapshot")) {
+    return jsonResponse({ data: predictionSnapshot });
+  }
+  if (value.endsWith("/prediction-snapshot.csv")) {
+    return new Response("snapshot_id,pool_id\nsnapshot-id,pool-id\n", {
+      status: 200,
+      headers: { "Content-Type": "text/csv" },
+    });
   }
   if (value.endsWith("/ranking")) {
     return jsonResponse({ data: rankingEntries });

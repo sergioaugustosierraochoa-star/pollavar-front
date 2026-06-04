@@ -8,6 +8,7 @@ import {
   type Pool,
   type Prediction,
   type PredictionMatchStatus,
+  type PredictionSnapshot,
   type PredictionSummary,
   type RankingEntry,
   type ScoringRule,
@@ -89,6 +90,12 @@ export default function ParticipantsHome() {
   const [summary, setSummary] = useState<PredictionSummary | null>(null);
   const [predictions, setPredictions] = useState<Prediction[]>([]);
   const [predictionStatuses, setPredictionStatuses] = useState<PredictionMatchStatus[]>([]);
+  const [snapshotsByMatchID, setSnapshotsByMatchID] = useState<Record<string, PredictionSnapshot>>(
+    {},
+  );
+  const [snapshotLoadingMatchID, setSnapshotLoadingMatchID] = useState("");
+  const [snapshotDownloadingMatchID, setSnapshotDownloadingMatchID] = useState("");
+  const [snapshotMessages, setSnapshotMessages] = useState<Record<string, string>>({});
   const [ranking, setRanking] = useState<RankingEntry[]>([]);
   const [scoringRules, setScoringRules] = useState<ScoringRule[]>([]);
   const [standingPredictions, setStandingPredictions] = useState<StandingPrediction[]>([]);
@@ -130,6 +137,10 @@ export default function ParticipantsHome() {
     setSummary(null);
     setPredictions([]);
     setPredictionStatuses([]);
+    setSnapshotsByMatchID({});
+    setSnapshotLoadingMatchID("");
+    setSnapshotDownloadingMatchID("");
+    setSnapshotMessages({});
     setRanking([]);
     setScoringRules([]);
     setStandingPredictions([]);
@@ -224,6 +235,10 @@ export default function ParticipantsHome() {
         setSummary(null);
         setPredictions([]);
         setPredictionStatuses([]);
+        setSnapshotsByMatchID({});
+        setSnapshotLoadingMatchID("");
+        setSnapshotDownloadingMatchID("");
+        setSnapshotMessages({});
         setRanking([]);
         setScoringRules([]);
         setStandingPredictions([]);
@@ -246,6 +261,10 @@ export default function ParticipantsHome() {
       setSummary(loadedPoolData.predictionSummary);
       setPredictions(loadedPoolData.userPredictions);
       setPredictionStatuses(loadedPoolData.userPredictionStatuses);
+      setSnapshotsByMatchID({});
+      setSnapshotLoadingMatchID("");
+      setSnapshotDownloadingMatchID("");
+      setSnapshotMessages({});
       setRanking(loadedPoolData.ranking);
       setScoringRules(loadedPoolData.scoringRules);
       setStandingPredictions(loadedPoolData.userStandingPredictions);
@@ -383,6 +402,83 @@ export default function ParticipantsHome() {
     } finally {
       if (dashboardRequestID.current === requestID) {
         setPointDetailsLoadingUserID("");
+      }
+    }
+  }
+
+  async function loadPredictionSnapshot(matchID: string) {
+    if (!session || !pool) {
+      return;
+    }
+    if (snapshotsByMatchID[matchID]) {
+      setSnapshotMessages((current) => ({ ...current, [matchID]: "" }));
+      return;
+    }
+
+    const requestID = dashboardRequestID.current;
+    setSnapshotLoadingMatchID(matchID);
+    setSnapshotMessages((current) => ({ ...current, [matchID]: "" }));
+    try {
+      const client = createPollavarClient();
+      const snapshot = await client.getPredictionSnapshot(session.token, pool.id, matchID);
+      if (dashboardRequestID.current !== requestID) {
+        return;
+      }
+      setSnapshotsByMatchID((current) => ({
+        ...current,
+        [matchID]: snapshot,
+      }));
+    } catch (error) {
+      if (isUnauthorizedError(error)) {
+        signOutParticipant();
+        return;
+      }
+      if (dashboardRequestID.current === requestID) {
+        setSnapshotMessages((current) => ({
+          ...current,
+          [matchID]: snapshotErrorMessage(error),
+        }));
+      }
+    } finally {
+      if (dashboardRequestID.current === requestID) {
+        setSnapshotLoadingMatchID("");
+      }
+    }
+  }
+
+  async function downloadPredictionSnapshot(matchID: string) {
+    if (!session || !pool) {
+      return;
+    }
+
+    const requestID = dashboardRequestID.current;
+    setSnapshotDownloadingMatchID(matchID);
+    setSnapshotMessages((current) => ({ ...current, [matchID]: "" }));
+    try {
+      const client = createPollavarClient();
+      const csv = await client.downloadPredictionSnapshotCSV(session.token, pool.id, matchID);
+      if (dashboardRequestID.current !== requestID) {
+        return;
+      }
+      downloadTextFile(
+        csv,
+        `prediction-snapshot-${fileNamePart(pool.id)}-${fileNamePart(matchID)}.csv`,
+        "text/csv;charset=utf-8",
+      );
+    } catch (error) {
+      if (isUnauthorizedError(error)) {
+        signOutParticipant();
+        return;
+      }
+      if (dashboardRequestID.current === requestID) {
+        setSnapshotMessages((current) => ({
+          ...current,
+          [matchID]: snapshotErrorMessage(error),
+        }));
+      }
+    } finally {
+      if (dashboardRequestID.current === requestID) {
+        setSnapshotDownloadingMatchID("");
       }
     }
   }
@@ -584,6 +680,8 @@ export default function ParticipantsHome() {
           drafts={drafts}
           currentUserID={session.user.id}
           onSave={savePrediction}
+          onDownloadSnapshot={downloadPredictionSnapshot}
+          onLoadSnapshot={loadPredictionSnapshot}
           onSelectRankingUser={loadPointDetails}
           onSaveStanding={saveStandingPrediction}
           onSelectPool={selectPool}
@@ -604,6 +702,10 @@ export default function ParticipantsHome() {
           selectedPoolID={selectedPoolID}
           selectedRankingUserID={selectedRankingUserID}
           clockTick={clockTick}
+          snapshotDownloadingMatchID={snapshotDownloadingMatchID}
+          snapshotLoadingMatchID={snapshotLoadingMatchID}
+          snapshotMessages={snapshotMessages}
+          snapshotsByMatchID={snapshotsByMatchID}
           standingDrafts={standingDrafts}
           standingPredictionsByGroup={standingPredictionsByGroup}
           standingSaveMessage={standingSaveMessage}
@@ -619,6 +721,8 @@ function Dashboard({
   clockTick,
   currentUserID,
   drafts,
+  onDownloadSnapshot,
+  onLoadSnapshot,
   onSave,
   onSelectRankingUser,
   onSaveStanding,
@@ -639,6 +743,10 @@ function Dashboard({
   savingStandingGroupID,
   selectedPoolID,
   selectedRankingUserID,
+  snapshotDownloadingMatchID,
+  snapshotLoadingMatchID,
+  snapshotMessages,
+  snapshotsByMatchID,
   standingDrafts,
   standingPredictionsByGroup,
   standingSaveMessage,
@@ -648,6 +756,8 @@ function Dashboard({
   clockTick: number;
   currentUserID: string;
   drafts: ScoreDrafts;
+  onDownloadSnapshot: (matchID: string) => void;
+  onLoadSnapshot: (matchID: string) => void;
   onSave: (event: FormEvent<HTMLFormElement>, match: Match) => void;
   onSelectRankingUser: (userID: string) => void;
   onSaveStanding: (group: PredictionGroup) => void;
@@ -668,6 +778,10 @@ function Dashboard({
   savingStandingGroupID: string;
   selectedPoolID: string;
   selectedRankingUserID: string;
+  snapshotDownloadingMatchID: string;
+  snapshotLoadingMatchID: string;
+  snapshotMessages: Record<string, string>;
+  snapshotsByMatchID: Record<string, PredictionSnapshot>;
   standingDrafts: StandingDrafts;
   standingPredictionsByGroup: Map<string, StandingPrediction>;
   standingSaveMessage: string;
@@ -724,6 +838,8 @@ function Dashboard({
         <PredictionList
           drafts={drafts}
           clockTick={clockTick}
+          onDownloadSnapshot={onDownloadSnapshot}
+          onLoadSnapshot={onLoadSnapshot}
           onSave={onSave}
           onSaveStanding={onSaveStanding}
           onMoveStanding={onMoveStanding}
@@ -734,6 +850,10 @@ function Dashboard({
           saveMessage={saveMessage}
           savingMatchID={savingMatchID}
           savingStandingGroupID={savingStandingGroupID}
+          snapshotDownloadingMatchID={snapshotDownloadingMatchID}
+          snapshotLoadingMatchID={snapshotLoadingMatchID}
+          snapshotMessages={snapshotMessages}
+          snapshotsByMatchID={snapshotsByMatchID}
           standingDrafts={standingDrafts}
           standingPredictionsByGroup={standingPredictionsByGroup}
           standingSaveMessage={standingSaveMessage}
@@ -993,6 +1113,8 @@ function RankingPanel({
 function PredictionList({
   clockTick,
   drafts,
+  onDownloadSnapshot,
+  onLoadSnapshot,
   onSave,
   onSaveStanding,
   onMoveStanding,
@@ -1003,6 +1125,10 @@ function PredictionList({
   saveMessage,
   savingMatchID,
   savingStandingGroupID,
+  snapshotDownloadingMatchID,
+  snapshotLoadingMatchID,
+  snapshotMessages,
+  snapshotsByMatchID,
   standingDrafts,
   standingPredictionsByGroup,
   standingSaveMessage,
@@ -1010,6 +1136,8 @@ function PredictionList({
 }: {
   clockTick: number;
   drafts: ScoreDrafts;
+  onDownloadSnapshot: (matchID: string) => void;
+  onLoadSnapshot: (matchID: string) => void;
   onSave: (event: FormEvent<HTMLFormElement>, match: Match) => void;
   onSaveStanding: (group: PredictionGroup) => void;
   onMoveStanding: (group: PredictionGroup, teamID: string, direction: -1 | 1) => void;
@@ -1020,6 +1148,10 @@ function PredictionList({
   saveMessage: string;
   savingMatchID: string;
   savingStandingGroupID: string;
+  snapshotDownloadingMatchID: string;
+  snapshotLoadingMatchID: string;
+  snapshotMessages: Record<string, string>;
+  snapshotsByMatchID: Record<string, PredictionSnapshot>;
   standingDrafts: StandingDrafts;
   standingPredictionsByGroup: Map<string, StandingPrediction>;
   standingSaveMessage: string;
@@ -1117,12 +1249,18 @@ function PredictionList({
                   draft={drafts[match.id] ?? { home: "", away: "" }}
                   key={match.id}
                   match={match}
+                  onDownloadSnapshot={onDownloadSnapshot}
+                  onLoadSnapshot={onLoadSnapshot}
                   onSave={onSave}
                   onUpdateDraft={onUpdateDraft}
                   prediction={predictionsByMatch.get(match.id)}
                   predictionCloseHoursBefore={pool?.prediction_close_hours_before}
                   predictionStatus={predictionStatusesByMatch.get(match.id)}
                   savingMatchID={savingMatchID}
+                  snapshot={snapshotsByMatchID[match.id]}
+                  snapshotDownloadInProgress={snapshotDownloadingMatchID === match.id}
+                  snapshotLoadInProgress={snapshotLoadingMatchID === match.id}
+                  snapshotMessage={snapshotMessages[match.id] ?? ""}
                 />
               ))}
             </div>
@@ -1278,21 +1416,33 @@ function MetricItem({ label, value }: { label: string; value: number | string })
 function MatchPredictionForm({
   draft,
   match,
+  onDownloadSnapshot,
+  onLoadSnapshot,
   onSave,
   onUpdateDraft,
   prediction,
   predictionCloseHoursBefore,
   predictionStatus,
   savingMatchID,
+  snapshot,
+  snapshotDownloadInProgress,
+  snapshotLoadInProgress,
+  snapshotMessage,
 }: {
   draft: { home: string; away: string };
   match: Match;
+  onDownloadSnapshot: (matchID: string) => void;
+  onLoadSnapshot: (matchID: string) => void;
   onSave: (event: FormEvent<HTMLFormElement>, match: Match) => void;
   onUpdateDraft: (matchID: string, side: "home" | "away", value: string) => void;
   prediction?: Prediction;
   predictionCloseHoursBefore?: number;
   predictionStatus?: PredictionMatchStatus;
   savingMatchID: string;
+  snapshot?: PredictionSnapshot;
+  snapshotDownloadInProgress: boolean;
+  snapshotLoadInProgress: boolean;
+  snapshotMessage: string;
 }) {
   const localClosed =
     typeof predictionCloseHoursBefore === "number"
@@ -1306,78 +1456,192 @@ function MatchPredictionForm({
   const officialResult = predictionStatus?.official_result;
 
   return (
-    <form
-      className="grid gap-3 px-5 py-4 lg:grid-cols-[minmax(0,1fr)_220px_minmax(190px,auto)]"
-      onSubmit={(event) => onSave(event, match)}
-    >
-      <div>
-        <p className="text-xs font-medium text-zinc-500">Partido {match.match_number}</p>
-        <div className="mt-1 flex flex-wrap items-center gap-2 text-sm font-semibold text-zinc-950">
-          <span>{homeName}</span>
-          <span className="text-zinc-400">vs</span>
-          <span>{awayName}</span>
+    <div className="px-5 py-4">
+      <form
+        className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px_minmax(190px,auto)]"
+        onSubmit={(event) => onSave(event, match)}
+      >
+        <div>
+          <p className="text-xs font-medium text-zinc-500">Partido {match.match_number}</p>
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-sm font-semibold text-zinc-950">
+            <span>{homeName}</span>
+            <span className="text-zinc-400">vs</span>
+            <span>{awayName}</span>
+          </div>
+          <p className="mt-1 text-xs text-zinc-500">
+            {formatMatchDate(match.starts_at)} - {match.venue}
+          </p>
         </div>
-        <p className="mt-1 text-xs text-zinc-500">
-          {formatMatchDate(match.starts_at)} - {match.venue}
+
+        <div className="grid grid-cols-2 gap-2">
+          <label className="grid gap-1 text-xs font-medium text-zinc-600">
+            <span>{match.home_team?.short_name ?? match.home_slot}</span>
+            <input
+              aria-label={`Marcador ${homeName}`}
+              className="h-10 rounded-md border border-zinc-300 px-3 text-base font-semibold text-zinc-950 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100 disabled:bg-zinc-100"
+              disabled={closed}
+              min={0}
+              onChange={(event) => onUpdateDraft(match.id, "home", event.target.value)}
+              step={1}
+              type="number"
+              value={draft.home}
+            />
+          </label>
+          <label className="grid gap-1 text-xs font-medium text-zinc-600">
+            <span>{match.away_team?.short_name ?? match.away_slot}</span>
+            <input
+              aria-label={`Marcador ${awayName}`}
+              className="h-10 rounded-md border border-zinc-300 px-3 text-base font-semibold text-zinc-950 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100 disabled:bg-zinc-100"
+              disabled={closed}
+              min={0}
+              onChange={(event) => onUpdateDraft(match.id, "away", event.target.value)}
+              step={1}
+              type="number"
+              value={draft.away}
+            />
+          </label>
+        </div>
+
+        <div className="flex flex-wrap items-end gap-2 lg:justify-end">
+          <span
+            className={`rounded-md px-2 py-1 text-xs font-medium ${predictionStatusBadgeClass(
+              statusCode,
+            )}`}
+          >
+            {predictionStatusLabel(statusCode)}
+          </span>
+          {officialResult ? (
+            <span className="rounded-md bg-sky-50 px-2 py-1 text-xs font-medium text-sky-800">
+              Resultado {officialResult.home_score}-{officialResult.away_score}
+            </span>
+          ) : null}
+          {predictionStatus?.scored ? (
+            <span className="rounded-md bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-800">
+              {formatPoints(predictionStatus.points)}
+            </span>
+          ) : null}
+          <button
+            className="h-10 rounded-md bg-zinc-950 px-3 text-sm font-semibold text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-400"
+            disabled={closed || savingMatchID === match.id}
+            type="submit"
+          >
+            {savingMatchID === match.id ? "Guardando" : "Guardar"}
+          </button>
+        </div>
+      </form>
+
+      {closed ? (
+        <PredictionSnapshotPanel
+          downloadInProgress={snapshotDownloadInProgress}
+          loadInProgress={snapshotLoadInProgress}
+          message={snapshotMessage}
+          onDownload={() => onDownloadSnapshot(match.id)}
+          onLoad={() => onLoadSnapshot(match.id)}
+          snapshot={snapshot}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function PredictionSnapshotPanel({
+  downloadInProgress,
+  loadInProgress,
+  message,
+  onDownload,
+  onLoad,
+  snapshot,
+}: {
+  downloadInProgress: boolean;
+  loadInProgress: boolean;
+  message: string;
+  onDownload: () => void;
+  onLoad: () => void;
+  snapshot?: PredictionSnapshot;
+}) {
+  return (
+    <div className="mt-4 rounded-md border border-zinc-200 bg-zinc-50 p-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h4 className="text-sm font-semibold text-zinc-950">Pronosticos cerrados</h4>
+          <p className="mt-1 text-xs text-zinc-500">
+            {snapshot
+              ? `${snapshot.row_count} participantes - checksum ${snapshot.checksum.slice(0, 10)}`
+              : "Disponibles para auditoria cuando el partido ya cerro."}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-medium text-zinc-700 hover:border-zinc-400 disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={loadInProgress}
+            onClick={onLoad}
+            type="button"
+          >
+            {loadInProgress ? "Cargando..." : snapshot ? "Actualizar vista" : "Ver pronosticos"}
+          </button>
+          <button
+            className="rounded-md bg-zinc-950 px-3 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-400"
+            disabled={downloadInProgress}
+            onClick={onDownload}
+            type="button"
+          >
+            {downloadInProgress ? "Descargando..." : "Descargar CSV"}
+          </button>
+        </div>
+      </div>
+      {message ? (
+        <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          {message}
         </p>
-      </div>
+      ) : null}
+      {snapshot ? <PredictionSnapshotTable snapshot={snapshot} /> : null}
+    </div>
+  );
+}
 
-      <div className="grid grid-cols-2 gap-2">
-        <label className="grid gap-1 text-xs font-medium text-zinc-600">
-          <span>{match.home_team?.short_name ?? match.home_slot}</span>
-          <input
-            aria-label={`Marcador ${homeName}`}
-            className="h-10 rounded-md border border-zinc-300 px-3 text-base font-semibold text-zinc-950 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100 disabled:bg-zinc-100"
-            disabled={closed}
-            min={0}
-            onChange={(event) => onUpdateDraft(match.id, "home", event.target.value)}
-            step={1}
-            type="number"
-            value={draft.home}
-          />
-        </label>
-        <label className="grid gap-1 text-xs font-medium text-zinc-600">
-          <span>{match.away_team?.short_name ?? match.away_slot}</span>
-          <input
-            aria-label={`Marcador ${awayName}`}
-            className="h-10 rounded-md border border-zinc-300 px-3 text-base font-semibold text-zinc-950 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100 disabled:bg-zinc-100"
-            disabled={closed}
-            min={0}
-            onChange={(event) => onUpdateDraft(match.id, "away", event.target.value)}
-            step={1}
-            type="number"
-            value={draft.away}
-          />
-        </label>
-      </div>
-
-      <div className="flex flex-wrap items-end gap-2 lg:justify-end">
-        <span
-          className={`rounded-md px-2 py-1 text-xs font-medium ${predictionStatusBadgeClass(
-            statusCode,
-          )}`}
-        >
-          {predictionStatusLabel(statusCode)}
-        </span>
-        {officialResult ? (
-          <span className="rounded-md bg-sky-50 px-2 py-1 text-xs font-medium text-sky-800">
-            Resultado {officialResult.home_score}-{officialResult.away_score}
-          </span>
-        ) : null}
-        {predictionStatus?.scored ? (
-          <span className="rounded-md bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-800">
-            {formatPoints(predictionStatus.points)}
-          </span>
-        ) : null}
-        <button
-          className="h-10 rounded-md bg-zinc-950 px-3 text-sm font-semibold text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-400"
-          disabled={closed || savingMatchID === match.id}
-          type="submit"
-        >
-          {savingMatchID === match.id ? "Guardando" : "Guardar"}
-        </button>
-      </div>
-    </form>
+function PredictionSnapshotTable({ snapshot }: { snapshot: PredictionSnapshot }) {
+  return (
+    <div className="mt-3 overflow-x-auto">
+      <table className="w-full min-w-[560px] border-collapse text-left text-sm">
+        <thead>
+          <tr className="border-y border-zinc-200 text-xs uppercase text-zinc-500">
+            <th className="py-2 pr-3 font-medium">Participante</th>
+            <th className="py-2 pr-3 font-medium">Estado</th>
+            <th className="py-2 pr-3 text-right font-medium">Marcador</th>
+            <th className="py-2 text-right font-medium">Actualizado</th>
+          </tr>
+        </thead>
+        <tbody>
+          {snapshot.entries.map((entry) => (
+            <tr className="border-b border-zinc-100" key={`${entry.user_id}-${entry.id}`}>
+              <td className="py-2 pr-3">
+                <span className="block font-semibold text-zinc-950">
+                  {entry.participant_name}
+                </span>
+                <span className="text-xs text-zinc-500">{entry.user_id}</span>
+              </td>
+              <td className="py-2 pr-3">
+                <span
+                  className={`rounded-md px-2 py-1 text-xs font-medium ${
+                    entry.has_prediction
+                      ? "bg-emerald-100 text-emerald-800"
+                      : "bg-zinc-100 text-zinc-600"
+                  }`}
+                >
+                  {entry.has_prediction ? "Pronosticado" : "Sin pronostico"}
+                </span>
+              </td>
+              <td className="py-2 pr-3 text-right font-semibold text-zinc-950">
+                {predictionSnapshotScore(entry)}
+              </td>
+              <td className="py-2 text-right text-xs text-zinc-500">
+                {entry.updated_at ? formatMatchDate(entry.updated_at) : "-"}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -1516,6 +1780,41 @@ function isUnauthorizedError(error: unknown) {
 
 function isPredictionClosedError(error: unknown) {
   return error instanceof PollavarAPIError && error.status === 409 && error.code === "prediction_closed";
+}
+
+function snapshotErrorMessage(error: unknown) {
+  if (error instanceof PollavarAPIError && error.code === "prediction_open") {
+    return "Los pronosticos de este partido aun no han cerrado.";
+  }
+  return "No pudimos cargar los pronosticos cerrados.";
+}
+
+function predictionSnapshotScore(entry: PredictionSnapshot["entries"][number]) {
+  if (!entry.has_prediction || entry.home_score === null || entry.away_score === null) {
+    return "-";
+  }
+  return `${entry.home_score}-${entry.away_score}`;
+}
+
+function downloadTextFile(content: string, filename: string, type: string) {
+  const blob = new Blob([content], { type });
+  const href = window.URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = href;
+  anchor.download = filename;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  window.URL.revokeObjectURL(href);
+}
+
+function fileNamePart(value: string) {
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return normalized || "snapshot";
 }
 
 async function listPredictionStatusesWithFallback(
