@@ -133,6 +133,33 @@ export type PredictionSummary = {
   scored_matches: number;
 };
 
+export type PredictionMatchStatusCode =
+  | "pending"
+  | "complete"
+  | "closed"
+  | "official_result"
+  | "scored";
+
+export type MatchResult = {
+  match_id: string;
+  home_score: number;
+  away_score: number;
+  result_status: string;
+  recorded_at: string;
+};
+
+export type PredictionMatchStatus = {
+  match_id: string;
+  prediction_id: string;
+  status: PredictionMatchStatusCode;
+  has_prediction: boolean;
+  closed: boolean;
+  has_official_result: boolean;
+  scored: boolean;
+  points: number;
+  official_result?: MatchResult | null;
+};
+
 export type StandingPrediction = {
   id: string;
   pool_id: string;
@@ -252,6 +279,16 @@ export function createPollavarClient(options: PollavarClientOptions = {}) {
         },
       );
     },
+    listPredictionStatuses(token: string, poolID: string) {
+      return request<PredictionMatchStatus[]>(
+        fetcher,
+        `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/predictions/statuses`,
+        {
+          method: "GET",
+          headers: authHeaders(token),
+        },
+      );
+    },
     savePrediction(token: string, poolID: string, matchID: string, input: SavePredictionInput) {
       return request<Prediction>(
         fetcher,
@@ -312,13 +349,25 @@ async function request<T>(
       ...init.headers,
     },
   });
-  const payload = (await response.json()) as DataEnvelope<T> | ErrorEnvelope;
+  const payload = await responsePayload<T>(response);
 
   if (!response.ok) {
     throw new PollavarAPIError(response.status, errorCode(payload));
   }
 
   return (payload as DataEnvelope<T>).data;
+}
+
+async function responsePayload<T>(response: Response): Promise<DataEnvelope<T> | ErrorEnvelope> {
+  try {
+    return (await response.json()) as DataEnvelope<T> | ErrorEnvelope;
+  } catch (error) {
+    if (!response.ok) {
+      return {};
+    }
+
+    throw error;
+  }
 }
 
 function defaultAPIURL() {

@@ -6,6 +6,7 @@ import {
   type Match,
   type Pool,
   type Prediction,
+  type PredictionMatchStatus,
   type PredictionSummary,
   type StandingPrediction,
   type Tournament,
@@ -36,6 +37,7 @@ type LoadedPoolData = {
   poolDetail: Pool;
   predictionSummary: PredictionSummary;
   userPredictions: Prediction[];
+  userPredictionStatuses: PredictionMatchStatus[];
   userStandingPredictions: StandingPrediction[];
   tournamentDetail: Tournament | null;
 };
@@ -77,6 +79,7 @@ export default function ParticipantsHome() {
   const [tournament, setTournament] = useState<Tournament | null>(null);
   const [summary, setSummary] = useState<PredictionSummary | null>(null);
   const [predictions, setPredictions] = useState<Prediction[]>([]);
+  const [predictionStatuses, setPredictionStatuses] = useState<PredictionMatchStatus[]>([]);
   const [standingPredictions, setStandingPredictions] = useState<StandingPrediction[]>([]);
   const [drafts, setDrafts] = useState<ScoreDrafts>({});
   const [standingDrafts, setStandingDrafts] = useState<StandingDrafts>({});
@@ -88,6 +91,10 @@ export default function ParticipantsHome() {
   const dashboardRequestID = useRef(0);
 
   const predictionsByMatch = useMemo(() => indexPredictions(predictions), [predictions]);
+  const predictionStatusesByMatch = useMemo(
+    () => indexPredictionStatuses(predictionStatuses),
+    [predictionStatuses],
+  );
   const standingPredictionsByGroup = useMemo(
     () => indexStandingPredictions(standingPredictions),
     [standingPredictions],
@@ -105,6 +112,7 @@ export default function ParticipantsHome() {
     setTournament(null);
     setSummary(null);
     setPredictions([]);
+    setPredictionStatuses([]);
     setStandingPredictions([]);
     setDrafts({});
     setStandingDrafts({});
@@ -126,19 +134,27 @@ export default function ParticipantsHome() {
     const tournamentRequest = tournamentSummary
       ? client.getTournament(tournamentSummary.slug)
       : Promise.resolve(null);
-    const [poolDetail, predictionSummary, userPredictions, userStandingPredictions, tournamentDetail] =
-      await Promise.all([
-        client.getPool(token, activePool.id),
-        client.getPredictionSummary(token, activePool.id),
-        client.listPredictions(token, activePool.id),
-        client.listStandingPredictions(token, activePool.id),
-        tournamentRequest,
-      ]);
+    const [
+      poolDetail,
+      predictionSummary,
+      userPredictions,
+      userPredictionStatuses,
+      userStandingPredictions,
+      tournamentDetail,
+    ] = await Promise.all([
+      client.getPool(token, activePool.id),
+      client.getPredictionSummary(token, activePool.id),
+      client.listPredictions(token, activePool.id),
+      listPredictionStatusesWithFallback(client, token, activePool.id),
+      client.listStandingPredictions(token, activePool.id),
+      tournamentRequest,
+    ]);
 
     return {
       poolDetail,
       predictionSummary,
       userPredictions,
+      userPredictionStatuses,
       userStandingPredictions,
       tournamentDetail,
     };
@@ -178,6 +194,7 @@ export default function ParticipantsHome() {
         setTournament(null);
         setSummary(null);
         setPredictions([]);
+        setPredictionStatuses([]);
         setStandingPredictions([]);
         setDrafts({});
         setStandingDrafts({});
@@ -193,6 +210,7 @@ export default function ParticipantsHome() {
       setPool(loadedPoolData.poolDetail);
       setSummary(loadedPoolData.predictionSummary);
       setPredictions(loadedPoolData.userPredictions);
+      setPredictionStatuses(loadedPoolData.userPredictionStatuses);
       setStandingPredictions(loadedPoolData.userStandingPredictions);
       setTournament(loadedPoolData.tournamentDetail);
       setDrafts(
@@ -262,9 +280,10 @@ export default function ParticipantsHome() {
     requestID: number,
   ) {
     const client = createPollavarClient();
-    const [predictionSummary, userPredictions] = await Promise.all([
+    const [predictionSummary, userPredictions, userPredictionStatuses] = await Promise.all([
       client.getPredictionSummary(token, activePool.id),
       client.listPredictions(token, activePool.id),
+      listPredictionStatusesWithFallback(client, token, activePool.id),
     ]);
 
     if (dashboardRequestID.current !== requestID) {
@@ -273,6 +292,7 @@ export default function ParticipantsHome() {
 
     setSummary(predictionSummary);
     setPredictions(userPredictions);
+    setPredictionStatuses(userPredictionStatuses);
     setDrafts(hydrateDrafts(matches, userPredictions));
   }
 
@@ -486,6 +506,7 @@ export default function ParticipantsHome() {
           pool={pool}
           pools={pools}
           predictionsByMatch={predictionsByMatch}
+          predictionStatusesByMatch={predictionStatusesByMatch}
           saveMessage={saveMessage}
           savingMatchID={savingMatchID}
           savingStandingGroupID={savingStandingGroupID}
@@ -513,6 +534,7 @@ function Dashboard({
   pool,
   pools,
   predictionsByMatch,
+  predictionStatusesByMatch,
   saveMessage,
   savingMatchID,
   savingStandingGroupID,
@@ -533,6 +555,7 @@ function Dashboard({
   pool: Pool | null;
   pools: Pool[];
   predictionsByMatch: Map<string, Prediction>;
+  predictionStatusesByMatch: Map<string, PredictionMatchStatus>;
   saveMessage: string;
   savingMatchID: string;
   savingStandingGroupID: string;
@@ -589,6 +612,7 @@ function Dashboard({
           onUpdateDraft={onUpdateDraft}
           pool={pool}
           predictionsByMatch={predictionsByMatch}
+          predictionStatusesByMatch={predictionStatusesByMatch}
           saveMessage={saveMessage}
           savingMatchID={savingMatchID}
           savingStandingGroupID={savingStandingGroupID}
@@ -678,6 +702,7 @@ function PredictionList({
   onUpdateDraft,
   pool,
   predictionsByMatch,
+  predictionStatusesByMatch,
   saveMessage,
   savingMatchID,
   savingStandingGroupID,
@@ -694,6 +719,7 @@ function PredictionList({
   onUpdateDraft: (matchID: string, side: "home" | "away", value: string) => void;
   pool: Pool | null;
   predictionsByMatch: Map<string, Prediction>;
+  predictionStatusesByMatch: Map<string, PredictionMatchStatus>;
   saveMessage: string;
   savingMatchID: string;
   savingStandingGroupID: string;
@@ -798,6 +824,7 @@ function PredictionList({
                   onUpdateDraft={onUpdateDraft}
                   prediction={predictionsByMatch.get(match.id)}
                   predictionCloseHoursBefore={pool?.prediction_close_hours_before}
+                  predictionStatus={predictionStatusesByMatch.get(match.id)}
                   savingMatchID={savingMatchID}
                 />
               ))}
@@ -958,6 +985,7 @@ function MatchPredictionForm({
   onUpdateDraft,
   prediction,
   predictionCloseHoursBefore,
+  predictionStatus,
   savingMatchID,
 }: {
   draft: { home: string; away: string };
@@ -966,18 +994,23 @@ function MatchPredictionForm({
   onUpdateDraft: (matchID: string, side: "home" | "away", value: string) => void;
   prediction?: Prediction;
   predictionCloseHoursBefore?: number;
+  predictionStatus?: PredictionMatchStatus;
   savingMatchID: string;
 }) {
-  const closed =
+  const localClosed =
     typeof predictionCloseHoursBefore === "number"
       ? isMatchClosed(match, predictionCloseHoursBefore)
       : false;
+  const closed = localClosed || predictionStatus?.closed === true;
   const homeName = match.home_team?.name ?? match.home_slot;
   const awayName = match.away_team?.name ?? match.away_slot;
+  const statusCode =
+    predictionStatus?.status ?? (closed ? "closed" : prediction ? "complete" : "pending");
+  const officialResult = predictionStatus?.official_result;
 
   return (
     <form
-      className="grid gap-3 px-5 py-4 lg:grid-cols-[minmax(0,1fr)_220px_120px]"
+      className="grid gap-3 px-5 py-4 lg:grid-cols-[minmax(0,1fr)_220px_minmax(190px,auto)]"
       onSubmit={(event) => onSave(event, match)}
     >
       <div>
@@ -1021,18 +1054,24 @@ function MatchPredictionForm({
         </label>
       </div>
 
-      <div className="flex items-end gap-2 lg:justify-end">
+      <div className="flex flex-wrap items-end gap-2 lg:justify-end">
         <span
-          className={`rounded-md px-2 py-1 text-xs font-medium ${
-            closed
-              ? "bg-zinc-100 text-zinc-600"
-              : prediction
-                ? "bg-emerald-100 text-emerald-800"
-                : "bg-amber-100 text-amber-800"
-          }`}
+          className={`rounded-md px-2 py-1 text-xs font-medium ${predictionStatusBadgeClass(
+            statusCode,
+          )}`}
         >
-          {closed ? "Cerrado" : prediction ? "Guardado" : "Pendiente"}
+          {predictionStatusLabel(statusCode)}
         </span>
+        {officialResult ? (
+          <span className="rounded-md bg-sky-50 px-2 py-1 text-xs font-medium text-sky-800">
+            Resultado {officialResult.home_score}-{officialResult.away_score}
+          </span>
+        ) : null}
+        {predictionStatus?.scored ? (
+          <span className="rounded-md bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-800">
+            {formatPoints(predictionStatus.points)}
+          </span>
+        ) : null}
         <button
           className="h-10 rounded-md bg-zinc-950 px-3 text-sm font-semibold text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-400"
           disabled={closed || savingMatchID === match.id}
@@ -1180,6 +1219,25 @@ function isUnauthorizedError(error: unknown) {
 
 function isPredictionClosedError(error: unknown) {
   return error instanceof PollavarAPIError && error.status === 409 && error.code === "prediction_closed";
+}
+
+async function listPredictionStatusesWithFallback(
+  client: ReturnType<typeof createPollavarClient>,
+  token: string,
+  poolID: string,
+) {
+  try {
+    return await client.listPredictionStatuses(token, poolID);
+  } catch (error) {
+    if (isMissingPredictionStatusesEndpoint(error)) {
+      return [];
+    }
+    throw error;
+  }
+}
+
+function isMissingPredictionStatusesEndpoint(error: unknown) {
+  return error instanceof PollavarAPIError && error.status === 404 && error.code === "unknown_error";
 }
 
 function groupMatchesForPredictions(
@@ -1447,6 +1505,14 @@ function indexPredictions(predictions: Prediction[]) {
   return indexed;
 }
 
+function indexPredictionStatuses(statuses: PredictionMatchStatus[]) {
+  const indexed = new Map<string, PredictionMatchStatus>();
+  for (const status of statuses) {
+    indexed.set(status.match_id, status);
+  }
+  return indexed;
+}
+
 function indexStandingPredictions(predictions: StandingPrediction[]) {
   const indexed = new Map<string, StandingPrediction>();
   for (const prediction of predictions) {
@@ -1518,6 +1584,42 @@ function hydrateDrafts(matches: Match[], predictions: Prediction[]) {
     };
   }
   return nextDrafts;
+}
+
+function predictionStatusLabel(status: PredictionMatchStatus["status"]) {
+  switch (status) {
+    case "scored":
+      return "Puntuado";
+    case "official_result":
+      return "Con resultado";
+    case "closed":
+      return "Cerrado";
+    case "complete":
+      return "Completo";
+    case "pending":
+    default:
+      return "Pendiente";
+  }
+}
+
+function predictionStatusBadgeClass(status: PredictionMatchStatus["status"]) {
+  switch (status) {
+    case "scored":
+      return "bg-emerald-100 text-emerald-800";
+    case "official_result":
+      return "bg-sky-100 text-sky-800";
+    case "closed":
+      return "bg-zinc-100 text-zinc-600";
+    case "complete":
+      return "bg-emerald-50 text-emerald-800";
+    case "pending":
+    default:
+      return "bg-amber-100 text-amber-800";
+  }
+}
+
+function formatPoints(points: number) {
+  return points > 0 ? `+${points} pts` : `${points} pts`;
 }
 
 function isMatchClosed(match: Match, closeHours: number) {

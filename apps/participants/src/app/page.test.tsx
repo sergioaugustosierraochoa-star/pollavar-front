@@ -189,7 +189,7 @@ const summary = {
   missing_matches: 1,
   open_matches: 2,
   closed_matches: 0,
-  scored_matches: 0,
+  scored_matches: 1,
 };
 
 const prediction = {
@@ -202,6 +202,36 @@ const prediction = {
   created_at: "2026-06-11T12:00:00Z",
   updated_at: "2026-06-11T12:30:00Z",
 };
+
+const predictionStatuses = [
+  {
+    match_id: "match-1",
+    prediction_id: "prediction-id",
+    status: "scored",
+    has_prediction: true,
+    closed: true,
+    has_official_result: true,
+    scored: true,
+    points: 5,
+    official_result: {
+      match_id: "match-1",
+      home_score: 2,
+      away_score: 1,
+      result_status: "final",
+      recorded_at: "2026-06-11T22:00:00Z",
+    },
+  },
+  {
+    match_id: "match-2",
+    prediction_id: "",
+    status: "pending",
+    has_prediction: false,
+    closed: false,
+    has_official_result: false,
+    scored: false,
+    points: 0,
+  },
+];
 
 const standingsPredictions = [
   {
@@ -303,6 +333,9 @@ describe("Participants home", () => {
     expect(screen.getByDisplayValue("2")).toBeInTheDocument();
     expect(screen.getByDisplayValue("1")).toBeInTheDocument();
     expect(screen.getByLabelText("Marcador Canada")).toHaveValue(null);
+    expect(screen.getByText("Puntuado")).toBeInTheDocument();
+    expect(screen.getByText("+5 pts")).toBeInTheDocument();
+    expect(screen.getByText("Resultado 2-1")).toBeInTheDocument();
     const groupA = screen.getByRole("heading", { name: "Grupo A" }).closest("section");
     const groupB = screen.getByRole("heading", { name: "Grupo B" }).closest("section");
     expect(groupA).not.toBeNull();
@@ -333,6 +366,30 @@ describe("Participants home", () => {
         },
       }),
     );
+  });
+
+  it("loads predictions when the status endpoint is not deployed yet", async () => {
+    storeSession();
+    const fetcher = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      if (String(url).endsWith("/statuses")) {
+        return new Response("404 page not found\n", {
+          status: 404,
+          headers: {
+            "Content-Type": "text/plain",
+          },
+        });
+      }
+      return dashboardFetch(url, init);
+    });
+    vi.stubGlobal("fetch", fetcher);
+
+    render(<ParticipantsHome />);
+
+    expect(await screen.findByRole("heading", { name: "Oficina FC" })).toBeInTheDocument();
+    expect(screen.getByDisplayValue("2")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("1")).toBeInTheDocument();
+    expect(screen.getAllByText("Completo").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Puntuado")).not.toBeInTheDocument();
   });
 
   it("renders suggested standings for league stages with tiebreakers and incomplete teams", async () => {
@@ -466,6 +523,9 @@ describe("Participants home", () => {
       }
       if (value.endsWith("/summary")) {
         return jsonResponse({ data: summary });
+      }
+      if (value.endsWith("/statuses")) {
+        return jsonResponse({ data: predictionStatuses });
       }
       if (value.endsWith("/standing-predictions")) {
         return jsonResponse({ data: [] });
@@ -605,6 +665,9 @@ describe("Participants home", () => {
       if (value.endsWith("/summary")) {
         return jsonResponse({ data: summary });
       }
+      if (value.endsWith("/statuses")) {
+        return jsonResponse({ data: [] });
+      }
       if (value.endsWith("/standing-predictions")) {
         return jsonResponse({ data: [] });
       }
@@ -641,6 +704,9 @@ async function dashboardFetch(url: RequestInfo | URL, init?: RequestInit) {
   }
   if (value.endsWith("/summary")) {
     return jsonResponse({ data: summary });
+  }
+  if (value.endsWith("/statuses")) {
+    return jsonResponse({ data: predictionStatuses });
   }
   if (value.endsWith("/standing-predictions")) {
     return jsonResponse({ data: [] });
@@ -689,6 +755,9 @@ async function standingsFetch(url: RequestInfo | URL, init?: RequestInit) {
         missing_matches: 1,
       },
     });
+  }
+  if (value.endsWith("/statuses")) {
+    return jsonResponse({ data: [] });
   }
   if (value.endsWith("/standing-predictions")) {
     return jsonResponse({ data: [] });

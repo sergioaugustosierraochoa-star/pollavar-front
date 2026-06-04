@@ -5,6 +5,7 @@ import {
   serializeAuthSession,
   type AuthResult,
   type Pool,
+  type PredictionMatchStatus,
   type PredictionSummary,
   type StandingPrediction,
   type Tournament,
@@ -100,6 +101,24 @@ const predictionSummary: PredictionSummary = {
   open_matches: 60,
   closed_matches: 12,
   scored_matches: 0,
+};
+
+const predictionStatus: PredictionMatchStatus = {
+  match_id: "match-id",
+  prediction_id: "prediction-id",
+  status: "scored",
+  has_prediction: true,
+  closed: true,
+  has_official_result: true,
+  scored: true,
+  points: 5,
+  official_result: {
+    match_id: "match-id",
+    home_score: 2,
+    away_score: 1,
+    result_status: "final",
+    recorded_at: "2026-06-11T22:00:00Z",
+  },
 };
 
 const standingPrediction: StandingPrediction = {
@@ -268,6 +287,9 @@ describe("createPollavarClient", () => {
       if (value.endsWith("/summary")) {
         return jsonResponse({ data: predictionSummary });
       }
+      if (value.endsWith("/statuses")) {
+        return jsonResponse({ data: [predictionStatus] });
+      }
       if (value.endsWith("/standing-predictions")) {
         return jsonResponse({ data: [standingPrediction] });
       }
@@ -295,6 +317,9 @@ describe("createPollavarClient", () => {
     await expect(client.getPredictionSummary("token", "pool id")).resolves.toEqual(
       predictionSummary,
     );
+    await expect(client.listPredictionStatuses("token", "pool id")).resolves.toEqual([
+      predictionStatus,
+    ]);
     await expect(
       client.savePrediction("token", "pool id", "match id", {
         home_score: 2,
@@ -319,6 +344,17 @@ describe("createPollavarClient", () => {
     });
     expect(fetcher).toHaveBeenNthCalledWith(
       5,
+      "http://api.local/api/v1/pools/pool%20id/predictions/statuses",
+      {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer token",
+        },
+      },
+    );
+    expect(fetcher).toHaveBeenNthCalledWith(
+      6,
       "http://api.local/api/v1/pools/pool%20id/predictions/match%20id",
       {
         method: "PUT",
@@ -330,7 +366,7 @@ describe("createPollavarClient", () => {
       },
     );
     expect(fetcher).toHaveBeenNthCalledWith(
-      7,
+      8,
       "http://api.local/api/v1/pools/pool%20id/standing-predictions/group%20a",
       {
         method: "PUT",
@@ -371,6 +407,25 @@ describe("createPollavarClient", () => {
     await expect(
       client.login({ identifier: "admin", password: "wrongpass" }),
     ).rejects.toEqual(new PollavarAPIError(500, "unknown_error"));
+  });
+
+  it("uses an unknown code when an error response is not JSON", async () => {
+    const fetcher = vi.fn(async () =>
+      new Response("404 page not found\n", {
+        status: 404,
+        headers: {
+          "Content-Type": "text/plain",
+        },
+      }),
+    );
+    const client = createPollavarClient({
+      baseURL: "http://api.local",
+      fetcher,
+    });
+
+    await expect(client.listPredictionStatuses("token", "pool id")).rejects.toEqual(
+      new PollavarAPIError(404, "unknown_error"),
+    );
   });
 });
 
