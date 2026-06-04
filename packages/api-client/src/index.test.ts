@@ -4,6 +4,8 @@ import {
   createPollavarClient,
   serializeAuthSession,
   type AuthResult,
+  type Payment,
+  type PaymentCollection,
   type PointEventDetail,
   type Pool,
   type PredictionMatchStatus,
@@ -195,6 +197,28 @@ const standingPrediction: StandingPrediction = {
   team_ids: ["MEX", "RSA"],
   created_at: "2026-06-11T12:00:00Z",
   updated_at: "2026-06-11T12:30:00Z",
+};
+
+const payment: Payment = {
+  id: "payment-id",
+  pool_id: "pool-id",
+  user_id: "user-id",
+  amount_cents: 5000000,
+  currency: "COP",
+  payment_method: "bank_transfer",
+  status: "confirmed",
+  reference: "TRX-123",
+  confirmed_by: "admin-id",
+  confirmed_at: "2026-05-27T01:00:00Z",
+  created_at: "2026-05-27T01:00:00Z",
+  updated_at: "2026-05-27T01:00:00Z",
+};
+
+const paymentCollection: PaymentCollection = {
+  pool_id: "pool-id",
+  currency: "COP",
+  confirmed_total_cents: 5000000,
+  payments: [payment],
 };
 
 describe("createPollavarClient", () => {
@@ -552,6 +576,66 @@ describe("createPollavarClient", () => {
       {
         method: "PUT",
         body: JSON.stringify({ team_ids: ["MEX", "RSA"] }),
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer token",
+        },
+      },
+    );
+  });
+
+  it("loads and updates manual pool payments", async () => {
+    const fetcher = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      const value = String(url);
+      if (value.endsWith("/payments") && init?.method === "GET") {
+        return jsonResponse({ data: paymentCollection });
+      }
+      if (value.endsWith("/payments/user%20id") && init?.method === "PUT") {
+        return jsonResponse({ data: payment });
+      }
+      return jsonResponse({ code: "not_found" }, { status: 404 });
+    });
+    const client = createPollavarClient({
+      baseURL: "http://api.local",
+      fetcher,
+    });
+
+    await expect(client.listPayments("token", "pool id")).resolves.toEqual(
+      paymentCollection,
+    );
+    await expect(
+      client.upsertPayment("token", "pool id", "user id", {
+        amount_cents: 5000000,
+        currency: "COP",
+        payment_method: "bank_transfer",
+        reference: "TRX-123",
+        status: "confirmed",
+      }),
+    ).resolves.toEqual(payment);
+
+    expect(fetcher).toHaveBeenNthCalledWith(
+      1,
+      "http://api.local/api/v1/pools/pool%20id/payments",
+      {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer token",
+        },
+      },
+    );
+    expect(fetcher).toHaveBeenNthCalledWith(
+      2,
+      "http://api.local/api/v1/pools/pool%20id/payments/user%20id",
+      {
+        method: "PUT",
+        body: JSON.stringify({
+          amount_cents: 5000000,
+          currency: "COP",
+          payment_method: "bank_transfer",
+          reference: "TRX-123",
+          status: "confirmed",
+        }),
         headers: {
           "Content-Type": "application/json",
           Authorization: "Bearer token",

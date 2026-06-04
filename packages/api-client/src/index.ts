@@ -113,6 +113,39 @@ export type Pool = {
   participants: PoolParticipant[];
 };
 
+export type PaymentMethod = "cash" | "bank_transfer" | "deposit";
+export type PaymentStatus = "pending" | "confirmed" | "rejected";
+
+export type Payment = {
+  id: string;
+  pool_id: string;
+  user_id: string;
+  amount_cents: number;
+  currency: string;
+  payment_method: PaymentMethod;
+  status: PaymentStatus;
+  reference: string;
+  confirmed_by: string;
+  confirmed_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type PaymentCollection = {
+  pool_id: string;
+  currency: string;
+  confirmed_total_cents: number;
+  payments: Payment[];
+};
+
+export type UpsertPaymentInput = {
+  amount_cents: number;
+  currency?: string;
+  payment_method?: PaymentMethod;
+  reference?: string;
+  status?: PaymentStatus;
+};
+
 export type Prediction = {
   id: string;
   pool_id: string;
@@ -320,6 +353,27 @@ export function createPollavarClient(options: PollavarClientOptions = {}) {
         `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}`,
         {
           method: "GET",
+          headers: authHeaders(token),
+        },
+      );
+    },
+    listPayments(token: string, poolID: string) {
+      return request<PaymentCollection>(
+        fetcher,
+        `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/payments`,
+        {
+          method: "GET",
+          headers: authHeaders(token),
+        },
+      );
+    },
+    upsertPayment(token: string, poolID: string, userID: string, input: UpsertPaymentInput) {
+      return request<Payment>(
+        fetcher,
+        `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/payments/${encodeURIComponent(userID)}`,
+        {
+          method: "PUT",
+          body: JSON.stringify(input),
           headers: authHeaders(token),
         },
       );
