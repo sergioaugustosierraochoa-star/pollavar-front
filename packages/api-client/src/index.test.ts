@@ -6,6 +6,7 @@ import {
   type AuthResult,
   type Pool,
   type PredictionSummary,
+  type StandingPrediction,
   type Tournament,
   type TournamentSummary,
 } from "./index";
@@ -99,6 +100,16 @@ const predictionSummary: PredictionSummary = {
   open_matches: 60,
   closed_matches: 12,
   scored_matches: 0,
+};
+
+const standingPrediction: StandingPrediction = {
+  id: "standing-id",
+  pool_id: "pool-id",
+  user_id: "user-id",
+  group_id: "group-a",
+  team_ids: ["MEX", "RSA"],
+  created_at: "2026-06-11T12:00:00Z",
+  updated_at: "2026-06-11T12:30:00Z",
 };
 
 describe("createPollavarClient", () => {
@@ -257,6 +268,12 @@ describe("createPollavarClient", () => {
       if (value.endsWith("/summary")) {
         return jsonResponse({ data: predictionSummary });
       }
+      if (value.endsWith("/standing-predictions")) {
+        return jsonResponse({ data: [standingPrediction] });
+      }
+      if (init?.method === "PUT" && value.includes("/standing-predictions/")) {
+        return jsonResponse({ data: standingPrediction });
+      }
       if (init?.method === "PUT") {
         return jsonResponse({ data: prediction });
       }
@@ -284,6 +301,14 @@ describe("createPollavarClient", () => {
         away_score: 1,
       }),
     ).resolves.toEqual(prediction);
+    await expect(client.listStandingPredictions("token", "pool id")).resolves.toEqual([
+      standingPrediction,
+    ]);
+    await expect(
+      client.saveStandingPrediction("token", "pool id", "group a", {
+        team_ids: ["MEX", "RSA"],
+      }),
+    ).resolves.toEqual(standingPrediction);
 
     expect(fetcher).toHaveBeenNthCalledWith(2, "http://api.local/api/v1/pools/pool%20id", {
       method: "GET",
@@ -298,6 +323,18 @@ describe("createPollavarClient", () => {
       {
         method: "PUT",
         body: JSON.stringify({ home_score: 2, away_score: 1 }),
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer token",
+        },
+      },
+    );
+    expect(fetcher).toHaveBeenNthCalledWith(
+      7,
+      "http://api.local/api/v1/pools/pool%20id/standing-predictions/group%20a",
+      {
+        method: "PUT",
+        body: JSON.stringify({ team_ids: ["MEX", "RSA"] }),
         headers: {
           "Content-Type": "application/json",
           Authorization: "Bearer token",

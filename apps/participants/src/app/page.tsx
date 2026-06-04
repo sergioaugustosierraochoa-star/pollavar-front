@@ -7,6 +7,7 @@ import {
   type Pool,
   type Prediction,
   type PredictionSummary,
+  type StandingPrediction,
   type Tournament,
   type TournamentSummary,
 } from "@pollavar/api-client";
@@ -30,10 +31,12 @@ type AuthSession = {
 
 type DashboardStatus = "checking" | "signed-out" | "loading" | "ready" | "error";
 type ScoreDrafts = Record<string, { home: string; away: string }>;
+type StandingDrafts = Record<string, string[]>;
 type LoadedPoolData = {
   poolDetail: Pool;
   predictionSummary: PredictionSummary;
   userPredictions: Prediction[];
+  userStandingPredictions: StandingPrediction[];
   tournamentDetail: Tournament | null;
 };
 type PredictionGroup = {
@@ -74,12 +77,20 @@ export default function ParticipantsHome() {
   const [tournament, setTournament] = useState<Tournament | null>(null);
   const [summary, setSummary] = useState<PredictionSummary | null>(null);
   const [predictions, setPredictions] = useState<Prediction[]>([]);
+  const [standingPredictions, setStandingPredictions] = useState<StandingPrediction[]>([]);
   const [drafts, setDrafts] = useState<ScoreDrafts>({});
+  const [standingDrafts, setStandingDrafts] = useState<StandingDrafts>({});
   const [savingMatchID, setSavingMatchID] = useState("");
+  const [savingStandingGroupID, setSavingStandingGroupID] = useState("");
   const [saveMessage, setSaveMessage] = useState("");
+  const [standingSaveMessage, setStandingSaveMessage] = useState("");
   const dashboardRequestID = useRef(0);
 
   const predictionsByMatch = useMemo(() => indexPredictions(predictions), [predictions]);
+  const standingPredictionsByGroup = useMemo(
+    () => indexStandingPredictions(standingPredictions),
+    [standingPredictions],
+  );
 
   const signOutParticipant = useCallback(function signOutParticipant() {
     dashboardRequestID.current += 1;
@@ -93,9 +104,13 @@ export default function ParticipantsHome() {
     setTournament(null);
     setSummary(null);
     setPredictions([]);
+    setStandingPredictions([]);
     setDrafts({});
+    setStandingDrafts({});
     setSavingMatchID("");
+    setSavingStandingGroupID("");
     setSaveMessage("");
+    setStandingSaveMessage("");
   }, []);
 
   const loadPoolData = useCallback(async function loadPoolData(
@@ -110,11 +125,12 @@ export default function ParticipantsHome() {
     const tournamentRequest = tournamentSummary
       ? client.getTournament(tournamentSummary.slug)
       : Promise.resolve(null);
-    const [poolDetail, predictionSummary, userPredictions, tournamentDetail] =
+    const [poolDetail, predictionSummary, userPredictions, userStandingPredictions, tournamentDetail] =
       await Promise.all([
         client.getPool(token, activePool.id),
         client.getPredictionSummary(token, activePool.id),
         client.listPredictions(token, activePool.id),
+        client.listStandingPredictions(token, activePool.id),
         tournamentRequest,
       ]);
 
@@ -122,6 +138,7 @@ export default function ParticipantsHome() {
       poolDetail,
       predictionSummary,
       userPredictions,
+      userStandingPredictions,
       tournamentDetail,
     };
   }, []);
@@ -137,6 +154,7 @@ export default function ParticipantsHome() {
     setStatus("loading");
     setMessage("");
     setSaveMessage("");
+    setStandingSaveMessage("");
 
     try {
       const client = createPollavarClient();
@@ -159,7 +177,9 @@ export default function ParticipantsHome() {
         setTournament(null);
         setSummary(null);
         setPredictions([]);
+        setStandingPredictions([]);
         setDrafts({});
+        setStandingDrafts({});
         setStatus("ready");
         return;
       }
@@ -172,6 +192,7 @@ export default function ParticipantsHome() {
       setPool(loadedPoolData.poolDetail);
       setSummary(loadedPoolData.predictionSummary);
       setPredictions(loadedPoolData.userPredictions);
+      setStandingPredictions(loadedPoolData.userStandingPredictions);
       setTournament(loadedPoolData.tournamentDetail);
       setDrafts(
         hydrateDrafts(
@@ -179,6 +200,7 @@ export default function ParticipantsHome() {
           loadedPoolData.userPredictions,
         ),
       );
+      setStandingDrafts({});
       setStatus("ready");
     } catch (error) {
       if (!isLatestRequest()) {
@@ -308,6 +330,71 @@ export default function ParticipantsHome() {
     }
   }
 
+  function moveStandingTeam(group: PredictionGroup, teamID: string, direction: -1 | 1) {
+    const currentOrder = resolveStandingTeamIDs(
+      group,
+      standingPredictionsByGroup,
+      standingDrafts,
+    );
+    const currentIndex = currentOrder.indexOf(teamID);
+    const nextIndex = currentIndex + direction;
+    if (currentIndex < 0 || nextIndex < 0 || nextIndex >= currentOrder.length) {
+      return;
+    }
+
+    const nextOrder = [...currentOrder];
+    [nextOrder[currentIndex], nextOrder[nextIndex]] = [
+      nextOrder[nextIndex],
+      nextOrder[currentIndex],
+    ];
+    setStandingDrafts((current) => ({
+      ...current,
+      [group.id]: nextOrder,
+    }));
+    setStandingSaveMessage("");
+  }
+
+  async function saveStandingPrediction(group: PredictionGroup) {
+    if (!session || !pool) {
+      return;
+    }
+
+    const teamIDs = resolveStandingTeamIDs(group, standingPredictionsByGroup, standingDrafts);
+    if (teamIDs.length < 2) {
+      setStandingSaveMessage("Necesitas al menos dos equipos para guardar posiciones.");
+      return;
+    }
+
+    setSavingStandingGroupID(group.id);
+    setStandingSaveMessage("");
+    const requestID = dashboardRequestID.current;
+    try {
+      const client = createPollavarClient();
+      const savedPrediction = await client.saveStandingPrediction(session.token, pool.id, group.id, {
+        team_ids: teamIDs,
+      });
+      if (dashboardRequestID.current !== requestID) {
+        return;
+      }
+      setStandingPredictions((current) => upsertStandingPrediction(current, savedPrediction));
+      setStandingDrafts((current) => ({
+        ...current,
+        [group.id]: savedPrediction.team_ids,
+      }));
+      setStandingSaveMessage("Orden de posiciones guardado.");
+    } catch (error) {
+      if (isUnauthorizedError(error)) {
+        signOutParticipant();
+        return;
+      }
+      setStandingSaveMessage("No pudimos guardar el orden de posiciones.");
+    } finally {
+      if (dashboardRequestID.current === requestID) {
+        setSavingStandingGroupID("");
+      }
+    }
+  }
+
   return (
     <main className="min-h-screen bg-[#f8faf9] text-[#191b1f]">
       <header className="border-b border-zinc-200 bg-white">
@@ -369,14 +456,20 @@ export default function ParticipantsHome() {
         <Dashboard
           drafts={drafts}
           onSave={savePrediction}
+          onSaveStanding={saveStandingPrediction}
           onSelectPool={selectPool}
+          onMoveStanding={moveStandingTeam}
           onUpdateDraft={updateDraft}
           pool={pool}
           pools={pools}
           predictionsByMatch={predictionsByMatch}
           saveMessage={saveMessage}
           savingMatchID={savingMatchID}
+          savingStandingGroupID={savingStandingGroupID}
           selectedPoolID={selectedPoolID}
+          standingDrafts={standingDrafts}
+          standingPredictionsByGroup={standingPredictionsByGroup}
+          standingSaveMessage={standingSaveMessage}
           summary={summary}
           tournament={tournament}
         />
@@ -388,27 +481,39 @@ export default function ParticipantsHome() {
 function Dashboard({
   drafts,
   onSave,
+  onSaveStanding,
   onSelectPool,
+  onMoveStanding,
   onUpdateDraft,
   pool,
   pools,
   predictionsByMatch,
   saveMessage,
   savingMatchID,
+  savingStandingGroupID,
   selectedPoolID,
+  standingDrafts,
+  standingPredictionsByGroup,
+  standingSaveMessage,
   summary,
   tournament,
 }: {
   drafts: ScoreDrafts;
   onSave: (event: FormEvent<HTMLFormElement>, match: Match) => void;
+  onSaveStanding: (group: PredictionGroup) => void;
   onSelectPool: (poolID: string) => void;
+  onMoveStanding: (group: PredictionGroup, teamID: string, direction: -1 | 1) => void;
   onUpdateDraft: (matchID: string, side: "home" | "away", value: string) => void;
   pool: Pool | null;
   pools: Pool[];
   predictionsByMatch: Map<string, Prediction>;
   saveMessage: string;
   savingMatchID: string;
+  savingStandingGroupID: string;
   selectedPoolID: string;
+  standingDrafts: StandingDrafts;
+  standingPredictionsByGroup: Map<string, StandingPrediction>;
+  standingSaveMessage: string;
   summary: PredictionSummary | null;
   tournament: Tournament | null;
 }) {
@@ -452,11 +557,17 @@ function Dashboard({
         <PredictionList
           drafts={drafts}
           onSave={onSave}
+          onSaveStanding={onSaveStanding}
+          onMoveStanding={onMoveStanding}
           onUpdateDraft={onUpdateDraft}
           pool={pool}
           predictionsByMatch={predictionsByMatch}
           saveMessage={saveMessage}
           savingMatchID={savingMatchID}
+          savingStandingGroupID={savingStandingGroupID}
+          standingDrafts={standingDrafts}
+          standingPredictionsByGroup={standingPredictionsByGroup}
+          standingSaveMessage={standingSaveMessage}
           tournament={tournament}
         />
       </div>
@@ -534,20 +645,32 @@ function SummaryGrid({ summary }: { summary: PredictionSummary | null }) {
 function PredictionList({
   drafts,
   onSave,
+  onSaveStanding,
+  onMoveStanding,
   onUpdateDraft,
   pool,
   predictionsByMatch,
   saveMessage,
   savingMatchID,
+  savingStandingGroupID,
+  standingDrafts,
+  standingPredictionsByGroup,
+  standingSaveMessage,
   tournament,
 }: {
   drafts: ScoreDrafts;
   onSave: (event: FormEvent<HTMLFormElement>, match: Match) => void;
+  onSaveStanding: (group: PredictionGroup) => void;
+  onMoveStanding: (group: PredictionGroup, teamID: string, direction: -1 | 1) => void;
   onUpdateDraft: (matchID: string, side: "home" | "away", value: string) => void;
   pool: Pool | null;
   predictionsByMatch: Map<string, Prediction>;
   saveMessage: string;
   savingMatchID: string;
+  savingStandingGroupID: string;
+  standingDrafts: StandingDrafts;
+  standingPredictionsByGroup: Map<string, StandingPrediction>;
+  standingSaveMessage: string;
   tournament: Tournament | null;
 }) {
   if (!tournament) {
@@ -583,6 +706,11 @@ function PredictionList({
             {saveMessage}
           </p>
         ) : null}
+        {standingSaveMessage ? (
+          <p className="text-sm font-medium text-emerald-700" role="status">
+            {standingSaveMessage}
+          </p>
+        ) : null}
       </div>
       <div className="divide-y divide-zinc-200">
         {predictionGroups.map((group) => (
@@ -608,7 +736,23 @@ function PredictionList({
               </dl>
             </div>
             {group.standings.length > 0 ? (
-              <SuggestedStandingsTable rows={group.standings} />
+              <div className="grid border-t border-zinc-200 lg:grid-cols-2">
+                <SuggestedStandingsTable rows={group.standings} />
+                <StandingOrderEditor
+                  group={group}
+                  isSaving={savingStandingGroupID === group.id}
+                  onMove={onMoveStanding}
+                  onSave={onSaveStanding}
+                  rows={orderStandingRows(
+                    group.standings,
+                    resolveStandingTeamIDs(
+                      group,
+                      standingPredictionsByGroup,
+                      standingDrafts,
+                    ),
+                  )}
+                />
+              </div>
             ) : null}
             <div className="divide-y divide-zinc-100">
               {group.matches.map((match) => (
@@ -633,7 +777,7 @@ function PredictionList({
 
 function SuggestedStandingsTable({ rows }: { rows: SuggestedStandingRow[] }) {
   return (
-    <div className="border-t border-zinc-200 px-5 py-4">
+    <div className="px-5 py-4 lg:border-r lg:border-zinc-200">
       <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
         <h4 className="text-sm font-semibold text-zinc-950">Tabla sugerida</h4>
         <p className="text-xs text-zinc-500">Calculada con tus marcadores guardados</p>
@@ -684,6 +828,73 @@ function SuggestedStandingsTable({ rows }: { rows: SuggestedStandingRow[] }) {
             ))}
           </tbody>
         </table>
+      </div>
+    </div>
+  );
+}
+
+function StandingOrderEditor({
+  group,
+  isSaving,
+  onMove,
+  onSave,
+  rows,
+}: {
+  group: PredictionGroup;
+  isSaving: boolean;
+  onMove: (group: PredictionGroup, teamID: string, direction: -1 | 1) => void;
+  onSave: (group: PredictionGroup) => void;
+  rows: SuggestedStandingRow[];
+}) {
+  return (
+    <div className="px-5 py-4">
+      <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+        <h4 className="text-sm font-semibold text-zinc-950">Mi orden final</h4>
+        <p className="text-xs text-zinc-500">Puedes cambiarlo sin alterar marcadores</p>
+      </div>
+      <ol className="divide-y divide-zinc-100 rounded-md border border-zinc-200">
+        {rows.map((row, index) => (
+          <li
+            className="grid min-h-14 grid-cols-[2.5rem_minmax(0,1fr)_auto] items-center gap-3 px-3 py-2 text-sm"
+            key={row.key}
+          >
+            <span className="font-semibold text-zinc-950">{index + 1}</span>
+            <span className="min-w-0">
+              <span className="block truncate font-semibold text-zinc-950">{row.teamName}</span>
+              <span className="text-xs text-zinc-500">{row.teamShortName}</span>
+            </span>
+            <span className="flex gap-1">
+              <button
+                aria-label={`Subir ${row.teamName}`}
+                className="min-w-14 rounded-md border border-zinc-300 px-2 py-1 text-xs font-medium text-zinc-700 disabled:cursor-not-allowed disabled:opacity-40"
+                disabled={index === 0 || isSaving}
+                onClick={() => onMove(group, row.key, -1)}
+                type="button"
+              >
+                Subir
+              </button>
+              <button
+                aria-label={`Bajar ${row.teamName}`}
+                className="min-w-14 rounded-md border border-zinc-300 px-2 py-1 text-xs font-medium text-zinc-700 disabled:cursor-not-allowed disabled:opacity-40"
+                disabled={index === rows.length - 1 || isSaving}
+                onClick={() => onMove(group, row.key, 1)}
+                type="button"
+              >
+                Bajar
+              </button>
+            </span>
+          </li>
+        ))}
+      </ol>
+      <div className="mt-3 flex justify-end">
+        <button
+          className="rounded-md bg-zinc-950 px-3 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-400"
+          disabled={isSaving}
+          onClick={() => onSave(group)}
+          type="button"
+        >
+          {isSaving ? "Guardando..." : "Guardar orden"}
+        </button>
       </div>
     </div>
   );
@@ -1186,6 +1397,66 @@ function indexPredictions(predictions: Prediction[]) {
     indexed.set(prediction.match_id, prediction);
   }
   return indexed;
+}
+
+function indexStandingPredictions(predictions: StandingPrediction[]) {
+  const indexed = new Map<string, StandingPrediction>();
+  for (const prediction of predictions) {
+    indexed.set(prediction.group_id, prediction);
+  }
+  return indexed;
+}
+
+function resolveStandingTeamIDs(
+  group: PredictionGroup,
+  standingPredictionsByGroup: Map<string, StandingPrediction>,
+  standingDrafts: StandingDrafts,
+) {
+  const draft = standingDrafts[group.id];
+  if (draft && draft.length > 0) {
+    return draft;
+  }
+
+  const saved = standingPredictionsByGroup.get(group.id)?.team_ids;
+  if (saved && saved.length > 0) {
+    return saved;
+  }
+
+  return group.standings.map((row) => row.key);
+}
+
+function orderStandingRows(rows: SuggestedStandingRow[], teamIDs: string[]) {
+  const rowsByID = new Map(rows.map((row) => [row.key, row]));
+  const orderedRows: SuggestedStandingRow[] = [];
+  const added = new Set<string>();
+
+  for (const teamID of teamIDs) {
+    const row = rowsByID.get(teamID);
+    if (!row || added.has(teamID)) {
+      continue;
+    }
+    orderedRows.push(row);
+    added.add(teamID);
+  }
+
+  for (const row of rows) {
+    if (!added.has(row.key)) {
+      orderedRows.push(row);
+    }
+  }
+
+  return orderedRows;
+}
+
+function upsertStandingPrediction(
+  predictions: StandingPrediction[],
+  nextPrediction: StandingPrediction,
+) {
+  const nextPredictions = predictions.filter(
+    (prediction) => prediction.group_id !== nextPrediction.group_id,
+  );
+  nextPredictions.push(nextPrediction);
+  return nextPredictions;
 }
 
 function hydrateDrafts(matches: Match[], predictions: Prediction[]) {

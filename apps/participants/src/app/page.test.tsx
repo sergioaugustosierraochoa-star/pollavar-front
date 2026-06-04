@@ -227,6 +227,16 @@ const standingsPredictions = [
   },
 ];
 
+const standingOrderPrediction = {
+  id: "standing-order-id",
+  pool_id: "pool-id",
+  user_id: "user-id",
+  group_id: "prediction-group-regular-season-general",
+  team_ids: ["ALP", "GAM", "BET", "DEL"],
+  created_at: "2026-06-11T12:00:00Z",
+  updated_at: "2026-06-11T12:30:00Z",
+};
+
 describe("Participants home", () => {
   afterEach(() => {
     window.localStorage.clear();
@@ -346,6 +356,37 @@ describe("Participants home", () => {
     ).toBeInTheDocument();
   });
 
+  it("lets the participant reorder and save final standings by group", async () => {
+    storeSession();
+    const fetcher = vi.fn(standingOrderFetch);
+    vi.stubGlobal("fetch", fetcher);
+
+    render(<ParticipantsHome />);
+
+    expect(await screen.findByRole("heading", { name: "Regular Season" })).toBeInTheDocument();
+    const section = screen.getByRole("heading", { name: "Regular Season" }).closest("section");
+    expect(section).not.toBeNull();
+
+    const moveAlphaUp = within(section as HTMLElement).getByRole("button", {
+      name: "Subir Alpha",
+    });
+    expect(moveAlphaUp).toBeEnabled();
+
+    fireEvent.click(moveAlphaUp);
+    fireEvent.click(within(section as HTMLElement).getByRole("button", { name: "Guardar orden" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("status")).toHaveTextContent("Orden de posiciones guardado.");
+    });
+    expect(fetcher).toHaveBeenCalledWith(
+      "http://localhost:8080/api/v1/pools/pool-id/standing-predictions/prediction-group-regular-season-general",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({ team_ids: ["ALP", "GAM", "BET", "DEL"] }),
+      }),
+    );
+  });
+
   it("keeps the newest dashboard response when refreshes overlap", async () => {
     storeSession();
     const stalePool = {
@@ -379,6 +420,9 @@ describe("Participants home", () => {
       }
       if (value.endsWith("/summary")) {
         return jsonResponse({ data: summary });
+      }
+      if (value.endsWith("/standing-predictions")) {
+        return jsonResponse({ data: [] });
       }
       if (value.endsWith("/predictions")) {
         return jsonResponse({ data: [prediction] });
@@ -515,6 +559,9 @@ describe("Participants home", () => {
       if (value.endsWith("/summary")) {
         return jsonResponse({ data: summary });
       }
+      if (value.endsWith("/standing-predictions")) {
+        return jsonResponse({ data: [] });
+      }
       if (value.endsWith("/predictions")) {
         return jsonResponse({ data: [] });
       }
@@ -549,6 +596,13 @@ async function dashboardFetch(url: RequestInfo | URL, init?: RequestInit) {
   if (value.endsWith("/summary")) {
     return jsonResponse({ data: summary });
   }
+  if (value.endsWith("/standing-predictions")) {
+    return jsonResponse({ data: [] });
+  }
+  if (init?.method === "PUT" && value.includes("/standing-predictions/")) {
+    const body = JSON.parse(String(init.body)) as { team_ids: string[] };
+    return jsonResponse({ data: { ...standingOrderPrediction, team_ids: body.team_ids } });
+  }
   if (init?.method === "PUT") {
     return jsonResponse({
       data: {
@@ -569,7 +623,7 @@ async function dashboardFetch(url: RequestInfo | URL, init?: RequestInit) {
   return jsonResponse({ code: "not_found" }, { status: 404 });
 }
 
-async function standingsFetch(url: RequestInfo | URL) {
+async function standingsFetch(url: RequestInfo | URL, init?: RequestInit) {
   const value = String(url);
   if (value.endsWith("/api/v1/pools")) {
     return jsonResponse({ data: [pool] });
@@ -590,6 +644,13 @@ async function standingsFetch(url: RequestInfo | URL) {
       },
     });
   }
+  if (value.endsWith("/standing-predictions")) {
+    return jsonResponse({ data: [] });
+  }
+  if (init?.method === "PUT" && value.includes("/standing-predictions/")) {
+    const body = JSON.parse(String(init.body)) as { team_ids: string[] };
+    return jsonResponse({ data: { ...standingOrderPrediction, team_ids: body.team_ids } });
+  }
   if (value.endsWith("/predictions")) {
     return jsonResponse({ data: standingsPredictions });
   }
@@ -597,6 +658,10 @@ async function standingsFetch(url: RequestInfo | URL) {
     return jsonResponse({ data: standingsTournament });
   }
   return jsonResponse({ code: "not_found" }, { status: 404 });
+}
+
+async function standingOrderFetch(url: RequestInfo | URL, init?: RequestInit) {
+  return standingsFetch(url, init);
 }
 
 function jsonResponse(payload: unknown, init?: ResponseInit) {

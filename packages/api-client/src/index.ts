@@ -133,9 +133,23 @@ export type PredictionSummary = {
   scored_matches: number;
 };
 
+export type StandingPrediction = {
+  id: string;
+  pool_id: string;
+  user_id: string;
+  group_id: string;
+  team_ids: string[];
+  created_at: string;
+  updated_at: string;
+};
+
 export type SavePredictionInput = {
   home_score: number;
   away_score: number;
+};
+
+export type SaveStandingPredictionInput = {
+  team_ids: string[];
 };
 
 export type PollavarClientOptions = {
@@ -242,6 +256,32 @@ export function createPollavarClient(options: PollavarClientOptions = {}) {
       return request<Prediction>(
         fetcher,
         `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/predictions/${encodeURIComponent(matchID)}`,
+        {
+          method: "PUT",
+          body: JSON.stringify(input),
+          headers: authHeaders(token),
+        },
+      );
+    },
+    listStandingPredictions(token: string, poolID: string) {
+      return request<StandingPrediction[]>(
+        fetcher,
+        `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/standing-predictions`,
+        {
+          method: "GET",
+          headers: authHeaders(token),
+        },
+      );
+    },
+    saveStandingPrediction(
+      token: string,
+      poolID: string,
+      groupID: string,
+      input: SaveStandingPredictionInput,
+    ) {
+      return request<StandingPrediction>(
+        fetcher,
+        `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/standing-predictions/${encodeURIComponent(groupID)}`,
         {
           method: "PUT",
           body: JSON.stringify(input),
