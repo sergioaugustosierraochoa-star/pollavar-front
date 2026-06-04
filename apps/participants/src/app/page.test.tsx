@@ -301,6 +301,50 @@ const pointDetails = [
   },
 ];
 
+const prizePreview = {
+  pool_id: "pool-id",
+  currency: "COP",
+  confirmed_total_cents: 5000000,
+  rules: [
+    {
+      id: "prize-rule-1",
+      pool_id: "pool-id",
+      type: "ranking",
+      position: 1,
+      percentage: 70,
+      fixed_amount_cents: 0,
+      currency: "COP",
+      description: "Primero",
+      created_at: "2026-05-27T01:00:00Z",
+    },
+    {
+      id: "prize-rule-2",
+      pool_id: "pool-id",
+      type: "ranking",
+      position: 2,
+      percentage: 30,
+      fixed_amount_cents: 0,
+      currency: "COP",
+      description: "Segundo",
+      created_at: "2026-05-27T01:00:00Z",
+    },
+  ],
+  payouts: [
+    {
+      position: 1,
+      percentage: 70,
+      estimated_amount_cents: 3500000,
+      description: "Primero",
+    },
+    {
+      position: 2,
+      percentage: 30,
+      estimated_amount_cents: 1500000,
+      description: "Segundo",
+    },
+  ],
+};
+
 const standingsPredictions = [
   {
     ...prediction,
@@ -409,6 +453,13 @@ describe("Participants home", () => {
     expect(screen.getByText("5 pts")).toBeInTheDocument();
     expect(screen.getByText("Resultado correcto")).toBeInTheDocument();
     expect(screen.getByText("3 pts")).toBeInTheDocument();
+    const prizeSection = screen.getByRole("heading", { name: "Premios" }).closest("section");
+    expect(prizeSection).not.toBeNull();
+    expect(within(prizeSection as HTMLElement).getByText(/Bolsa confirmada:/)).toHaveTextContent(
+      "COP 50.000",
+    );
+    expect(within(prizeSection as HTMLElement).getByText("2 ganadores")).toBeInTheDocument();
+    expect(within(prizeSection as HTMLElement).getByText("COP 35.000")).toBeInTheDocument();
     const rankingSection = screen.getByRole("heading", { name: "Ranking general" }).closest("section");
     expect(rankingSection).not.toBeNull();
     expect(within(rankingSection as HTMLElement).getByText("8")).toBeInTheDocument();
@@ -725,6 +776,9 @@ describe("Participants home", () => {
       if (value.endsWith("/ranking")) {
         return jsonResponse({ data: rankingEntries });
       }
+      if (value.endsWith("/prizes/preview")) {
+        return jsonResponse({ data: prizePreview });
+      }
       if (value.endsWith("/scoring-rules")) {
         return jsonResponse({ data: scoringRules });
       }
@@ -872,6 +926,9 @@ describe("Participants home", () => {
       if (value.endsWith("/ranking")) {
         return jsonResponse({ data: rankingEntries });
       }
+      if (value.endsWith("/prizes/preview")) {
+        return jsonResponse({ data: prizePreview });
+      }
       if (value.endsWith("/scoring-rules")) {
         return jsonResponse({ data: scoringRules });
       }
@@ -929,6 +986,9 @@ async function dashboardFetch(url: RequestInfo | URL, init?: RequestInit) {
   }
   if (value.endsWith("/ranking/user-id/points")) {
     return jsonResponse({ data: pointDetails });
+  }
+  if (value.endsWith("/prizes/preview")) {
+    return jsonResponse({ data: prizePreview });
   }
   if (value.endsWith("/scoring-rules")) {
     return jsonResponse({ data: scoringRules });
@@ -989,6 +1049,9 @@ async function standingsFetch(url: RequestInfo | URL, init?: RequestInit) {
   }
   if (value.endsWith("/ranking/user-id/points")) {
     return jsonResponse({ data: pointDetails });
+  }
+  if (value.endsWith("/prizes/preview")) {
+    return jsonResponse({ data: prizePreview });
   }
   if (value.endsWith("/scoring-rules")) {
     return jsonResponse({ data: scoringRules });

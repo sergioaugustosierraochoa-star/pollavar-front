@@ -10,6 +10,7 @@ import {
   type PredictionMatchStatus,
   type PredictionSnapshot,
   type PredictionSummary,
+  type PrizePreview,
   type RankingEntry,
   type ScoringRule,
   type StandingPrediction,
@@ -49,6 +50,7 @@ type LoadedPoolData = {
   scoringRules: ScoringRule[];
   userStandingPredictions: StandingPrediction[];
   ranking: RankingEntry[];
+  prizePreview: PrizePreview;
   tournamentDetail: Tournament | null;
 };
 type PredictionGroup = {
@@ -97,6 +99,7 @@ export default function ParticipantsHome() {
   const [snapshotDownloadingMatchID, setSnapshotDownloadingMatchID] = useState("");
   const [snapshotMessages, setSnapshotMessages] = useState<Record<string, string>>({});
   const [ranking, setRanking] = useState<RankingEntry[]>([]);
+  const [prizePreview, setPrizePreview] = useState<PrizePreview | null>(null);
   const [scoringRules, setScoringRules] = useState<ScoringRule[]>([]);
   const [standingPredictions, setStandingPredictions] = useState<StandingPrediction[]>([]);
   const [selectedRankingUserID, setSelectedRankingUserID] = useState("");
@@ -142,6 +145,7 @@ export default function ParticipantsHome() {
     setSnapshotDownloadingMatchID("");
     setSnapshotMessages({});
     setRanking([]);
+    setPrizePreview(null);
     setScoringRules([]);
     setStandingPredictions([]);
     setSelectedRankingUserID("");
@@ -176,6 +180,7 @@ export default function ParticipantsHome() {
       scoringRules,
       userStandingPredictions,
       ranking,
+      prizePreview,
       tournamentDetail,
     ] = await Promise.all([
       client.getPool(token, activePool.id),
@@ -185,6 +190,7 @@ export default function ParticipantsHome() {
       listScoringRulesWithFallback(client, token, activePool.id),
       client.listStandingPredictions(token, activePool.id),
       listRankingWithFallback(client, token, activePool.id),
+      getPrizePreviewWithFallback(client, token, activePool.id),
       tournamentRequest,
     ]);
 
@@ -196,6 +202,7 @@ export default function ParticipantsHome() {
       scoringRules,
       userStandingPredictions,
       ranking,
+      prizePreview,
       tournamentDetail,
     };
   }, []);
@@ -239,8 +246,9 @@ export default function ParticipantsHome() {
         setSnapshotLoadingMatchID("");
         setSnapshotDownloadingMatchID("");
         setSnapshotMessages({});
-        setRanking([]);
-        setScoringRules([]);
+      setRanking([]);
+      setPrizePreview(null);
+      setScoringRules([]);
         setStandingPredictions([]);
         setSelectedRankingUserID("");
         setPointDetailsByUserID({});
@@ -266,6 +274,7 @@ export default function ParticipantsHome() {
       setSnapshotDownloadingMatchID("");
       setSnapshotMessages({});
       setRanking(loadedPoolData.ranking);
+      setPrizePreview(loadedPoolData.prizePreview);
       setScoringRules(loadedPoolData.scoringRules);
       setStandingPredictions(loadedPoolData.userStandingPredictions);
       setSelectedRankingUserID("");
@@ -694,6 +703,7 @@ export default function ParticipantsHome() {
           pointDetailsByUserID={pointDetailsByUserID}
           pointDetailsLoadingUserID={pointDetailsLoadingUserID}
           pointDetailsMessage={pointDetailsMessage}
+          prizePreview={prizePreview}
           ranking={ranking}
           scoringRules={scoringRules}
           saveMessage={saveMessage}
@@ -736,6 +746,7 @@ function Dashboard({
   pointDetailsByUserID,
   pointDetailsLoadingUserID,
   pointDetailsMessage,
+  prizePreview,
   ranking,
   scoringRules,
   saveMessage,
@@ -771,6 +782,7 @@ function Dashboard({
   pointDetailsByUserID: Record<string, PointEventDetail[]>;
   pointDetailsLoadingUserID: string;
   pointDetailsMessage: string;
+  prizePreview: PrizePreview | null;
   ranking: RankingEntry[];
   scoringRules: ScoringRule[];
   saveMessage: string;
@@ -825,6 +837,7 @@ function Dashboard({
       <div className="grid gap-5">
         <PoolHeader pool={pool} tournament={tournament} />
         <SummaryGrid summary={summary} />
+        <PrizePanel preview={prizePreview} />
         <RankingPanel
           currentUserID={currentUserID}
           detailsByUserID={pointDetailsByUserID}
@@ -927,6 +940,48 @@ function SummaryGrid({ summary }: { summary: PredictionSummary | null }) {
           <p className="mt-2 text-2xl font-semibold text-zinc-950">{metric.value}</p>
         </div>
       ))}
+    </section>
+  );
+}
+
+function PrizePanel({ preview }: { preview: PrizePreview | null }) {
+  if (!preview || preview.payouts.length === 0) {
+    return (
+      <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-col gap-1">
+          <h2 className="text-lg font-semibold text-zinc-950">Premios</h2>
+          <p className="text-sm text-zinc-600">Sin premios configurados.</p>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="rounded-lg border border-zinc-200 bg-white shadow-sm">
+      <div className="flex flex-col gap-2 border-b border-zinc-200 px-5 py-4 md:flex-row md:items-center md:justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-zinc-950">Premios</h2>
+          <p className="text-sm text-zinc-600">
+            Bolsa confirmada: {formatMoney(preview.confirmed_total_cents, preview.currency)}
+          </p>
+        </div>
+        <span className="w-fit rounded-md bg-sky-100 px-2 py-1 text-xs font-medium text-sky-800">
+          {preview.payouts.length} ganadores
+        </span>
+      </div>
+      <div className="grid divide-y divide-zinc-200 md:grid-cols-2 md:divide-x md:divide-y-0">
+        {preview.payouts.map((payout) => (
+          <div key={`${payout.position}-${payout.description}`} className="px-5 py-4">
+            <p className="text-sm font-semibold text-zinc-950">
+              {payout.description || `Posicion ${payout.position}`}
+            </p>
+            <p className="mt-1 text-xs text-zinc-500">{payout.percentage}% de la bolsa</p>
+            <p className="mt-3 text-xl font-semibold text-zinc-950">
+              {formatMoney(payout.estimated_amount_cents, preview.currency)}
+            </p>
+          </div>
+        ))}
+      </div>
     </section>
   );
 }
@@ -1862,6 +1917,27 @@ async function listRankingWithFallback(
   }
 }
 
+async function getPrizePreviewWithFallback(
+  client: ReturnType<typeof createPollavarClient>,
+  token: string,
+  poolID: string,
+) {
+  try {
+    return await client.getPrizePreview(token, poolID);
+  } catch (error) {
+    if (isMissingEndpointError(error)) {
+      return {
+        pool_id: poolID,
+        currency: "COP",
+        confirmed_total_cents: 0,
+        rules: [],
+        payouts: [],
+      } satisfies PrizePreview;
+    }
+    throw error;
+  }
+}
+
 async function listPointDetailsWithFallback(
   client: ReturnType<typeof createPollavarClient>,
   token: string,
@@ -2289,6 +2365,14 @@ function paymentStatusLabel(status: string) {
     default:
       return "Pago pendiente";
   }
+}
+
+function formatMoney(amountCents: number, currency: string) {
+  const amount = amountCents / 100;
+  return `${currency} ${new Intl.NumberFormat("es-CO", {
+    maximumFractionDigits: 2,
+    minimumFractionDigits: Number.isInteger(amount) ? 0 : 2,
+  }).format(amount)}`;
 }
 
 function pointEventTitle(detail: PointEventDetail) {

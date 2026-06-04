@@ -138,6 +138,43 @@ export type PaymentCollection = {
   payments: Payment[];
 };
 
+export type PrizeRule = {
+  id: string;
+  pool_id: string;
+  type: string;
+  position: number;
+  percentage: number;
+  fixed_amount_cents: number;
+  currency: string;
+  description: string;
+  created_at: string;
+};
+
+export type PrizePayout = {
+  position: number;
+  percentage: number;
+  estimated_amount_cents: number;
+  description: string;
+};
+
+export type PrizePreview = {
+  pool_id: string;
+  currency: string;
+  confirmed_total_cents: number;
+  rules: PrizeRule[];
+  payouts: PrizePayout[];
+};
+
+export type SavePrizeRuleInput = {
+  position: number;
+  percentage: number;
+  description?: string;
+};
+
+export type UpdatePrizeRulesInput = {
+  rules: SavePrizeRuleInput[];
+};
+
 export type UpsertPaymentInput = {
   amount_cents: number;
   currency?: string;
@@ -374,6 +411,37 @@ export function createPollavarClient(options: PollavarClientOptions = {}) {
         {
           method: "PUT",
           body: JSON.stringify(input),
+          headers: authHeaders(token),
+        },
+      );
+    },
+    listPrizeRules(token: string, poolID: string) {
+      return request<PrizeRule[]>(
+        fetcher,
+        `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/prize-rules`,
+        {
+          method: "GET",
+          headers: authHeaders(token),
+        },
+      );
+    },
+    updatePrizeRules(token: string, poolID: string, input: UpdatePrizeRulesInput) {
+      return request<PrizeRule[]>(
+        fetcher,
+        `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/prize-rules`,
+        {
+          method: "PUT",
+          body: JSON.stringify(input),
+          headers: authHeaders(token),
+        },
+      );
+    },
+    getPrizePreview(token: string, poolID: string) {
+      return request<PrizePreview>(
+        fetcher,
+        `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/prizes/preview`,
+        {
+          method: "GET",
           headers: authHeaders(token),
         },
       );

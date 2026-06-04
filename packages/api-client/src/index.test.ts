@@ -11,6 +11,8 @@ import {
   type PredictionMatchStatus,
   type PredictionSnapshot,
   type PredictionSummary,
+  type PrizePreview,
+  type PrizeRule,
   type RankingEntry,
   type ScoringRule,
   type StandingPrediction,
@@ -219,6 +221,52 @@ const paymentCollection: PaymentCollection = {
   currency: "COP",
   confirmed_total_cents: 5000000,
   payments: [payment],
+};
+
+const prizeRules: PrizeRule[] = [
+  {
+    id: "prize-rule-1",
+    pool_id: "pool-id",
+    type: "ranking",
+    position: 1,
+    percentage: 70,
+    fixed_amount_cents: 0,
+    currency: "COP",
+    description: "Primero",
+    created_at: "2026-05-27T01:00:00Z",
+  },
+  {
+    id: "prize-rule-2",
+    pool_id: "pool-id",
+    type: "ranking",
+    position: 2,
+    percentage: 30,
+    fixed_amount_cents: 0,
+    currency: "COP",
+    description: "Segundo",
+    created_at: "2026-05-27T01:00:00Z",
+  },
+];
+
+const prizePreview: PrizePreview = {
+  pool_id: "pool-id",
+  currency: "COP",
+  confirmed_total_cents: 10000000,
+  rules: prizeRules,
+  payouts: [
+    {
+      position: 1,
+      percentage: 70,
+      estimated_amount_cents: 7000000,
+      description: "Primero",
+    },
+    {
+      position: 2,
+      percentage: 30,
+      estimated_amount_cents: 3000000,
+      description: "Segundo",
+    },
+  ],
 };
 
 describe("createPollavarClient", () => {
@@ -636,6 +684,81 @@ describe("createPollavarClient", () => {
           reference: "TRX-123",
           status: "confirmed",
         }),
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer token",
+        },
+      },
+    );
+  });
+
+  it("loads, updates and previews pool prizes", async () => {
+    const fetcher = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      const value = String(url);
+      if (value.endsWith("/prize-rules") && init?.method === "GET") {
+        return jsonResponse({ data: prizeRules });
+      }
+      if (value.endsWith("/prize-rules") && init?.method === "PUT") {
+        return jsonResponse({ data: prizeRules });
+      }
+      if (value.endsWith("/prizes/preview") && init?.method === "GET") {
+        return jsonResponse({ data: prizePreview });
+      }
+      return jsonResponse({ code: "not_found" }, { status: 404 });
+    });
+    const client = createPollavarClient({
+      baseURL: "http://api.local",
+      fetcher,
+    });
+
+    await expect(client.listPrizeRules("token", "pool id")).resolves.toEqual(
+      prizeRules,
+    );
+    await expect(
+      client.updatePrizeRules("token", "pool id", {
+        rules: [
+          { position: 1, percentage: 70, description: "Primero" },
+          { position: 2, percentage: 30, description: "Segundo" },
+        ],
+      }),
+    ).resolves.toEqual(prizeRules);
+    await expect(client.getPrizePreview("token", "pool id")).resolves.toEqual(
+      prizePreview,
+    );
+
+    expect(fetcher).toHaveBeenNthCalledWith(
+      1,
+      "http://api.local/api/v1/pools/pool%20id/prize-rules",
+      {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer token",
+        },
+      },
+    );
+    expect(fetcher).toHaveBeenNthCalledWith(
+      2,
+      "http://api.local/api/v1/pools/pool%20id/prize-rules",
+      {
+        method: "PUT",
+        body: JSON.stringify({
+          rules: [
+            { position: 1, percentage: 70, description: "Primero" },
+            { position: 2, percentage: 30, description: "Segundo" },
+          ],
+        }),
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer token",
+        },
+      },
+    );
+    expect(fetcher).toHaveBeenNthCalledWith(
+      3,
+      "http://api.local/api/v1/pools/pool%20id/prizes/preview",
+      {
+        method: "GET",
         headers: {
           "Content-Type": "application/json",
           Authorization: "Bearer token",

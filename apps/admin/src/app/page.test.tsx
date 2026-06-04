@@ -83,6 +83,52 @@ const confirmedPayment = {
   updated_at: "2026-05-27T01:00:00Z",
 };
 
+const prizeRules = [
+  {
+    id: "prize-rule-1",
+    pool_id: "pool-id",
+    type: "ranking",
+    position: 1,
+    percentage: 70,
+    fixed_amount_cents: 0,
+    currency: "COP",
+    description: "Primero",
+    created_at: "2026-05-27T01:00:00Z",
+  },
+  {
+    id: "prize-rule-2",
+    pool_id: "pool-id",
+    type: "ranking",
+    position: 2,
+    percentage: 30,
+    fixed_amount_cents: 0,
+    currency: "COP",
+    description: "Segundo",
+    created_at: "2026-05-27T01:00:00Z",
+  },
+];
+
+const prizePreview = {
+  pool_id: "pool-id",
+  currency: "COP",
+  confirmed_total_cents: 5000000,
+  rules: prizeRules,
+  payouts: [
+    {
+      position: 1,
+      percentage: 70,
+      estimated_amount_cents: 3500000,
+      description: "Primero",
+    },
+    {
+      position: 2,
+      percentage: 30,
+      estimated_amount_cents: 1500000,
+      description: "Segundo",
+    },
+  ],
+};
+
 describe("Admin home", () => {
   afterEach(() => {
     window.localStorage.clear();
@@ -128,6 +174,11 @@ describe("Admin home", () => {
     expect(metricValue("Confirmados")).toHaveTextContent("1");
     expect(metricValue("Pendientes")).toHaveTextContent("1");
     expect(metricValue("Recaudo confirmado")).toHaveTextContent("COP 50.000");
+    expect(screen.getByRole("heading", { name: "Premios" })).toBeInTheDocument();
+    expect(screen.getByText(/Bolsa confirmada:/)).toHaveTextContent("COP 50.000");
+    expect(metricValue("Ganadores")).toHaveTextContent("2");
+    expect(metricValue("Total porcentajes")).toHaveTextContent("100%");
+    expect(screen.getByText("COP 35.000")).toBeInTheDocument();
 
     const participantRow = rowWithText("@participante");
     expect(within(participantRow).getByText("@participante")).toBeInTheDocument();
@@ -170,6 +221,97 @@ describe("Admin home", () => {
     );
   });
 
+  it("updates prize rules from the admin panel", async () => {
+    storeSession();
+    const fetcher = vi.fn(adminFetch);
+    vi.stubGlobal("fetch", fetcher);
+
+    render(<AdminHome />);
+
+    expect(await screen.findByRole("heading", { name: "Premios" })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Porcentaje del premio 1"), {
+      target: { value: "60" },
+    });
+    fireEvent.change(screen.getByLabelText("Porcentaje del premio 2"), {
+      target: { value: "40" },
+    });
+    fireEvent.change(screen.getByLabelText("Descripcion del premio 1"), {
+      target: { value: "Campeon" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar premios" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("status")).toHaveTextContent("Premios actualizados.");
+    });
+
+    expect(fetcher).toHaveBeenCalledWith(
+      "http://localhost:8080/api/v1/pools/pool-id/prize-rules",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({
+          rules: [
+            { position: 1, percentage: 60, description: "Campeon" },
+            { position: 2, percentage: 40, description: "Segundo" },
+          ],
+        }),
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer token",
+        },
+      }),
+    );
+  });
+
+  it("keeps unsaved prize rule drafts when payment changes refresh the prize preview", async () => {
+    storeSession();
+    const fetcher = vi.fn(adminFetch);
+    vi.stubGlobal("fetch", fetcher);
+
+    render(<AdminHome />);
+
+    expect(await screen.findByRole("heading", { name: "Premios" })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Porcentaje del premio 1"), {
+      target: { value: "60" },
+    });
+    fireEvent.change(screen.getByLabelText("Descripcion del premio 1"), {
+      target: { value: "Campeon" },
+    });
+
+    const participantRow = rowWithText("@participante");
+    fireEvent.click(within(participantRow).getByRole("button", { name: "Confirmar" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("status")).toHaveTextContent("Pago actualizado.");
+    });
+    expect(screen.getByLabelText("Porcentaje del premio 1")).toHaveValue("60");
+    expect(screen.getByLabelText("Descripcion del premio 1")).toHaveValue("Campeon");
+  });
+
+  it("rejects prize rule totals that do not sum exactly to 100 percent at storage precision", async () => {
+    storeSession();
+    const fetcher = vi.fn(adminFetch);
+    vi.stubGlobal("fetch", fetcher);
+
+    render(<AdminHome />);
+
+    expect(await screen.findByRole("heading", { name: "Premios" })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Porcentaje del premio 1"), {
+      target: { value: "69.999" },
+    });
+    fireEvent.change(screen.getByLabelText("Porcentaje del premio 2"), {
+      target: { value: "30" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar premios" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Revisa los porcentajes de premios. Deben sumar 100%.",
+    );
+    expect(fetcher).not.toHaveBeenCalledWith(
+      "http://localhost:8080/api/v1/pools/pool-id/prize-rules",
+      expect.objectContaining({ method: "PUT" }),
+    );
+  });
+
   it("renders a read-only state when the selected pool cannot manage payments", async () => {
     storeSession({ user: { ...session.user, id: "participant-id" } });
     const fetcher = vi.fn(async (url: RequestInfo | URL) => {
@@ -182,13 +324,18 @@ describe("Admin home", () => {
           data: { ...pool, current_user_role: "participant" },
         });
       }
+      if (value.endsWith("/api/v1/pools/pool-id/prizes/preview")) {
+        return jsonResponse({ data: prizePreview });
+      }
       return jsonResponse({ code: "unauthorized" }, { status: 401 });
     });
     vi.stubGlobal("fetch", fetcher);
 
     render(<AdminHome />);
 
-    expect(await screen.findByText("Solo lectura")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getAllByText("Solo lectura").length).toBeGreaterThan(0);
+    });
     expect(
       screen.getByText("Esta polla no esta bajo tu administracion de recaudo."),
     ).toBeInTheDocument();
@@ -282,6 +429,27 @@ async function adminFetch(url: RequestInfo | URL, init?: RequestInit) {
         updated_at: "2026-05-27T02:00:00Z",
       },
     });
+  }
+  if (value.endsWith("/api/v1/pools/pool-id/prize-rules") && init?.method === "PUT") {
+    const body = JSON.parse(String(init.body)) as {
+      rules: Array<{ position: number; percentage: number; description: string }>;
+    };
+    return jsonResponse({
+      data: body.rules.map((rule, index) => ({
+        id: `prize-rule-${index + 1}`,
+        pool_id: "pool-id",
+        type: "ranking",
+        position: rule.position,
+        percentage: rule.percentage,
+        fixed_amount_cents: 0,
+        currency: "COP",
+        description: rule.description,
+        created_at: "2026-05-27T01:00:00Z",
+      })),
+    });
+  }
+  if (value.endsWith("/api/v1/pools/pool-id/prizes/preview") && init?.method === "GET") {
+    return jsonResponse({ data: prizePreview });
   }
   if (value.endsWith("/api/v1/pools/pool-id")) {
     return jsonResponse({ data: pool });

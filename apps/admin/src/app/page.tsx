@@ -10,6 +10,7 @@ import {
   type PaymentStatus,
   type Pool,
   type PoolParticipant,
+  type PrizePreview,
 } from "@pollavar/api-client";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -32,6 +33,17 @@ type PaymentDrafts = Record<
     status: PaymentStatus;
   }
 >;
+type PrizeRuleDraft = {
+  position: string;
+  percentage: string;
+  description: string;
+};
+type RefreshPrizePreviewOptions = {
+  syncDrafts?: boolean;
+};
+
+const prizePercentageScale = 1000;
+const prizeTotalPercentageUnits = 100 * prizePercentageScale;
 
 const paymentMethods: Array<{ value: PaymentMethod; label: string }> = [
   { value: "cash", label: "Efectivo" },
@@ -54,14 +66,18 @@ export default function AdminHome() {
   const [pool, setPool] = useState<Pool | null>(null);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [paymentCurrency, setPaymentCurrency] = useState("COP");
+  const [prizePreview, setPrizePreview] = useState<PrizePreview | null>(null);
+  const [prizeDrafts, setPrizeDrafts] = useState<PrizeRuleDraft[]>([]);
   const [drafts, setDrafts] = useState<PaymentDrafts>({});
   const [savingUserID, setSavingUserID] = useState("");
+  const [savingPrizes, setSavingPrizes] = useState(false);
   const requestID = useRef(0);
 
   const paymentsByUserID = useMemo(() => indexPayments(payments), [payments]);
   const canManageSelectedPool = Boolean(
     session && pool && canManagePayments(pool, session.user.id),
   );
+  const canManageSelectedPoolPrizes = Boolean(pool && canManagePrizeRules(pool));
   const totals = useMemo(
     () => paymentTotals(pool?.participants ?? [], paymentsByUserID),
     [pool?.participants, paymentsByUserID],
@@ -78,8 +94,11 @@ export default function AdminHome() {
     setPool(null);
     setPayments([]);
     setPaymentCurrency("COP");
+    setPrizePreview(null);
+    setPrizeDrafts([]);
     setDrafts({});
     setSavingUserID("");
+    setSavingPrizes(false);
   }, []);
 
   const loadDashboard = useCallback(async function loadDashboard(
@@ -115,12 +134,15 @@ export default function AdminHome() {
         setPool(null);
         setPayments([]);
         setPaymentCurrency("COP");
+        setPrizePreview(null);
+        setPrizeDrafts([]);
         setDrafts({});
         setStatus("ready");
         return;
       }
 
       const poolDetail = await client.getPool(token, activePool.id);
+      const nextPrizePreview = await client.getPrizePreview(token, poolDetail.id);
       let paymentCollection: PaymentCollection = {
         pool_id: poolDetail.id,
         currency: poolDetail.currency || "COP",
@@ -139,6 +161,8 @@ export default function AdminHome() {
       setPool(poolDetail);
       setPayments(paymentCollection.payments);
       setPaymentCurrency(paymentCollection.currency || poolDetail.currency || "COP");
+      setPrizePreview(nextPrizePreview);
+      setPrizeDrafts(hydratePrizeDrafts(nextPrizePreview));
       setDrafts(hydratePaymentDrafts(poolDetail, paymentCollection.payments));
       setStatus("ready");
       setMessage(
@@ -192,6 +216,24 @@ export default function AdminHome() {
     }));
   }
 
+  async function refreshPrizePreview(
+    token: string,
+    poolID: string,
+    options: RefreshPrizePreviewOptions = {},
+  ) {
+    try {
+      const nextPrizePreview = await createPollavarClient().getPrizePreview(token, poolID);
+      setPrizePreview(nextPrizePreview);
+      if (options.syncDrafts) {
+        setPrizeDrafts(hydratePrizeDrafts(nextPrizePreview));
+      }
+    } catch (error) {
+      if (isUnauthorized(error)) {
+        signOutAdmin();
+      }
+    }
+  }
+
   async function savePayment(userID: string, statusOverride?: PaymentStatus) {
     if (!session || !pool || !canManageSelectedPool) {
       return;
@@ -227,6 +269,7 @@ export default function AdminHome() {
         ...current,
         [userID]: draftFromPayment(savedPayment),
       }));
+      void refreshPrizePreview(session.token, pool.id);
       setMessage("Pago actualizado.");
     } catch (error) {
       if (isUnauthorized(error)) {
@@ -236,6 +279,61 @@ export default function AdminHome() {
       setMessage("No pudimos actualizar el pago.");
     } finally {
       setSavingUserID("");
+    }
+  }
+
+  function updatePrizeDraft(index: number, patch: Partial<PrizeRuleDraft>) {
+    setPrizeDrafts((current) =>
+      current.map((draft, draftIndex) =>
+        draftIndex === index ? { ...draft, ...patch } : draft,
+      ),
+    );
+  }
+
+  function addPrizeDraft() {
+    setPrizeDrafts((current) => [
+      ...current,
+      {
+        position: String(current.length + 1),
+        percentage: "",
+        description: "",
+      },
+    ]);
+  }
+
+  function removePrizeDraft(index: number) {
+    setPrizeDrafts((current) => current.filter((_, draftIndex) => draftIndex !== index));
+  }
+
+  async function savePrizeRules() {
+    if (!session || !pool || !canManageSelectedPoolPrizes) {
+      return;
+    }
+
+    const parsedRules = parsePrizeDrafts(prizeDrafts);
+    if (!parsedRules) {
+      setMessage("Revisa los porcentajes de premios. Deben sumar 100%.");
+      return;
+    }
+
+    setSavingPrizes(true);
+    setMessage("");
+
+    try {
+      const client = createPollavarClient();
+      await client.updatePrizeRules(session.token, pool.id, { rules: parsedRules });
+      const nextPrizePreview = await client.getPrizePreview(session.token, pool.id);
+      setPrizePreview(nextPrizePreview);
+      setPrizeDrafts(hydratePrizeDrafts(nextPrizePreview));
+      setMessage("Premios actualizados.");
+    } catch (error) {
+      if (isUnauthorized(error)) {
+        signOutAdmin();
+        return;
+      }
+      setMessage("No pudimos actualizar los premios.");
+    } finally {
+      setSavingPrizes(false);
     }
   }
 
@@ -351,6 +449,175 @@ export default function AdminHome() {
               >
                 {message}
               </p>
+            ) : null}
+
+            {pool ? (
+              <section className="rounded-lg border border-zinc-200 bg-white shadow-sm">
+                <div className="flex flex-col gap-3 border-b border-zinc-200 px-5 py-4 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <h2 className="text-lg font-semibold text-zinc-950">Premios</h2>
+                    <p className="text-sm text-zinc-600">
+                      Bolsa confirmada:{" "}
+                      {formatMoney(
+                        prizePreview?.confirmed_total_cents ?? 0,
+                        prizePreview?.currency ?? paymentCurrency,
+                      )}
+                    </p>
+                  </div>
+                  <span
+                    className={`w-fit rounded-md px-2 py-1 text-xs font-medium ${
+                      canManageSelectedPoolPrizes
+                        ? "bg-emerald-100 text-emerald-800"
+                        : "bg-amber-100 text-amber-800"
+                    }`}
+                  >
+                    {canManageSelectedPoolPrizes ? "Configurable" : "Solo lectura"}
+                  </span>
+                </div>
+
+                <div className="grid gap-5 p-5 lg:grid-cols-[minmax(0,1.15fr)_minmax(280px,0.85fr)]">
+                  <div className="overflow-x-auto">
+                    <table className="min-w-[620px] w-full border-collapse text-left text-sm">
+                      <thead className="bg-zinc-50 text-xs uppercase text-zinc-500">
+                        <tr>
+                          <th className="px-4 py-3 font-semibold">Posicion</th>
+                          <th className="px-4 py-3 font-semibold">Porcentaje</th>
+                          <th className="px-4 py-3 font-semibold">Descripcion</th>
+                          <th className="px-4 py-3 font-semibold">Acciones</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-zinc-200">
+                        {prizeDrafts.map((draft, index) => (
+                          <tr key={`${draft.position}-${index}`}>
+                            <td className="px-4 py-3">
+                              <label className="sr-only" htmlFor={`prize-position-${index}`}>
+                                Posicion del premio {index + 1}
+                              </label>
+                              <input
+                                id={`prize-position-${index}`}
+                                className="min-h-10 w-24 rounded-md border border-zinc-300 px-3 py-2 text-sm"
+                                disabled={!canManageSelectedPoolPrizes || savingPrizes}
+                                inputMode="numeric"
+                                value={draft.position}
+                                onChange={(event) =>
+                                  updatePrizeDraft(index, { position: event.target.value })
+                                }
+                              />
+                            </td>
+                            <td className="px-4 py-3">
+                              <label className="sr-only" htmlFor={`prize-percentage-${index}`}>
+                                Porcentaje del premio {index + 1}
+                              </label>
+                              <div className="flex items-center gap-2">
+                                <input
+                                  id={`prize-percentage-${index}`}
+                                  className="min-h-10 w-28 rounded-md border border-zinc-300 px-3 py-2 text-sm"
+                                  disabled={!canManageSelectedPoolPrizes || savingPrizes}
+                                  inputMode="decimal"
+                                  value={draft.percentage}
+                                  onChange={(event) =>
+                                    updatePrizeDraft(index, { percentage: event.target.value })
+                                  }
+                                />
+                                <span className="text-sm text-zinc-500">%</span>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3">
+                              <label className="sr-only" htmlFor={`prize-description-${index}`}>
+                                Descripcion del premio {index + 1}
+                              </label>
+                              <input
+                                id={`prize-description-${index}`}
+                                className="min-h-10 w-56 rounded-md border border-zinc-300 px-3 py-2 text-sm"
+                                disabled={!canManageSelectedPoolPrizes || savingPrizes}
+                                value={draft.description}
+                                onChange={(event) =>
+                                  updatePrizeDraft(index, { description: event.target.value })
+                                }
+                              />
+                            </td>
+                            <td className="px-4 py-3">
+                              <button
+                                className="rounded-md border border-rose-200 px-3 py-2 text-xs font-medium text-rose-700 hover:border-rose-300 disabled:cursor-not-allowed disabled:text-zinc-400"
+                                disabled={
+                                  !canManageSelectedPoolPrizes ||
+                                  savingPrizes ||
+                                  prizeDrafts.length <= 1
+                                }
+                                type="button"
+                                onClick={() => removePrizeDraft(index)}
+                              >
+                                Quitar
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="space-y-3">
+                    <Metric
+                      label="Ganadores"
+                      value={String(prizePreview?.payouts.length ?? prizeDrafts.length)}
+                    />
+                    <Metric
+                      label="Total porcentajes"
+                      value={`${formatPercentageTotal(prizeDrafts)}%`}
+                    />
+                    <div className="rounded-lg border border-zinc-200">
+                      <div className="border-b border-zinc-200 px-4 py-3">
+                        <p className="text-sm font-semibold text-zinc-950">Vista previa</p>
+                      </div>
+                      <div className="divide-y divide-zinc-200">
+                        {(prizePreview?.payouts ?? []).length > 0 ? (
+                          prizePreview?.payouts.map((payout) => (
+                            <div
+                              key={`${payout.position}-${payout.description}`}
+                              className="flex items-center justify-between gap-3 px-4 py-3 text-sm"
+                            >
+                              <div>
+                                <p className="font-medium text-zinc-950">
+                                  {payout.description || `Posicion ${payout.position}`}
+                                </p>
+                                <p className="text-xs text-zinc-500">{payout.percentage}%</p>
+                              </div>
+                              <p className="font-semibold text-zinc-950">
+                                {formatMoney(
+                                  payout.estimated_amount_cents,
+                                  prizePreview?.currency ?? paymentCurrency,
+                                )}
+                              </p>
+                            </div>
+                          ))
+                        ) : (
+                          <p className="px-4 py-3 text-sm text-zinc-600">
+                            Sin reglas de premios configuradas.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:border-zinc-400 disabled:cursor-not-allowed disabled:text-zinc-400"
+                        disabled={!canManageSelectedPoolPrizes || savingPrizes}
+                        type="button"
+                        onClick={addPrizeDraft}
+                      >
+                        Agregar ganador
+                      </button>
+                      <button
+                        className="rounded-md bg-zinc-950 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
+                        disabled={!canManageSelectedPoolPrizes || savingPrizes}
+                        type="button"
+                        onClick={() => void savePrizeRules()}
+                      >
+                        Guardar premios
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </section>
             ) : null}
 
             {pool ? (
@@ -624,6 +891,10 @@ function canManagePayments(pool: Pool, userID: string) {
   return pool.current_user_role === "pool_admin" || pool.collection_responsible_user_id === userID;
 }
 
+function canManagePrizeRules(pool: Pool) {
+  return pool.current_user_role === "pool_admin";
+}
+
 function poolDisplayName(pool: Pool) {
   return pool.theme?.display_name || pool.name;
 }
@@ -668,6 +939,19 @@ function hydratePaymentDrafts(pool: Pool, payments: Payment[]) {
     drafts[participant.user_id] = defaultDraft(pool, paymentsByUserID.get(participant.user_id));
   }
   return drafts;
+}
+
+function hydratePrizeDrafts(preview: PrizePreview | null) {
+  const rules = preview?.rules ?? [];
+  if (rules.length === 0) {
+    return [{ position: "1", percentage: "100", description: "Posicion 1" }];
+  }
+
+  return rules.map((rule) => ({
+    position: String(rule.position),
+    percentage: formatPercentageInput(rule.percentage),
+    description: rule.description,
+  }));
 }
 
 function defaultDraft(pool: Pool | null, payment?: Payment) {
@@ -728,6 +1012,73 @@ function parseMoneyToCents(value: string) {
     return null;
   }
   return Math.round(amount * 100);
+}
+
+function parsePrizeDrafts(drafts: PrizeRuleDraft[]) {
+  if (drafts.length === 0) {
+    return null;
+  }
+
+  const seenPositions = new Set<number>();
+  let totalUnits = 0;
+  const rules = [];
+  for (const draft of drafts) {
+    const position = Number(draft.position.trim());
+    const percentage = parsePercentage(draft.percentage);
+    const description = draft.description.trim();
+    if (
+      !Number.isInteger(position) ||
+      position < 1 ||
+      seenPositions.has(position) ||
+      percentage === null ||
+      description.includes("<") ||
+      description.includes(">")
+    ) {
+      return null;
+    }
+    seenPositions.add(position);
+    totalUnits += percentageToUnits(percentage);
+    rules.push({ position, percentage, description });
+  }
+
+  if (totalUnits !== prizeTotalPercentageUnits) {
+    return null;
+  }
+
+  return rules.sort((left, right) => left.position - right.position);
+}
+
+function parsePercentage(value: string) {
+  const normalized = value.trim().replace(",", ".");
+  if (normalized === "") {
+    return null;
+  }
+  const percentage = Number(normalized);
+  if (!Number.isFinite(percentage) || percentage <= 0 || percentage > 100) {
+    return null;
+  }
+  const units = Math.round(percentage * prizePercentageScale);
+  if (units <= 0 || units > prizeTotalPercentageUnits) {
+    return null;
+  }
+  return units / prizePercentageScale;
+}
+
+function formatPercentageInput(percentage: number) {
+  return Number.isInteger(percentage) ? String(percentage) : String(percentage);
+}
+
+function formatPercentageTotal(drafts: PrizeRuleDraft[]) {
+  const totalUnits = drafts.reduce((accumulator, draft) => {
+    const percentage = parsePercentage(draft.percentage);
+    return accumulator + (percentage === null ? 0 : percentageToUnits(percentage));
+  }, 0);
+  const total = totalUnits / prizePercentageScale;
+  return Number.isInteger(total) ? String(total) : total.toFixed(3).replace(/0+$/, "").replace(/\.$/, "");
+}
+
+function percentageToUnits(percentage: number) {
+  return Math.round(percentage * prizePercentageScale);
 }
 
 function formatMoney(amountCents: number, currency: string) {
