@@ -441,7 +441,13 @@ describe("Participants home", () => {
     expect(await screen.findByRole("heading", { name: "Oficina FC" })).toBeInTheDocument();
     expect(screen.getByText("FIFA World Cup 2026")).toBeInTheDocument();
     expect(screen.getByText("ABC123")).toBeInTheDocument();
-    expect(screen.getByText("6h antes")).toBeInTheDocument();
+    expect(screen.getAllByText("6h antes").length).toBeGreaterThan(0);
+    const accessNav = screen.getByRole("navigation", { name: "Accesos de la polla" });
+    expect(within(accessNav).getByText("Pronosticos")).toBeInTheDocument();
+    expect(within(accessNav).getByText("Posiciones")).toBeInTheDocument();
+    expect(within(accessNav).getByText("Participantes")).toBeInTheDocument();
+    expect(within(accessNav).getByText("Aclaraciones")).toBeInTheDocument();
+    expectNavigationTargetsToExist(accessNav);
     expect(screen.getAllByText("Pronosticados").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Faltantes").length).toBeGreaterThan(0);
     expect(screen.getByDisplayValue("2")).toBeInTheDocument();
@@ -462,6 +468,11 @@ describe("Participants home", () => {
     );
     expect(within(prizeSection as HTMLElement).getByText("2 ganadores")).toBeInTheDocument();
     expect(within(prizeSection as HTMLElement).getByText("COP 35.000")).toBeInTheDocument();
+    const participantsSection = screen.getByRole("heading", { name: "Participantes" }).closest("section");
+    expect(participantsSection).not.toBeNull();
+    expect(within(participantsSection as HTMLElement).getByText("1 inscrito")).toBeInTheDocument();
+    expect(within(participantsSection as HTMLElement).getByText("@participante")).toBeInTheDocument();
+    expect(within(participantsSection as HTMLElement).getByText("Pago pendiente")).toBeInTheDocument();
     const rankingSection = screen.getByRole("heading", { name: "Ranking general" }).closest("section");
     expect(rankingSection).not.toBeNull();
     expect(within(rankingSection as HTMLElement).getByText("8")).toBeInTheDocument();
@@ -492,6 +503,12 @@ describe("Participants home", () => {
         },
       }),
     );
+    const clarificationsSection = screen
+      .getByRole("heading", { name: "Aclaraciones por ronda" })
+      .closest("section");
+    expect(clarificationsSection).not.toBeNull();
+    expect(within(clarificationsSection as HTMLElement).getByText("Conteos, cierres y puntajes aplicables por bloque de partidos.")).toBeInTheDocument();
+    expect(within(clarificationsSection as HTMLElement).getAllByText(/Hasta/).length).toBeGreaterThan(0);
     const groupA = screen.getByRole("heading", { name: "Grupo A" }).closest("section");
     const groupB = screen.getByRole("heading", { name: "Grupo B" }).closest("section");
     expect(groupA).not.toBeNull();
@@ -646,8 +663,11 @@ describe("Participants home", () => {
 
     render(<ParticipantsHome />);
 
-    expect(await screen.findByRole("heading", { name: "Regular Season" })).toBeInTheDocument();
-    const table = screen.getByRole("table");
+    const roundSection = (await screen.findByRole("heading", { name: "Regular Season" })).closest(
+      "section",
+    );
+    expect(roundSection).not.toBeNull();
+    const table = within(roundSection as HTMLElement).getByRole("table");
     expect(
       within(table).getByRole("row", {
         name: /1 Gamma\s*GAM 2 4 2 0 \+2 Completo/,
@@ -932,7 +952,7 @@ describe("Participants home", () => {
         return jsonResponse({ data: prizePreview });
       }
       if (value.endsWith("/scoring-rules")) {
-        return jsonResponse({ data: scoringRules });
+        return jsonResponse({ data: [] });
       }
       if (value.endsWith("/standing-predictions")) {
         return jsonResponse({ data: [] });
@@ -947,6 +967,13 @@ describe("Participants home", () => {
     render(<ParticipantsHome />);
 
     expect(await screen.findByText("Torneo no disponible")).toBeInTheDocument();
+    expect(screen.getByText("Sin reglas activas para esta polla.")).toBeInTheDocument();
+    expect(
+      screen.getByText("Sin rondas disponibles para mostrar conteos y cierres."),
+    ).toBeInTheDocument();
+    expectNavigationTargetsToExist(
+      screen.getByRole("navigation", { name: "Accesos de la polla" }),
+    );
   });
 });
 
@@ -955,6 +982,14 @@ function storeSession(overrides: Partial<typeof session> = {}) {
     "pollavar.participants.session",
     JSON.stringify({ ...session, ...overrides }),
   );
+}
+
+function expectNavigationTargetsToExist(navigation: HTMLElement) {
+  for (const link of within(navigation).getAllByRole("link")) {
+    const href = link.getAttribute("href");
+    const target = href ? document.querySelector(href) : null;
+    expect(target).not.toBeNull();
+  }
 }
 
 async function dashboardFetch(url: RequestInfo | URL, init?: RequestInit) {
