@@ -268,6 +268,57 @@ const underdogBonuses = [
   },
 ];
 
+const globalPredictionDefinitions = [
+  {
+    id: "global-definition-champion",
+    pool_id: "pool-id",
+    code: "global_champion",
+    label: "Campeon",
+    value_type: "team",
+    enabled: true,
+    points_enabled: true,
+    prize_enabled: true,
+    points: 10,
+    sort_order: 1,
+    closes_at: "2020-06-11T00:00:00Z",
+    created_at: "2026-05-27T01:00:00Z",
+    updated_at: "2026-05-27T01:00:00Z",
+  },
+  {
+    id: "global-definition-yellow-range",
+    pool_id: "pool-id",
+    code: "global_yellow_cards_range",
+    label: "Total amarillas por rango",
+    value_type: "number_range",
+    enabled: true,
+    points_enabled: true,
+    prize_enabled: false,
+    points: 5,
+    sort_order: 2,
+    closes_at: null,
+    created_at: "2026-05-27T01:00:00Z",
+    updated_at: "2026-05-27T01:00:00Z",
+  },
+];
+
+const globalPredictionResults = [
+  {
+    id: "global-result-champion",
+    pool_id: "pool-id",
+    definition_id: "global-definition-champion",
+    code: "global_champion",
+    value_type: "team",
+    value_text: "team-mexico",
+    value_number: null,
+    range_min: null,
+    range_max: null,
+    recorded_by: "admin-id",
+    recorded_at: "2026-07-20T01:00:00Z",
+    created_at: "2026-07-20T01:00:00Z",
+    updated_at: "2026-07-20T01:00:00Z",
+  },
+];
+
 describe("Admin home", () => {
   afterEach(() => {
     window.localStorage.clear();
@@ -309,7 +360,11 @@ describe("Admin home", () => {
     expect(screen.getByLabelText("Polla")).toHaveValue("pool-id");
     expect(screen.getByRole("heading", { name: "Resultados oficiales" })).toBeInTheDocument();
     expect(screen.getByText("1 de 2 partidos con marcador final.")).toBeInTheDocument();
-    expect(screen.getByText("Con resultado")).toBeInTheDocument();
+    const officialResultsSection = screen
+      .getByRole("heading", { name: "Resultados oficiales" })
+      .closest("section");
+    expect(officialResultsSection).not.toBeNull();
+    expect(within(officialResultsSection as HTMLElement).getByText("Con resultado")).toBeInTheDocument();
     expect(screen.queryByText("Puntuado")).not.toBeInTheDocument();
     expect(screen.getByText("Recaudo habilitado")).toBeInTheDocument();
     expect(screen.getByText("COP 50.000 por entrada")).toBeInTheDocument();
@@ -322,6 +377,10 @@ describe("Admin home", () => {
     expect(metricValue("Ganadores")).toHaveTextContent("2");
     expect(metricValue("Total porcentajes")).toHaveTextContent("100%");
     expect(screen.getByText("COP 35.000")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Predicciones globales" })).toBeInTheDocument();
+    expect(screen.getByText("2 activas de 2 configuradas.")).toBeInTheDocument();
+    expect(screen.getByText("Resultados globales oficiales")).toBeInTheDocument();
+    expect(screen.getByText("Actual:")).toBeInTheDocument();
 
     const participantRow = rowWithText("@participante");
     expect(within(participantRow).getByText("@participante")).toBeInTheDocument();
@@ -531,6 +590,86 @@ describe("Admin home", () => {
     );
   });
 
+  it("updates global prediction settings and official global results", async () => {
+    storeSession();
+    const fetcher = vi.fn(adminFetch);
+    vi.stubGlobal("fetch", fetcher);
+
+    render(<AdminHome />);
+
+    expect(await screen.findByRole("heading", { name: "Predicciones globales" })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Puntos de Campeon"), {
+      target: { value: "12" },
+    });
+    fireEvent.click(screen.getByLabelText("Premio especial Total amarillas por rango"));
+    fireEvent.click(screen.getByRole("button", { name: "Guardar predicciones globales" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("status")).toHaveTextContent(
+        "Predicciones globales actualizadas.",
+      );
+    });
+
+    fireEvent.change(screen.getByLabelText("Resultado oficial Campeon"), {
+      target: { value: "team-canada" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar resultado Campeon" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("status")).toHaveTextContent("Resultado global actualizado.");
+    });
+
+    expect(fetcher).toHaveBeenCalledWith(
+      "http://localhost:8080/api/v1/pools/pool-id/global-prediction-definitions",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({
+          definitions: [
+            {
+              code: "global_champion",
+              label: "Campeon",
+              value_type: "team",
+              enabled: true,
+              points_enabled: true,
+              prize_enabled: true,
+              points: 12,
+              sort_order: 1,
+              closes_at: "2020-06-11T00:00:00.000Z",
+            },
+            {
+              code: "global_yellow_cards_range",
+              label: "Total amarillas por rango",
+              value_type: "number_range",
+              enabled: true,
+              points_enabled: true,
+              prize_enabled: true,
+              points: 5,
+              sort_order: 2,
+              closes_at: null,
+            },
+          ],
+        }),
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer token",
+        },
+      }),
+    );
+    expect(fetcher).toHaveBeenCalledWith(
+      "http://localhost:8080/api/v1/pools/pool-id/global-results/global_champion",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({
+          value_text: "team-canada",
+        }),
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer token",
+        },
+      }),
+    );
+  });
+
   it("updates pool visual identity from the admin panel", async () => {
     storeSession();
     const fetcher = vi.fn(adminFetch);
@@ -690,6 +829,12 @@ describe("Admin home", () => {
       }
       if (value.endsWith("/api/v1/pools/pool-id/underdog-bonuses")) {
         return jsonResponse({ data: underdogBonuses });
+      }
+      if (value.endsWith("/api/v1/pools/pool-id/global-prediction-definitions")) {
+        return jsonResponse({ data: globalPredictionDefinitions });
+      }
+      if (value.endsWith("/api/v1/pools/pool-id/global-results")) {
+        return jsonResponse({ data: globalPredictionResults });
       }
       if (value.endsWith("/api/v1/pools/pool-id/prizes/preview")) {
         return jsonResponse({ data: prizePreview });
@@ -852,6 +997,47 @@ async function adminFetch(url: RequestInfo | URL, init?: RequestInit) {
   }
   if (value.endsWith("/api/v1/pools/pool-id/scoring-rules")) {
     return jsonResponse({ data: scoringRules });
+  }
+  if (
+    value.endsWith("/api/v1/pools/pool-id/global-prediction-definitions") &&
+    init?.method === "PUT"
+  ) {
+    const body = JSON.parse(String(init.body)) as {
+      definitions: Array<(typeof globalPredictionDefinitions)[number]>;
+    };
+    return jsonResponse({
+      data: body.definitions.map((definition, index) => ({
+        ...globalPredictionDefinitions[index],
+        ...definition,
+        id: globalPredictionDefinitions[index]?.id ?? `global-definition-${index + 1}`,
+        pool_id: "pool-id",
+        created_at: "2026-05-27T01:00:00Z",
+        updated_at: "2026-05-27T02:00:00Z",
+      })),
+    });
+  }
+  if (value.endsWith("/api/v1/pools/pool-id/global-prediction-definitions")) {
+    return jsonResponse({ data: globalPredictionDefinitions });
+  }
+  if (
+    value.endsWith("/api/v1/pools/pool-id/global-results/global_champion") &&
+    init?.method === "PUT"
+  ) {
+    const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+    return jsonResponse({
+      data: {
+        ...globalPredictionResults[0],
+        value_text: body.value_text ?? "",
+        value_number: body.value_number ?? null,
+        range_min: body.range_min ?? null,
+        range_max: body.range_max ?? null,
+        recorded_at: "2026-07-20T02:00:00Z",
+        updated_at: "2026-07-20T02:00:00Z",
+      },
+    });
+  }
+  if (value.endsWith("/api/v1/pools/pool-id/global-results")) {
+    return jsonResponse({ data: globalPredictionResults });
   }
   if (value.endsWith("/api/v1/pools/pool-id/underdog-bonuses/match-id") && init?.method === "PUT") {
     const body = JSON.parse(String(init.body)) as Record<string, unknown>;

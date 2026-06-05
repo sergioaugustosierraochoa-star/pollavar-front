@@ -81,7 +81,34 @@ const tournamentSummary = {
 
 const tournament = {
   ...tournamentSummary,
-  groups: [],
+  groups: [
+    {
+      id: "group-a",
+      name: "A",
+      teams: [
+        { id: "MEX", name: "Mexico", short_name: "MEX", country_code: "MEX" },
+        {
+          id: "RSA",
+          name: "South Africa",
+          short_name: "RSA",
+          country_code: "ZAF",
+        },
+      ],
+    },
+    {
+      id: "group-b",
+      name: "B",
+      teams: [
+        { id: "CAN", name: "Canada", short_name: "CAN", country_code: "CAN" },
+        {
+          id: "BIH",
+          name: "Bosnia and Herzegovina",
+          short_name: "BIH",
+          country_code: "BIH",
+        },
+      ],
+    },
+  ],
   matches: [
     {
       id: "match-1",
@@ -319,6 +346,74 @@ const matchUnderdogBonuses = [
   },
 ];
 
+const globalPredictionDefinitions = [
+  {
+    id: "global-definition-champion",
+    pool_id: "pool-id",
+    code: "global_champion",
+    label: "Campeon",
+    value_type: "team",
+    enabled: true,
+    points_enabled: true,
+    prize_enabled: true,
+    points: 10,
+    sort_order: 1,
+    closes_at: "2020-06-11T00:00:00Z",
+    created_at: "2026-05-27T01:00:00Z",
+    updated_at: "2026-05-27T01:00:00Z",
+  },
+  {
+    id: "global-definition-yellow-range",
+    pool_id: "pool-id",
+    code: "global_yellow_cards_range",
+    label: "Total amarillas por rango",
+    value_type: "number_range",
+    enabled: true,
+    points_enabled: true,
+    prize_enabled: false,
+    points: 5,
+    sort_order: 2,
+    closes_at: null,
+    created_at: "2026-05-27T01:00:00Z",
+    updated_at: "2026-05-27T01:00:00Z",
+  },
+];
+
+const globalPredictions = [
+  {
+    id: "global-prediction-champion",
+    pool_id: "pool-id",
+    user_id: "user-id",
+    definition_id: "global-definition-champion",
+    code: "global_champion",
+    value_type: "team",
+    value_text: "MEX",
+    value_number: null,
+    range_min: null,
+    range_max: null,
+    created_at: "2026-06-01T12:00:00Z",
+    updated_at: "2026-06-01T12:30:00Z",
+  },
+];
+
+const globalPredictionResults = [
+  {
+    id: "global-result-champion",
+    pool_id: "pool-id",
+    definition_id: "global-definition-champion",
+    code: "global_champion",
+    value_type: "team",
+    value_text: "MEX",
+    value_number: null,
+    range_min: null,
+    range_max: null,
+    recorded_by: "admin-id",
+    recorded_at: "2026-07-20T01:00:00Z",
+    created_at: "2026-07-20T01:00:00Z",
+    updated_at: "2026-07-20T01:00:00Z",
+  },
+];
+
 const rankingEntries = [
   {
     position: 1,
@@ -339,6 +434,7 @@ const pointDetails = [
     user_id: "user-id",
     prediction_id: "prediction-id",
     standing_prediction_id: "",
+    global_prediction_id: "",
     match_id: "match-1",
     match_number: 1,
     rule_code: "exact_score",
@@ -493,6 +589,7 @@ describe("Participants home", () => {
     const accessNav = screen.getByRole("navigation", { name: "Accesos de la polla" });
     expect(within(accessNav).getByText("Pronosticos")).toBeInTheDocument();
     expect(within(accessNav).getByText("Posiciones")).toBeInTheDocument();
+    expect(within(accessNav).getByText("Globales")).toBeInTheDocument();
     expect(within(accessNav).getByText("Participantes")).toBeInTheDocument();
     expect(within(accessNav).getByText("Aclaraciones")).toBeInTheDocument();
     expectNavigationTargetsToExist(accessNav);
@@ -504,12 +601,13 @@ describe("Participants home", () => {
     expect(screen.getByText("Puntuado")).toBeInTheDocument();
     expect(screen.getByText("+5 pts")).toBeInTheDocument();
     expect(screen.getByText("Resultado 2-1")).toBeInTheDocument();
-    expect(screen.getByText("Reglas de puntaje")).toBeInTheDocument();
-    expect(screen.getByText("Marcador exacto")).toBeInTheDocument();
-    expect(screen.getByText("5 pts")).toBeInTheDocument();
-    expect(screen.getByText("Resultado correcto")).toBeInTheDocument();
-    expect(screen.getByText("3 pts")).toBeInTheDocument();
-    expect(screen.getByText("Bonus sorpresa")).toBeInTheDocument();
+    const scoringSection = screen.getByText("Reglas de puntaje").closest("section");
+    expect(scoringSection).not.toBeNull();
+    expect(within(scoringSection as HTMLElement).getByText("Marcador exacto")).toBeInTheDocument();
+    expect(within(scoringSection as HTMLElement).getByText("5 pts")).toBeInTheDocument();
+    expect(within(scoringSection as HTMLElement).getByText("Resultado correcto")).toBeInTheDocument();
+    expect(within(scoringSection as HTMLElement).getByText("3 pts")).toBeInTheDocument();
+    expect(within(scoringSection as HTMLElement).getByText("Bonus sorpresa")).toBeInTheDocument();
     expect(screen.getByText("Sorpresa: Visitante +2 pts")).toBeInTheDocument();
     const prizeSection = screen.getByRole("heading", { name: "Premios" }).closest("section");
     expect(prizeSection).not.toBeNull();
@@ -518,6 +616,14 @@ describe("Participants home", () => {
     );
     expect(within(prizeSection as HTMLElement).getByText("2 ganadores")).toBeInTheDocument();
     expect(within(prizeSection as HTMLElement).getByText("COP 35.000")).toBeInTheDocument();
+    const globalSection = screen
+      .getByRole("heading", { name: "Predicciones globales" })
+      .closest("section");
+    expect(globalSection).not.toBeNull();
+    expect(within(globalSection as HTMLElement).getByText("1 de 2 pronosticos completos.")).toBeInTheDocument();
+    expect(within(globalSection as HTMLElement).getByText("Campeon")).toBeInTheDocument();
+    expect(within(globalSection as HTMLElement).getByText("Premio especial")).toBeInTheDocument();
+    expect(within(globalSection as HTMLElement).getByText("Resultado oficial: Mexico")).toBeInTheDocument();
     const participantsSection = screen.getByRole("heading", { name: "Participantes" }).closest("section");
     expect(participantsSection).not.toBeNull();
     expect(within(participantsSection as HTMLElement).getByText("1 inscrito")).toBeInTheDocument();
@@ -730,11 +836,12 @@ describe("Participants home", () => {
     render(<ParticipantsHome />);
 
     expect(await screen.findByRole("heading", { name: "Oficina FC" })).toBeInTheDocument();
-    expect(screen.getByText("Reglas de puntaje")).toBeInTheDocument();
-    expect(screen.getByText("Marcador exacto")).toBeInTheDocument();
-    expect(screen.getByText("5 pts")).toBeInTheDocument();
-    expect(screen.getByText("Resultado correcto")).toBeInTheDocument();
-    expect(screen.getByText("3 pts")).toBeInTheDocument();
+    const scoringSection = screen.getByText("Reglas de puntaje").closest("section");
+    expect(scoringSection).not.toBeNull();
+    expect(within(scoringSection as HTMLElement).getByText("Marcador exacto")).toBeInTheDocument();
+    expect(within(scoringSection as HTMLElement).getByText("5 pts")).toBeInTheDocument();
+    expect(within(scoringSection as HTMLElement).getByText("Resultado correcto")).toBeInTheDocument();
+    expect(within(scoringSection as HTMLElement).getByText("3 pts")).toBeInTheDocument();
   });
 
   it("renders suggested standings for league stages with tiebreakers and incomplete teams", async () => {
@@ -887,6 +994,15 @@ describe("Participants home", () => {
       if (value.endsWith("/underdog-bonuses")) {
         return jsonResponse({ data: matchUnderdogBonuses });
       }
+      if (value.endsWith("/global-prediction-definitions")) {
+        return jsonResponse({ data: globalPredictionDefinitions });
+      }
+      if (value.endsWith("/global-predictions")) {
+        return jsonResponse({ data: globalPredictions });
+      }
+      if (value.endsWith("/global-results")) {
+        return jsonResponse({ data: globalPredictionResults });
+      }
       if (value.endsWith("/standing-predictions")) {
         return jsonResponse({ data: [] });
       }
@@ -948,6 +1064,40 @@ describe("Participants home", () => {
       expect.objectContaining({
         method: "PUT",
         body: JSON.stringify({ home_score: 1, away_score: 0 }),
+      }),
+    );
+  });
+
+  it("saves a global prediction from the participant dashboard", async () => {
+    storeSession();
+    const openGlobalDefinitions = globalPredictionDefinitions.map((definition) =>
+      definition.code === "global_champion"
+        ? { ...definition, closes_at: "2099-06-11T00:00:00Z" }
+        : definition,
+    );
+    const fetcher = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      const value = String(url);
+      if (value.endsWith("/global-prediction-definitions")) {
+        return jsonResponse({ data: openGlobalDefinitions });
+      }
+      return dashboardFetch(url, init);
+    });
+    vi.stubGlobal("fetch", fetcher);
+
+    render(<ParticipantsHome />);
+
+    const championInput = await screen.findByLabelText("Pronostico global Campeon");
+    fireEvent.change(championInput, { target: { value: "CAN" } });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar prediccion global Campeon" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("status")).toHaveTextContent("Pronostico global guardado.");
+    });
+    expect(fetcher).toHaveBeenCalledWith(
+      "http://localhost:8080/api/v1/pools/pool-id/global-predictions/global_champion",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({ value_text: "CAN" }),
       }),
     );
   });
@@ -1090,6 +1240,15 @@ describe("Participants home", () => {
       if (value.endsWith("/underdog-bonuses")) {
         return jsonResponse({ data: [] });
       }
+      if (value.endsWith("/global-prediction-definitions")) {
+        return jsonResponse({ data: [] });
+      }
+      if (value.endsWith("/global-predictions")) {
+        return jsonResponse({ data: [] });
+      }
+      if (value.endsWith("/global-results")) {
+        return jsonResponse({ data: [] });
+      }
       if (value.endsWith("/standing-predictions")) {
         return jsonResponse({ data: [] });
       }
@@ -1169,6 +1328,28 @@ async function dashboardFetch(url: RequestInfo | URL, init?: RequestInit) {
   if (value.endsWith("/underdog-bonuses")) {
     return jsonResponse({ data: matchUnderdogBonuses });
   }
+  if (value.endsWith("/global-prediction-definitions")) {
+    return jsonResponse({ data: globalPredictionDefinitions });
+  }
+  if (value.endsWith("/global-results")) {
+    return jsonResponse({ data: globalPredictionResults });
+  }
+  if (init?.method === "PUT" && value.includes("/global-predictions/")) {
+    const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+    return jsonResponse({
+      data: {
+        ...globalPredictions[0],
+        value_text: body.value_text ?? "",
+        value_number: body.value_number ?? null,
+        range_min: body.range_min ?? null,
+        range_max: body.range_max ?? null,
+        updated_at: "2026-06-01T13:00:00Z",
+      },
+    });
+  }
+  if (value.endsWith("/global-predictions")) {
+    return jsonResponse({ data: globalPredictions });
+  }
   if (value.endsWith("/standing-predictions")) {
     return jsonResponse({ data: [] });
   }
@@ -1234,6 +1415,15 @@ async function standingsFetch(url: RequestInfo | URL, init?: RequestInit) {
   }
   if (value.endsWith("/underdog-bonuses")) {
     return jsonResponse({ data: [] });
+  }
+  if (value.endsWith("/global-prediction-definitions")) {
+    return jsonResponse({ data: globalPredictionDefinitions });
+  }
+  if (value.endsWith("/global-results")) {
+    return jsonResponse({ data: globalPredictionResults });
+  }
+  if (value.endsWith("/global-predictions")) {
+    return jsonResponse({ data: globalPredictions });
   }
   if (value.endsWith("/standing-predictions")) {
     return jsonResponse({ data: [] });

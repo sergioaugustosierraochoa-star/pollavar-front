@@ -3,6 +3,9 @@
 import {
   PollavarAPIError,
   createPollavarClient,
+  type GlobalPrediction,
+  type GlobalPredictionDefinition,
+  type GlobalPredictionResult,
   type Match,
   type MatchOutcome,
   type MatchUnderdogBonus,
@@ -41,6 +44,11 @@ type AuthSession = {
 type DashboardStatus = "checking" | "signed-out" | "loading" | "ready" | "error";
 type ScoreDrafts = Record<string, { home: string; away: string; outcome: MatchOutcome | "" }>;
 type StandingDrafts = Record<string, string[]>;
+type GlobalPredictionDrafts = Record<
+  string,
+  { valueText: string; valueNumber: string; rangeMin: string; rangeMax: string }
+>;
+type TournamentTeamOption = Tournament["groups"][number]["teams"][number];
 const defaultScoringRules: ScoringRule[] = [
   { code: "exact_score", points: 5, enabled: true },
   { code: "match_result", points: 3, enabled: true },
@@ -54,6 +62,9 @@ type LoadedPoolData = {
   userPredictionStatuses: PredictionMatchStatus[];
   scoringRules: ScoringRule[];
   userStandingPredictions: StandingPrediction[];
+  globalPredictionDefinitions: GlobalPredictionDefinition[];
+  userGlobalPredictions: GlobalPrediction[];
+  globalPredictionResults: GlobalPredictionResult[];
   underdogBonuses: MatchUnderdogBonus[];
   ranking: RankingEntry[];
   prizePreview: PrizePreview;
@@ -116,6 +127,13 @@ export default function ParticipantsHome() {
   const [prizePreview, setPrizePreview] = useState<PrizePreview | null>(null);
   const [scoringRules, setScoringRules] = useState<ScoringRule[]>([]);
   const [standingPredictions, setStandingPredictions] = useState<StandingPrediction[]>([]);
+  const [globalPredictionDefinitions, setGlobalPredictionDefinitions] = useState<
+    GlobalPredictionDefinition[]
+  >([]);
+  const [globalPredictions, setGlobalPredictions] = useState<GlobalPrediction[]>([]);
+  const [globalPredictionResults, setGlobalPredictionResults] = useState<
+    GlobalPredictionResult[]
+  >([]);
   const [underdogBonuses, setUnderdogBonuses] = useState<MatchUnderdogBonus[]>([]);
   const [selectedRankingUserID, setSelectedRankingUserID] = useState("");
   const [pointDetailsByUserID, setPointDetailsByUserID] = useState<
@@ -125,10 +143,13 @@ export default function ParticipantsHome() {
   const [pointDetailsMessage, setPointDetailsMessage] = useState("");
   const [drafts, setDrafts] = useState<ScoreDrafts>({});
   const [standingDrafts, setStandingDrafts] = useState<StandingDrafts>({});
+  const [globalDrafts, setGlobalDrafts] = useState<GlobalPredictionDrafts>({});
   const [savingMatchID, setSavingMatchID] = useState("");
   const [savingStandingGroupID, setSavingStandingGroupID] = useState("");
+  const [savingGlobalDefinitionCode, setSavingGlobalDefinitionCode] = useState("");
   const [saveMessage, setSaveMessage] = useState("");
   const [standingSaveMessage, setStandingSaveMessage] = useState("");
+  const [globalSaveMessage, setGlobalSaveMessage] = useState("");
   const [clockTick, setClockTick] = useState(0);
   const dashboardRequestID = useRef(0);
 
@@ -167,6 +188,9 @@ export default function ParticipantsHome() {
     setPrizePreview(null);
     setScoringRules([]);
     setStandingPredictions([]);
+    setGlobalPredictionDefinitions([]);
+    setGlobalPredictions([]);
+    setGlobalPredictionResults([]);
     setUnderdogBonuses([]);
     setSelectedRankingUserID("");
     setPointDetailsByUserID({});
@@ -174,10 +198,13 @@ export default function ParticipantsHome() {
     setPointDetailsMessage("");
     setDrafts({});
     setStandingDrafts({});
+    setGlobalDrafts({});
     setSavingMatchID("");
     setSavingStandingGroupID("");
+    setSavingGlobalDefinitionCode("");
     setSaveMessage("");
     setStandingSaveMessage("");
+    setGlobalSaveMessage("");
   }, []);
 
   const loadPoolData = useCallback(async function loadPoolData(
@@ -199,6 +226,9 @@ export default function ParticipantsHome() {
       userPredictionStatuses,
       scoringRules,
       userStandingPredictions,
+      globalPredictionDefinitions,
+      userGlobalPredictions,
+      globalPredictionResults,
       loadedUnderdogBonuses,
       ranking,
       prizePreview,
@@ -210,6 +240,9 @@ export default function ParticipantsHome() {
       listPredictionStatusesWithFallback(client, token, activePool.id),
       listScoringRulesWithFallback(client, token, activePool.id),
       client.listStandingPredictions(token, activePool.id),
+      listGlobalPredictionDefinitionsWithFallback(client, token, activePool.id),
+      listGlobalPredictionsWithFallback(client, token, activePool.id),
+      listGlobalPredictionResultsWithFallback(client, token, activePool.id),
       listMatchUnderdogBonusesWithFallback(client, token, activePool.id),
       listRankingWithFallback(client, token, activePool.id),
       getPrizePreviewWithFallback(client, token, activePool.id),
@@ -223,6 +256,9 @@ export default function ParticipantsHome() {
       userPredictionStatuses,
       scoringRules,
       userStandingPredictions,
+      globalPredictionDefinitions,
+      userGlobalPredictions,
+      globalPredictionResults,
       underdogBonuses: loadedUnderdogBonuses,
       ranking,
       prizePreview,
@@ -242,6 +278,7 @@ export default function ParticipantsHome() {
     setMessage("");
     setSaveMessage("");
     setStandingSaveMessage("");
+    setGlobalSaveMessage("");
 
     try {
       const client = createPollavarClient();
@@ -273,6 +310,9 @@ export default function ParticipantsHome() {
         setPrizePreview(null);
         setScoringRules([]);
         setStandingPredictions([]);
+        setGlobalPredictionDefinitions([]);
+        setGlobalPredictions([]);
+        setGlobalPredictionResults([]);
         setUnderdogBonuses([]);
         setSelectedRankingUserID("");
         setPointDetailsByUserID({});
@@ -280,6 +320,7 @@ export default function ParticipantsHome() {
         setPointDetailsMessage("");
         setDrafts({});
         setStandingDrafts({});
+        setGlobalDrafts({});
         setStatus("ready");
         return;
       }
@@ -301,6 +342,9 @@ export default function ParticipantsHome() {
       setPrizePreview(loadedPoolData.prizePreview);
       setScoringRules(loadedPoolData.scoringRules);
       setStandingPredictions(loadedPoolData.userStandingPredictions);
+      setGlobalPredictionDefinitions(loadedPoolData.globalPredictionDefinitions);
+      setGlobalPredictions(loadedPoolData.userGlobalPredictions);
+      setGlobalPredictionResults(loadedPoolData.globalPredictionResults);
       setUnderdogBonuses(loadedPoolData.underdogBonuses);
       setSelectedRankingUserID("");
       setPointDetailsByUserID({});
@@ -314,6 +358,12 @@ export default function ParticipantsHome() {
         ),
       );
       setStandingDrafts({});
+      setGlobalDrafts(
+        hydrateGlobalDrafts(
+          loadedPoolData.globalPredictionDefinitions,
+          loadedPoolData.userGlobalPredictions,
+        ),
+      );
       setStatus("ready");
     } catch (error) {
       if (!isLatestRequest()) {
@@ -646,6 +696,78 @@ export default function ParticipantsHome() {
     }
   }
 
+  function updateGlobalDraft(
+    definitionCode: string,
+    field: keyof GlobalPredictionDrafts[string],
+    value: string,
+  ) {
+    setGlobalDrafts((current) => ({
+      ...current,
+      [definitionCode]: {
+        ...emptyGlobalPredictionDraft(),
+        ...current[definitionCode],
+        [field]: value,
+      },
+    }));
+    setGlobalSaveMessage("");
+  }
+
+  async function saveGlobalPrediction(definition: GlobalPredictionDefinition) {
+    if (!session || !pool) {
+      return;
+    }
+    if (isGlobalDefinitionClosed(definition)) {
+      setGlobalSaveMessage("Este pronostico global ya esta cerrado.");
+      return;
+    }
+
+    const draft = {
+      ...emptyGlobalPredictionDraft(),
+      ...globalDrafts[definition.code],
+    };
+    const input = globalPredictionInputFromDraft(definition, draft);
+    if (!input) {
+      setGlobalSaveMessage("Revisa el valor del pronostico global.");
+      return;
+    }
+
+    setSavingGlobalDefinitionCode(definition.code);
+    setGlobalSaveMessage("");
+    const requestID = dashboardRequestID.current;
+    try {
+      const client = createPollavarClient();
+      const savedPrediction = await client.saveGlobalPrediction(
+        session.token,
+        pool.id,
+        definition.code,
+        input,
+      );
+      if (dashboardRequestID.current !== requestID) {
+        return;
+      }
+      setGlobalPredictions((current) => upsertGlobalPrediction(current, savedPrediction));
+      setGlobalDrafts((current) => ({
+        ...current,
+        [definition.code]: globalPredictionDraft(savedPrediction),
+      }));
+      setGlobalSaveMessage("Pronostico global guardado.");
+    } catch (error) {
+      if (isUnauthorizedError(error)) {
+        signOutParticipant();
+        return;
+      }
+      if (isPredictionClosedError(error)) {
+        setGlobalSaveMessage("Este pronostico global ya esta cerrado.");
+        return;
+      }
+      setGlobalSaveMessage("No pudimos guardar el pronostico global.");
+    } finally {
+      if (dashboardRequestID.current === requestID) {
+        setSavingGlobalDefinitionCode("");
+      }
+    }
+  }
+
   return (
     <main className="min-h-screen bg-[#f8faf9] text-[#191b1f]">
       <header className="border-b border-zinc-200 bg-white">
@@ -713,9 +835,11 @@ export default function ParticipantsHome() {
           onLoadSnapshot={loadPredictionSnapshot}
           onSelectRankingUser={loadPointDetails}
           onSaveStanding={saveStandingPrediction}
+          onSaveGlobalPrediction={saveGlobalPrediction}
           onSelectPool={selectPool}
           onMoveStanding={moveStandingTeam}
           onUpdateDraft={updateDraft}
+          onUpdateGlobalDraft={updateGlobalDraft}
           pool={pool}
           pools={pools}
           predictionsByMatch={predictionsByMatch}
@@ -726,7 +850,13 @@ export default function ParticipantsHome() {
           prizePreview={prizePreview}
           ranking={ranking}
           scoringRules={scoringRules}
+          globalDrafts={globalDrafts}
+          globalPredictionDefinitions={globalPredictionDefinitions}
+          globalPredictionResults={globalPredictionResults}
+          globalPredictions={globalPredictions}
+          globalSaveMessage={globalSaveMessage}
           saveMessage={saveMessage}
+          savingGlobalDefinitionCode={savingGlobalDefinitionCode}
           savingMatchID={savingMatchID}
           savingStandingGroupID={savingStandingGroupID}
           selectedPoolID={selectedPoolID}
@@ -751,15 +881,22 @@ function Dashboard({
   clockTick,
   currentUserID,
   drafts,
+  globalDrafts,
+  globalPredictionDefinitions,
+  globalPredictionResults,
+  globalPredictions,
+  globalSaveMessage,
   underdogBonusesByMatch,
   onDownloadSnapshot,
   onLoadSnapshot,
   onSave,
+  onSaveGlobalPrediction,
   onSelectRankingUser,
   onSaveStanding,
   onSelectPool,
   onMoveStanding,
   onUpdateDraft,
+  onUpdateGlobalDraft,
   pool,
   pools,
   predictionsByMatch,
@@ -771,6 +908,7 @@ function Dashboard({
   ranking,
   scoringRules,
   saveMessage,
+  savingGlobalDefinitionCode,
   savingMatchID,
   savingStandingGroupID,
   selectedPoolID,
@@ -788,15 +926,26 @@ function Dashboard({
   clockTick: number;
   currentUserID: string;
   drafts: ScoreDrafts;
+  globalDrafts: GlobalPredictionDrafts;
+  globalPredictionDefinitions: GlobalPredictionDefinition[];
+  globalPredictionResults: GlobalPredictionResult[];
+  globalPredictions: GlobalPrediction[];
+  globalSaveMessage: string;
   underdogBonusesByMatch: Map<string, MatchUnderdogBonus>;
   onDownloadSnapshot: (matchID: string) => void;
   onLoadSnapshot: (matchID: string) => void;
   onSave: (event: FormEvent<HTMLFormElement>, match: Match) => void;
+  onSaveGlobalPrediction: (definition: GlobalPredictionDefinition) => void;
   onSelectRankingUser: (userID: string) => void;
   onSaveStanding: (group: PredictionGroup) => void;
   onSelectPool: (poolID: string) => void;
   onMoveStanding: (group: PredictionGroup, teamID: string, direction: -1 | 1) => void;
   onUpdateDraft: (matchID: string, side: "home" | "away" | "outcome", value: string) => void;
+  onUpdateGlobalDraft: (
+    definitionCode: string,
+    field: keyof GlobalPredictionDrafts[string],
+    value: string,
+  ) => void;
   pool: Pool | null;
   pools: Pool[];
   predictionsByMatch: Map<string, Prediction>;
@@ -808,6 +957,7 @@ function Dashboard({
   ranking: RankingEntry[];
   scoringRules: ScoringRule[];
   saveMessage: string;
+  savingGlobalDefinitionCode: string;
   savingMatchID: string;
   savingStandingGroupID: string;
   selectedPoolID: string;
@@ -886,6 +1036,8 @@ function Dashboard({
         <PoolHeader pool={pool} tournament={tournament} />
         <SummaryGrid summary={summary} />
         <DashboardNavigation
+          globalPredictionDefinitions={globalPredictionDefinitions}
+          globalPredictions={globalPredictions}
           pool={pool}
           predictionGroups={predictionGroups}
           prizePreview={prizePreview}
@@ -894,6 +1046,17 @@ function Dashboard({
           summary={summary}
         />
         <PrizePanel preview={prizePreview} />
+        <GlobalPredictionsPanel
+          definitions={globalPredictionDefinitions}
+          drafts={globalDrafts}
+          onSave={onSaveGlobalPrediction}
+          onUpdateDraft={onUpdateGlobalDraft}
+          results={globalPredictionResults}
+          saveMessage={globalSaveMessage}
+          savingDefinitionCode={savingGlobalDefinitionCode}
+          tournament={tournament}
+          userPredictions={globalPredictions}
+        />
         <ParticipantsPanel currentUserID={currentUserID} pool={pool} />
         <RankingPanel
           currentUserID={currentUserID}
@@ -1037,6 +1200,8 @@ function SummaryGrid({ summary }: { summary: PredictionSummary | null }) {
 }
 
 function DashboardNavigation({
+  globalPredictionDefinitions,
+  globalPredictions,
   pool,
   predictionGroups,
   prizePreview,
@@ -1044,6 +1209,8 @@ function DashboardNavigation({
   scoringRules,
   summary,
 }: {
+  globalPredictionDefinitions: GlobalPredictionDefinition[];
+  globalPredictions: GlobalPrediction[];
   pool: Pool | null;
   predictionGroups: PredictionGroup[];
   prizePreview: PrizePreview | null;
@@ -1053,12 +1220,24 @@ function DashboardNavigation({
 }) {
   const standingGroupCount = predictionGroups.filter((group) => group.standings.length > 0).length;
   const activeRuleCount = scoringRules.filter((rule) => rule.enabled).length;
+  const enabledGlobalDefinitions = globalPredictionDefinitions.filter(
+    (definition) => definition.enabled,
+  );
+  const predictedGlobalCount = enabledGlobalDefinitions.filter((definition) =>
+    globalPredictions.some((prediction) => prediction.code === definition.code),
+  ).length;
   const links = [
     {
       href: "#pronosticos",
       label: "Pronosticos",
       value: `${summary?.missing_matches ?? 0} faltantes`,
       detail: `${summary?.predicted_matches ?? 0}/${summary?.total_matches ?? 0} partidos`,
+    },
+    {
+      href: "#globales",
+      label: "Globales",
+      value: `${enabledGlobalDefinitions.length - predictedGlobalCount} faltantes`,
+      detail: `${predictedGlobalCount}/${enabledGlobalDefinitions.length} pronosticos`,
     },
     {
       href: standingGroupCount > 0 ? "#posiciones" : "#pronosticos",
@@ -1098,7 +1277,7 @@ function DashboardNavigation({
     },
   ];
   const gridColumnsClass =
-    links.length >= 7 ? "xl:grid-cols-7" : "xl:grid-cols-6";
+    links.length >= 8 ? "xl:grid-cols-8" : "xl:grid-cols-6";
 
   return (
     <nav
@@ -1161,6 +1340,268 @@ function PrizePanel({ preview }: { preview: PrizePreview | null }) {
         ))}
       </div>
     </section>
+  );
+}
+
+function GlobalPredictionsPanel({
+  definitions,
+  drafts,
+  onSave,
+  onUpdateDraft,
+  results,
+  saveMessage,
+  savingDefinitionCode,
+  tournament,
+  userPredictions,
+}: {
+  definitions: GlobalPredictionDefinition[];
+  drafts: GlobalPredictionDrafts;
+  onSave: (definition: GlobalPredictionDefinition) => void;
+  onUpdateDraft: (
+    definitionCode: string,
+    field: keyof GlobalPredictionDrafts[string],
+    value: string,
+  ) => void;
+  results: GlobalPredictionResult[];
+  saveMessage: string;
+  savingDefinitionCode: string;
+  tournament: Tournament | null;
+  userPredictions: GlobalPrediction[];
+}) {
+  const enabledDefinitions = definitions.filter((definition) => definition.enabled);
+  const predictionsByCode = indexGlobalPredictions(userPredictions);
+  const resultsByCode = indexGlobalPredictionResults(results);
+  const teamOptions = tournamentTeamOptions(tournament);
+
+  if (enabledDefinitions.length === 0) {
+    return (
+      <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm" id="globales">
+        <div className="flex flex-col gap-1">
+          <h2 className="text-lg font-semibold text-zinc-950">Predicciones globales</h2>
+          <p className="text-sm text-zinc-600">Esta polla no tiene predicciones globales activas.</p>
+        </div>
+      </section>
+    );
+  }
+
+  const completedCount = enabledDefinitions.filter((definition) =>
+    predictionsByCode.has(definition.code),
+  ).length;
+
+  return (
+    <section className="rounded-lg border border-zinc-200 bg-white shadow-sm" id="globales">
+      <div className="flex flex-col gap-2 border-b border-zinc-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-zinc-950">Predicciones globales</h2>
+          <p className="mt-1 text-sm text-zinc-500">
+            {completedCount} de {enabledDefinitions.length} pronosticos completos.
+          </p>
+        </div>
+        {saveMessage ? (
+          <p className="text-sm font-medium text-emerald-700" role="status">
+            {saveMessage}
+          </p>
+        ) : null}
+      </div>
+
+      <datalist id="global-team-options">
+        {teamOptions.map((team) => (
+          <option key={team.id} value={team.name} />
+        ))}
+      </datalist>
+
+      <div className="divide-y divide-zinc-100">
+        {enabledDefinitions.map((definition) => {
+          const prediction = predictionsByCode.get(definition.code);
+          const result = resultsByCode.get(definition.code);
+          const draft = {
+            ...emptyGlobalPredictionDraft(),
+            ...globalPredictionDraft(prediction),
+            ...drafts[definition.code],
+          };
+          const closed = isGlobalDefinitionClosed(definition);
+          const visibleResult = closed ? result : undefined;
+          const isSaving = savingDefinitionCode === definition.code;
+
+          return (
+            <div
+              className="grid gap-4 px-5 py-4 lg:grid-cols-[minmax(0,1fr)_minmax(260px,0.9fr)_auto]"
+              key={definition.code}
+            >
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="text-sm font-semibold text-zinc-950">{definition.label}</h3>
+                  <span
+                    className={`rounded-md px-2 py-1 text-xs font-medium ${
+                      closed ? "bg-zinc-100 text-zinc-600" : "bg-emerald-100 text-emerald-800"
+                    }`}
+                  >
+                    {closed ? "Cerrado" : "Abierto"}
+                  </span>
+                  {definition.points_enabled ? (
+                    <span className="rounded-md bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-800">
+                      {definition.points} pts
+                    </span>
+                  ) : null}
+                  {definition.prize_enabled ? (
+                    <span className="rounded-md bg-sky-50 px-2 py-1 text-xs font-semibold text-sky-800">
+                      Premio especial
+                    </span>
+                  ) : null}
+                </div>
+                <p className="mt-2 text-xs text-zinc-500">
+                  {globalPredictionValueTypeLabel(definition.value_type)}
+                  {definition.closes_at ? ` - Cierra ${formatMatchDate(definition.closes_at)}` : ""}
+                </p>
+                {prediction ? (
+                  <p className="mt-2 text-sm text-zinc-700">
+                    Guardado:{" "}
+                    <span className="font-semibold text-zinc-950">
+                      {globalPredictionValueLabel(prediction, teamOptions)}
+                    </span>
+                  </p>
+                ) : null}
+                {visibleResult ? (
+                  <p className="mt-1 text-xs text-zinc-500">
+                    Resultado oficial: {globalPredictionValueLabel(visibleResult, teamOptions)}
+                  </p>
+                ) : null}
+              </div>
+
+              <GlobalPredictionInput
+                closed={closed}
+                definition={definition}
+                draft={draft}
+                onUpdateDraft={onUpdateDraft}
+                teamOptions={teamOptions}
+              />
+
+              <div className="flex items-end lg:justify-end">
+                <button
+                  aria-label={`Guardar prediccion global ${definition.label}`}
+                  className="h-10 rounded-md bg-zinc-950 px-3 text-sm font-semibold text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-400"
+                  disabled={closed || isSaving}
+                  onClick={() => onSave(definition)}
+                  type="button"
+                >
+                  {isSaving ? "Guardando" : "Guardar"}
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function GlobalPredictionInput({
+  closed,
+  definition,
+  draft,
+  onUpdateDraft,
+  teamOptions,
+}: {
+  closed: boolean;
+  definition: GlobalPredictionDefinition;
+  draft: GlobalPredictionDrafts[string];
+  onUpdateDraft: (
+    definitionCode: string,
+    field: keyof GlobalPredictionDrafts[string],
+    value: string,
+  ) => void;
+  teamOptions: TournamentTeamOption[];
+}) {
+  if (definition.value_type === "team" && teamOptions.length > 0) {
+    return (
+      <label className="grid gap-1 text-xs font-medium text-zinc-600">
+        <span>Equipo</span>
+        <select
+          aria-label={`Pronostico global ${definition.label}`}
+          className="h-10 rounded-md border border-zinc-300 bg-white px-3 text-sm text-zinc-950 disabled:bg-zinc-100"
+          disabled={closed}
+          onChange={(event) => onUpdateDraft(definition.code, "valueText", event.target.value)}
+          value={draft.valueText}
+        >
+          <option value="">Elegir equipo</option>
+          {teamOptions.map((team) => (
+            <option key={team.id || team.name} value={team.id || team.name}>
+              {team.name}
+            </option>
+          ))}
+          {draft.valueText && !teamOptions.some((team) => (team.id || team.name) === draft.valueText) ? (
+            <option value={draft.valueText}>{draft.valueText}</option>
+          ) : null}
+        </select>
+      </label>
+    );
+  }
+
+  if (definition.value_type === "number") {
+    return (
+      <label className="grid gap-1 text-xs font-medium text-zinc-600">
+        <span>Valor exacto</span>
+        <input
+          aria-label={`Pronostico global ${definition.label}`}
+          className="h-10 rounded-md border border-zinc-300 px-3 text-sm text-zinc-950 disabled:bg-zinc-100"
+          disabled={closed}
+          min={0}
+          onChange={(event) =>
+            onUpdateDraft(definition.code, "valueNumber", event.target.value)
+          }
+          step={1}
+          type="number"
+          value={draft.valueNumber}
+        />
+      </label>
+    );
+  }
+
+  if (definition.value_type === "number_range") {
+    return (
+      <div className="grid grid-cols-2 gap-2">
+        <label className="grid gap-1 text-xs font-medium text-zinc-600">
+          <span>Desde</span>
+          <input
+            aria-label={`Pronostico global desde ${definition.label}`}
+            className="h-10 rounded-md border border-zinc-300 px-3 text-sm text-zinc-950 disabled:bg-zinc-100"
+            disabled={closed}
+            min={0}
+            onChange={(event) => onUpdateDraft(definition.code, "rangeMin", event.target.value)}
+            step={1}
+            type="number"
+            value={draft.rangeMin}
+          />
+        </label>
+        <label className="grid gap-1 text-xs font-medium text-zinc-600">
+          <span>Hasta</span>
+          <input
+            aria-label={`Pronostico global hasta ${definition.label}`}
+            className="h-10 rounded-md border border-zinc-300 px-3 text-sm text-zinc-950 disabled:bg-zinc-100"
+            disabled={closed}
+            min={0}
+            onChange={(event) => onUpdateDraft(definition.code, "rangeMax", event.target.value)}
+            step={1}
+            type="number"
+            value={draft.rangeMax}
+          />
+        </label>
+      </div>
+    );
+  }
+
+  return (
+    <label className="grid gap-1 text-xs font-medium text-zinc-600">
+      <span>{definition.value_type === "team" ? "Equipo" : "Respuesta"}</span>
+      <input
+        aria-label={`Pronostico global ${definition.label}`}
+        className="h-10 rounded-md border border-zinc-300 px-3 text-sm text-zinc-950 disabled:bg-zinc-100"
+        disabled={closed}
+        list={definition.value_type === "team" ? "global-team-options" : undefined}
+        onChange={(event) => onUpdateDraft(definition.code, "valueText", event.target.value)}
+        value={draft.valueText}
+      />
+    </label>
   );
 }
 
@@ -1475,7 +1916,11 @@ function RankingPanel({
                 {selectedDetails.map((detail) => (
                   <li
                     className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 px-3 py-3 text-sm"
-                    key={`${detail.prediction_id || detail.standing_prediction_id}-${detail.rule_code}-${detail.created_at}`}
+                    key={`${
+                      detail.prediction_id ||
+                      detail.standing_prediction_id ||
+                      detail.global_prediction_id
+                    }-${detail.rule_code}-${detail.created_at}`}
                   >
                     <span className="min-w-0">
                       <span className="block font-semibold text-zinc-950">
@@ -2443,6 +2888,51 @@ async function listMatchUnderdogBonusesWithFallback(
   }
 }
 
+async function listGlobalPredictionDefinitionsWithFallback(
+  client: ReturnType<typeof createPollavarClient>,
+  token: string,
+  poolID: string,
+) {
+  try {
+    return await client.listGlobalPredictionDefinitions(token, poolID);
+  } catch (error) {
+    if (isMissingEndpointError(error)) {
+      return [];
+    }
+    throw error;
+  }
+}
+
+async function listGlobalPredictionsWithFallback(
+  client: ReturnType<typeof createPollavarClient>,
+  token: string,
+  poolID: string,
+) {
+  try {
+    return await client.listGlobalPredictions(token, poolID);
+  } catch (error) {
+    if (isMissingEndpointError(error)) {
+      return [];
+    }
+    throw error;
+  }
+}
+
+async function listGlobalPredictionResultsWithFallback(
+  client: ReturnType<typeof createPollavarClient>,
+  token: string,
+  poolID: string,
+) {
+  try {
+    return await client.listGlobalPredictionResults(token, poolID);
+  } catch (error) {
+    if (isMissingEndpointError(error)) {
+      return [];
+    }
+    throw error;
+  }
+}
+
 async function listRankingWithFallback(
   client: ReturnType<typeof createPollavarClient>,
   token: string,
@@ -2840,6 +3330,17 @@ function upsertStandingPrediction(
   return nextPredictions;
 }
 
+function upsertGlobalPrediction(
+  predictions: GlobalPrediction[],
+  nextPrediction: GlobalPrediction,
+) {
+  const nextPredictions = predictions.filter(
+    (prediction) => prediction.code !== nextPrediction.code,
+  );
+  nextPredictions.push(nextPrediction);
+  return nextPredictions;
+}
+
 function hydrateDrafts(matches: Match[], predictions: Prediction[]) {
   const indexed = indexPredictions(predictions);
   const nextDrafts: ScoreDrafts = {};
@@ -2847,6 +3348,54 @@ function hydrateDrafts(matches: Match[], predictions: Prediction[]) {
     nextDrafts[match.id] = predictionScoreDraft(indexed.get(match.id));
   }
   return nextDrafts;
+}
+
+function hydrateGlobalDrafts(
+  definitions: GlobalPredictionDefinition[],
+  predictions: GlobalPrediction[],
+) {
+  const predictionsByCode = indexGlobalPredictions(predictions);
+  const nextDrafts: GlobalPredictionDrafts = {};
+  for (const definition of definitions) {
+    nextDrafts[definition.code] = globalPredictionDraft(predictionsByCode.get(definition.code));
+  }
+  return nextDrafts;
+}
+
+function indexGlobalPredictions(predictions: GlobalPrediction[]) {
+  const indexed = new Map<string, GlobalPrediction>();
+  for (const prediction of predictions) {
+    indexed.set(prediction.code, prediction);
+  }
+  return indexed;
+}
+
+function indexGlobalPredictionResults(results: GlobalPredictionResult[]) {
+  const indexed = new Map<string, GlobalPredictionResult>();
+  for (const result of results) {
+    indexed.set(result.code, result);
+  }
+  return indexed;
+}
+
+function emptyGlobalPredictionDraft(): GlobalPredictionDrafts[string] {
+  return { valueText: "", valueNumber: "", rangeMin: "", rangeMax: "" };
+}
+
+function globalPredictionDraft(
+  prediction: GlobalPrediction | GlobalPredictionResult | undefined,
+): GlobalPredictionDrafts[string] {
+  if (!prediction) {
+    return emptyGlobalPredictionDraft();
+  }
+
+  return {
+    valueText: prediction.value_text ?? "",
+    valueNumber:
+      typeof prediction.value_number === "number" ? String(prediction.value_number) : "",
+    rangeMin: typeof prediction.range_min === "number" ? String(prediction.range_min) : "",
+    rangeMax: typeof prediction.range_max === "number" ? String(prediction.range_max) : "",
+  };
 }
 
 function predictionInputFromDraft(pool: Pool, draft: ScoreDrafts[string]) {
@@ -2871,6 +3420,52 @@ function predictionInputFromDraft(pool: Pool, draft: ScoreDrafts[string]) {
     home_score: homeScore,
     away_score: awayScore,
   };
+}
+
+function globalPredictionInputFromDraft(
+  definition: GlobalPredictionDefinition,
+  draft: GlobalPredictionDrafts[string],
+) {
+  if (
+    definition.value_type === "team" ||
+    definition.value_type === "player" ||
+    definition.value_type === "text"
+  ) {
+    const valueText = draft.valueText.trim();
+    return valueText ? { value_text: valueText } : null;
+  }
+
+  if (definition.value_type === "number") {
+    const valueNumber = parseWholeNumber(draft.valueNumber);
+    return valueNumber === null ? null : { value_number: valueNumber };
+  }
+
+  const rangeMin = parseWholeNumber(draft.rangeMin);
+  const rangeMax = parseWholeNumber(draft.rangeMax);
+  if (rangeMin === null || rangeMax === null || rangeMax < rangeMin) {
+    return null;
+  }
+
+  return { range_min: rangeMin, range_max: rangeMax };
+}
+
+function isGlobalDefinitionClosed(definition: GlobalPredictionDefinition) {
+  if (!definition.closes_at) {
+    return false;
+  }
+
+  const closesAt = Date.parse(definition.closes_at);
+  return Number.isFinite(closesAt) && Date.now() >= closesAt;
+}
+
+function tournamentTeamOptions(tournament: Tournament | null) {
+  const teamsByID = new Map<string, TournamentTeamOption>();
+  for (const group of tournament?.groups ?? []) {
+    for (const team of group.teams) {
+      teamsByID.set(team.id || team.name, team);
+    }
+  }
+  return [...teamsByID.values()].sort((left, right) => left.name.localeCompare(right.name, "es"));
 }
 
 function outcomeFromDraftScore(draft: ScoreDrafts[string]): MatchOutcome | "" {
@@ -2948,6 +3543,30 @@ function scoringRuleLabel(code: ScoringRule["code"]) {
       return "Posicion exacta de grupo";
     case "underdog_bonus":
       return "Bonus sorpresa";
+    case "global_champion":
+      return "Campeon";
+    case "global_runner_up":
+      return "Subcampeon";
+    case "global_third_place":
+      return "Tercer puesto";
+    case "global_fourth_place":
+      return "Cuarto puesto";
+    case "global_top_scorer":
+      return "Goleador";
+    case "global_top_assistant":
+      return "Asistente";
+    case "global_yellow_cards_exact":
+      return "Amarillas exactas";
+    case "global_yellow_cards_range":
+      return "Amarillas por rango";
+    case "global_red_cards_exact":
+      return "Rojas exactas";
+    case "global_red_cards_range":
+      return "Rojas por rango";
+    case "global_penalties_exact":
+      return "Penales exactos";
+    case "global_penalties_range":
+      return "Penales por rango";
     default:
       return code;
   }
@@ -3082,6 +3701,18 @@ function roundScoringLabel(group: PredictionGroup, activeRules: ScoringRule[]) {
   return labels.length > 0 ? labels.join(", ") : "Sin reglas activas";
 }
 
+function parseWholeNumber(value: string) {
+  const normalized = value.trim();
+  if (normalized === "") {
+    return null;
+  }
+  const parsed = Number(normalized);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    return null;
+  }
+  return parsed;
+}
+
 function formatMoney(amountCents: number, currency: string) {
   const amount = amountCents / 100;
   return `${currency} ${new Intl.NumberFormat("es-CO", {
@@ -3090,9 +3721,62 @@ function formatMoney(amountCents: number, currency: string) {
   }).format(amount)}`;
 }
 
+function globalPredictionValueTypeLabel(valueType: GlobalPredictionDefinition["value_type"]) {
+  switch (valueType) {
+    case "team":
+      return "Equipo";
+    case "player":
+      return "Jugador";
+    case "number":
+      return "Numero exacto";
+    case "number_range":
+      return "Rango numerico";
+    case "text":
+    default:
+      return "Texto";
+  }
+}
+
+function globalPredictionValueLabel(
+  value: GlobalPrediction | GlobalPredictionResult,
+  teamOptions: TournamentTeamOption[] = [],
+) {
+  if (
+    value.value_type === "team" ||
+    value.value_type === "player" ||
+    value.value_type === "text"
+  ) {
+    if (value.value_type === "team") {
+      return teamOptionLabel(value.value_text, teamOptions) || "-";
+    }
+    return value.value_text || "-";
+  }
+  if (value.value_type === "number") {
+    return typeof value.value_number === "number" ? String(value.value_number) : "-";
+  }
+  if (typeof value.range_min === "number" && typeof value.range_max === "number") {
+    return `${value.range_min}-${value.range_max}`;
+  }
+  if (typeof value.value_number === "number") {
+    return String(value.value_number);
+  }
+  return "-";
+}
+
+function teamOptionLabel(value: string, teamOptions: TournamentTeamOption[]) {
+  const normalizedValue = value.trim();
+  const team = teamOptions.find(
+    (option) => option.id === normalizedValue || option.name === normalizedValue,
+  );
+  return team?.name ?? normalizedValue;
+}
+
 function pointEventTitle(detail: PointEventDetail) {
   if (detail.match_number > 0) {
     return `Partido ${detail.match_number}`;
+  }
+  if (detail.global_prediction_id) {
+    return "Prediccion global";
   }
   return "Evento global";
 }

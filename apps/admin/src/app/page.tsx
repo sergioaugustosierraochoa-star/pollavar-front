@@ -4,6 +4,10 @@ import {
   PollavarAPIError,
   createPollavarClient,
   type AuthUser,
+  type GlobalPredictionDefinition,
+  type GlobalPredictionDefinitionInput,
+  type GlobalPredictionResult,
+  type GlobalPredictionValueType,
   type Match,
   type MatchOutcome,
   type MatchResultAuditLog,
@@ -19,6 +23,7 @@ import {
   type PredictionMode,
   type PredictionMatchStatus,
   type PrizePreview,
+  type SaveGlobalPredictionInput,
   type ScoringRule,
   type Tournament,
   type TournamentSummary,
@@ -54,6 +59,24 @@ type ResultDrafts = Record<
   {
     home: string;
     away: string;
+  }
+>;
+type GlobalPredictionDrafts = Record<
+  string,
+  { valueText: string; valueNumber: string; rangeMin: string; rangeMax: string }
+>;
+type GlobalPredictionDefinitionDrafts = Record<
+  string,
+  {
+    code: string;
+    label: string;
+    valueType: GlobalPredictionValueType;
+    enabled: boolean;
+    pointsEnabled: boolean;
+    prizeEnabled: boolean;
+    points: string;
+    sortOrder: string;
+    closesAt: string;
   }
 >;
 type ResultMatchGroup = {
@@ -95,6 +118,7 @@ type NormalizedTheme = {
   secondaryColor: string;
   accentColor: string;
 };
+type TournamentTeamOption = Tournament["groups"][number]["teams"][number];
 type RefreshPrizePreviewOptions = {
   syncDrafts?: boolean;
 };
@@ -128,6 +152,17 @@ const matchResultScoringModeOptions: Array<{
   { value: "cumulative", label: "Acumulativo" },
 ];
 
+const globalPredictionValueTypeOptions: Array<{
+  value: GlobalPredictionValueType;
+  label: string;
+}> = [
+  { value: "team", label: "Equipo" },
+  { value: "player", label: "Jugador" },
+  { value: "text", label: "Texto" },
+  { value: "number", label: "Numero" },
+  { value: "number_range", label: "Rango numerico" },
+];
+
 export default function AdminHome() {
   const [session, setSession] = useState<AuthSession | null>(null);
   const [status, setStatus] = useState<DashboardStatus>("checking");
@@ -142,6 +177,15 @@ export default function AdminHome() {
   const [prizePreview, setPrizePreview] = useState<PrizePreview | null>(null);
   const [prizeDrafts, setPrizeDrafts] = useState<PrizeRuleDraft[]>([]);
   const [scoringRules, setScoringRules] = useState<ScoringRule[]>([]);
+  const [globalPredictionDefinitions, setGlobalPredictionDefinitions] = useState<
+    GlobalPredictionDefinition[]
+  >([]);
+  const [globalPredictionResults, setGlobalPredictionResults] = useState<
+    GlobalPredictionResult[]
+  >([]);
+  const [globalDefinitionDrafts, setGlobalDefinitionDrafts] =
+    useState<GlobalPredictionDefinitionDrafts>({});
+  const [globalResultDrafts, setGlobalResultDrafts] = useState<GlobalPredictionDrafts>({});
   const [underdogBonusDrafts, setUnderdogBonusDrafts] = useState<UnderdogBonusDrafts>({});
   const [themeDraft, setThemeDraft] = useState<ThemeDraft>(defaultThemeDraft(null));
   const [predictionSettingsDraft, setPredictionSettingsDraft] =
@@ -155,6 +199,8 @@ export default function AdminHome() {
   const [loadingAuditMatchID, setLoadingAuditMatchID] = useState("");
   const [savingUserID, setSavingUserID] = useState("");
   const [savingBonusMatchID, setSavingBonusMatchID] = useState("");
+  const [savingGlobalDefinitions, setSavingGlobalDefinitions] = useState(false);
+  const [savingGlobalResultCode, setSavingGlobalResultCode] = useState("");
   const [savingTheme, setSavingTheme] = useState(false);
   const [savingPredictionSettings, setSavingPredictionSettings] = useState(false);
   const [savingPrizes, setSavingPrizes] = useState(false);
@@ -174,6 +220,9 @@ export default function AdminHome() {
   );
   const canManageSelectedPoolPrizes = Boolean(pool && canManagePrizeRules(pool));
   const canManageSelectedPoolPredictionSettings = Boolean(
+    pool && canManagePredictionSettings(pool),
+  );
+  const canManageSelectedPoolGlobalPredictions = Boolean(
     pool && canManagePredictionSettings(pool),
   );
   const canManageSelectedPoolTheme = Boolean(pool && canManageTheme(pool));
@@ -199,6 +248,10 @@ export default function AdminHome() {
     setPrizePreview(null);
     setPrizeDrafts([]);
     setScoringRules([]);
+    setGlobalPredictionDefinitions([]);
+    setGlobalPredictionResults([]);
+    setGlobalDefinitionDrafts({});
+    setGlobalResultDrafts({});
     setUnderdogBonusDrafts({});
     setThemeDraft(defaultThemeDraft(null));
     setPredictionSettingsDraft(defaultPredictionSettingsDraft(null, []));
@@ -209,6 +262,8 @@ export default function AdminHome() {
     setLoadingAuditMatchID("");
     setSavingUserID("");
     setSavingBonusMatchID("");
+    setSavingGlobalDefinitions(false);
+    setSavingGlobalResultCode("");
     setSavingTheme(false);
     setSavingPredictionSettings(false);
     setSavingPrizes(false);
@@ -229,8 +284,11 @@ export default function AdminHome() {
     setLoadingAuditMatchID("");
     setSavingUserID("");
     setSavingBonusMatchID("");
+    setSavingGlobalDefinitions(false);
+    setSavingGlobalResultCode("");
     setSavingTheme(false);
     setSavingPredictionSettings(false);
+    setSavingPrizes(false);
 
     try {
       const client = createPollavarClient();
@@ -260,6 +318,10 @@ export default function AdminHome() {
         setPrizePreview(null);
         setPrizeDrafts([]);
         setScoringRules([]);
+        setGlobalPredictionDefinitions([]);
+        setGlobalPredictionResults([]);
+        setGlobalDefinitionDrafts({});
+        setGlobalResultDrafts({});
         setUnderdogBonusDrafts({});
         setThemeDraft(defaultThemeDraft(null));
         setPredictionSettingsDraft(defaultPredictionSettingsDraft(null, []));
@@ -293,6 +355,8 @@ export default function AdminHome() {
         paymentCollection,
         nextScoringRules,
         nextUnderdogBonuses,
+        nextGlobalDefinitions,
+        nextGlobalResults,
       ] = await Promise.all([
         client.getPrizePreview(token, poolDetail.id),
         client.listPredictionStatuses(token, poolDetail.id),
@@ -300,6 +364,8 @@ export default function AdminHome() {
         paymentCollectionRequest,
         client.listScoringRules(token, poolDetail.id),
         client.listMatchUnderdogBonuses(token, poolDetail.id),
+        client.listGlobalPredictionDefinitions(token, poolDetail.id),
+        client.listGlobalPredictionResults(token, poolDetail.id),
       ]);
       const nextPaymentCollection: PaymentCollection = paymentCollection ?? {
         pool_id: poolDetail.id,
@@ -320,6 +386,12 @@ export default function AdminHome() {
       setPrizePreview(nextPrizePreview);
       setPrizeDrafts(hydratePrizeDrafts(nextPrizePreview));
       setScoringRules(nextScoringRules);
+      setGlobalPredictionDefinitions(nextGlobalDefinitions);
+      setGlobalPredictionResults(nextGlobalResults);
+      setGlobalDefinitionDrafts(hydrateGlobalDefinitionDrafts(nextGlobalDefinitions));
+      setGlobalResultDrafts(
+        hydrateGlobalResultDrafts(nextGlobalDefinitions, nextGlobalResults),
+      );
       setUnderdogBonusDrafts(hydrateUnderdogBonusDrafts(nextUnderdogBonuses));
       setThemeDraft(defaultThemeDraft(poolDetail));
       setPredictionSettingsDraft(defaultPredictionSettingsDraft(poolDetail, nextScoringRules));
@@ -408,6 +480,139 @@ export default function AdminHome() {
         ...patch,
       },
     }));
+  }
+
+  function updateGlobalDefinitionDraft(
+    code: string,
+    patch: Partial<GlobalPredictionDefinitionDrafts[string]>,
+  ) {
+    setGlobalDefinitionDrafts((current) => ({
+      ...current,
+      [code]: {
+        ...globalDefinitionDraft(
+          globalPredictionDefinitions.find((definition) => definition.code === code),
+        ),
+        ...current[code],
+        ...patch,
+      },
+    }));
+  }
+
+  function updateGlobalResultDraft(
+    code: string,
+    field: keyof GlobalPredictionDrafts[string],
+    value: string,
+  ) {
+    setGlobalResultDrafts((current) => ({
+      ...current,
+      [code]: {
+        ...emptyGlobalPredictionDraft(),
+        ...current[code],
+        [field]: value,
+      },
+    }));
+  }
+
+  async function saveGlobalPredictionDefinitions() {
+    if (!session || !pool || !canManageSelectedPoolGlobalPredictions) {
+      return;
+    }
+
+    const definitions = parseGlobalDefinitionDrafts(globalDefinitionDrafts);
+    if (!definitions) {
+      setMessage("Revisa la configuracion de predicciones globales.");
+      return;
+    }
+
+    setSavingGlobalDefinitions(true);
+    setMessage("");
+
+    try {
+      const nextDefinitions = await createPollavarClient().updateGlobalPredictionDefinitions(
+        session.token,
+        pool.id,
+        { definitions },
+      );
+      setGlobalPredictionDefinitions(nextDefinitions);
+      setGlobalDefinitionDrafts(hydrateGlobalDefinitionDrafts(nextDefinitions));
+      setGlobalResultDrafts((current) => ({
+        ...hydrateGlobalResultDrafts(nextDefinitions, globalPredictionResults),
+        ...current,
+      }));
+      setMessage("Predicciones globales actualizadas.");
+    } catch (error) {
+      if (isUnauthorized(error)) {
+        signOutAdmin();
+        return;
+      }
+      if (isForbidden(error)) {
+        setMessage("No tienes permisos para configurar predicciones globales.");
+        return;
+      }
+      if (error instanceof PollavarAPIError && error.code === "prediction_settings_locked") {
+        setMessage(
+          "No puedes cambiar el tipo de una prediccion global que ya tiene pronosticos o resultado.",
+        );
+        return;
+      }
+      setMessage("No pudimos actualizar las predicciones globales.");
+    } finally {
+      setSavingGlobalDefinitions(false);
+    }
+  }
+
+  async function saveGlobalPredictionResult(definition: GlobalPredictionDefinition) {
+    if (!session || !pool || !canManageSelectedPoolGlobalPredictions) {
+      return;
+    }
+    if (!isGlobalDefinitionClosed(definition)) {
+      setMessage("La prediccion global todavia no cerro.");
+      return;
+    }
+
+    const draft = {
+      ...emptyGlobalPredictionDraft(),
+      ...globalResultDrafts[definition.code],
+    };
+    const input = globalPredictionInputFromDraft(definition, draft);
+    if (!input) {
+      setMessage("Revisa el resultado oficial global.");
+      return;
+    }
+
+    setSavingGlobalResultCode(definition.code);
+    setMessage("");
+
+    try {
+      const result = await createPollavarClient().saveGlobalPredictionResult(
+        session.token,
+        pool.id,
+        definition.code,
+        input,
+      );
+      setGlobalPredictionResults((current) => upsertGlobalPredictionResult(current, result));
+      setGlobalResultDrafts((current) => ({
+        ...current,
+        [definition.code]: globalPredictionDraft(result),
+      }));
+      setMessage("Resultado global actualizado.");
+    } catch (error) {
+      if (isUnauthorized(error)) {
+        signOutAdmin();
+        return;
+      }
+      if (isForbidden(error)) {
+        setMessage("No tienes permisos para cargar resultados globales.");
+        return;
+      }
+      if (error instanceof PollavarAPIError && error.code === "prediction_open") {
+        setMessage("La prediccion global todavia no cerro.");
+        return;
+      }
+      setMessage("No pudimos actualizar el resultado global.");
+    } finally {
+      setSavingGlobalResultCode("");
+    }
   }
 
   async function saveUnderdogBonus(match: Match) {
@@ -907,6 +1112,23 @@ export default function AdminHome() {
                 onChange={setPredictionSettingsDraft}
                 onSave={() => void savePredictionSettings()}
                 saving={savingPredictionSettings}
+              />
+            ) : null}
+
+            {pool ? (
+              <GlobalPredictionAdminPanel
+                canManage={canManageSelectedPoolGlobalPredictions}
+                definitionDrafts={globalDefinitionDrafts}
+                definitions={globalPredictionDefinitions}
+                onSaveDefinitions={() => void saveGlobalPredictionDefinitions()}
+                onSaveResult={(definition) => void saveGlobalPredictionResult(definition)}
+                onUpdateDefinitionDraft={updateGlobalDefinitionDraft}
+                onUpdateResultDraft={updateGlobalResultDraft}
+                resultDrafts={globalResultDrafts}
+                results={globalPredictionResults}
+                savingDefinitions={savingGlobalDefinitions}
+                savingResultCode={savingGlobalResultCode}
+                tournament={tournament}
               />
             ) : null}
 
@@ -1678,6 +1900,419 @@ function PredictionSettingsPanel({
   );
 }
 
+function GlobalPredictionAdminPanel({
+  canManage,
+  definitionDrafts,
+  definitions,
+  onSaveDefinitions,
+  onSaveResult,
+  onUpdateDefinitionDraft,
+  onUpdateResultDraft,
+  resultDrafts,
+  results,
+  savingDefinitions,
+  savingResultCode,
+  tournament,
+}: {
+  canManage: boolean;
+  definitionDrafts: GlobalPredictionDefinitionDrafts;
+  definitions: GlobalPredictionDefinition[];
+  onSaveDefinitions: () => void;
+  onSaveResult: (definition: GlobalPredictionDefinition) => void;
+  onUpdateDefinitionDraft: (
+    code: string,
+    patch: Partial<GlobalPredictionDefinitionDrafts[string]>,
+  ) => void;
+  onUpdateResultDraft: (
+    code: string,
+    field: keyof GlobalPredictionDrafts[string],
+    value: string,
+  ) => void;
+  resultDrafts: GlobalPredictionDrafts;
+  results: GlobalPredictionResult[];
+  savingDefinitions: boolean;
+  savingResultCode: string;
+  tournament: Tournament | null;
+}) {
+  const sortedDefinitions = globalDefinitionsInOrder(definitions);
+  const enabledDefinitions = sortedDefinitions.filter((definition) => definition.enabled);
+  const resultsByCode = indexGlobalPredictionResults(results);
+  const teamOptions = tournamentTeamOptions(tournament);
+
+  return (
+    <section className="rounded-lg border border-zinc-200 bg-white shadow-sm">
+      <div className="flex flex-col gap-3 border-b border-zinc-200 px-5 py-4 md:flex-row md:items-center md:justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-zinc-950">Predicciones globales</h2>
+          <p className="text-sm text-zinc-600">
+            {enabledDefinitions.length} activas de {sortedDefinitions.length} configuradas.
+          </p>
+        </div>
+        <span
+          className={`w-fit rounded-md px-2 py-1 text-xs font-medium ${
+            canManage ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"
+          }`}
+        >
+          {canManage ? "Configurable" : "Solo lectura"}
+        </span>
+      </div>
+
+      {sortedDefinitions.length === 0 ? (
+        <div className="p-5 text-sm text-zinc-600">
+          Esta polla aun no tiene predicciones globales inicializadas.
+        </div>
+      ) : (
+        <div className="space-y-5 p-5">
+          <div className="overflow-x-auto">
+            <table className="min-w-[1120px] w-full border-collapse text-left text-sm">
+              <thead className="bg-zinc-50 text-xs uppercase text-zinc-500">
+                <tr>
+                  <th className="px-4 py-3 font-semibold">Activa</th>
+                  <th className="px-4 py-3 font-semibold">Pronostico</th>
+                  <th className="px-4 py-3 font-semibold">Tipo</th>
+                  <th className="px-4 py-3 font-semibold">Puntos</th>
+                  <th className="px-4 py-3 font-semibold">Premio</th>
+                  <th className="px-4 py-3 font-semibold">Orden</th>
+                  <th className="px-4 py-3 font-semibold">Cierre</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-200">
+                {sortedDefinitions.map((definition) => {
+                  const draft = {
+                    ...globalDefinitionDraft(definition),
+                    ...definitionDrafts[definition.code],
+                  };
+
+                  return (
+                    <tr key={definition.code} className="align-top">
+                      <td className="px-4 py-4">
+                        <label className="flex items-center gap-2 text-xs font-medium text-zinc-700">
+                          <input
+                            aria-label={`Activar ${definition.label}`}
+                            checked={draft.enabled}
+                            className="h-4 w-4"
+                            disabled={!canManage || savingDefinitions}
+                            onChange={(event) =>
+                              onUpdateDefinitionDraft(definition.code, {
+                                enabled: event.target.checked,
+                              })
+                            }
+                            type="checkbox"
+                          />
+                          <span>Activa</span>
+                        </label>
+                      </td>
+                      <td className="px-4 py-4">
+                        <label className="sr-only" htmlFor={`global-label-${definition.code}`}>
+                          Nombre de {definition.label}
+                        </label>
+                        <input
+                          id={`global-label-${definition.code}`}
+                          className="min-h-10 w-64 rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-950 disabled:bg-zinc-100"
+                          disabled={!canManage || savingDefinitions}
+                          onChange={(event) =>
+                            onUpdateDefinitionDraft(definition.code, {
+                              label: event.target.value,
+                            })
+                          }
+                          value={draft.label}
+                        />
+                        <p className="mt-1 text-xs text-zinc-500">{definition.code}</p>
+                      </td>
+                      <td className="px-4 py-4">
+                        <label className="sr-only" htmlFor={`global-type-${definition.code}`}>
+                          Tipo de {definition.label}
+                        </label>
+                        <select
+                          id={`global-type-${definition.code}`}
+                          className="min-h-10 w-40 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950 disabled:bg-zinc-100"
+                          disabled={!canManage || savingDefinitions}
+                          onChange={(event) =>
+                            onUpdateDefinitionDraft(definition.code, {
+                              valueType: event.target.value as GlobalPredictionValueType,
+                            })
+                          }
+                          value={draft.valueType}
+                        >
+                          {globalPredictionValueTypeOptions.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="px-4 py-4">
+                        <div className="flex items-center gap-2">
+                          <label className="flex items-center gap-2 text-xs font-medium text-zinc-700">
+                            <input
+                              aria-label={`Puntua ${definition.label}`}
+                              checked={draft.pointsEnabled}
+                              className="h-4 w-4"
+                              disabled={!canManage || savingDefinitions}
+                              onChange={(event) =>
+                                onUpdateDefinitionDraft(definition.code, {
+                                  pointsEnabled: event.target.checked,
+                                })
+                              }
+                              type="checkbox"
+                            />
+                            <span>Si</span>
+                          </label>
+                          <label className="sr-only" htmlFor={`global-points-${definition.code}`}>
+                            Puntos de {definition.label}
+                          </label>
+                          <input
+                            id={`global-points-${definition.code}`}
+                            className="min-h-10 w-20 rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-950 disabled:bg-zinc-100"
+                            disabled={!canManage || savingDefinitions || !draft.pointsEnabled}
+                            min={0}
+                            onChange={(event) =>
+                              onUpdateDefinitionDraft(definition.code, {
+                                points: event.target.value,
+                              })
+                            }
+                            step={1}
+                            type="number"
+                            value={draft.points}
+                          />
+                        </div>
+                      </td>
+                      <td className="px-4 py-4">
+                        <label className="flex items-center gap-2 text-xs font-medium text-zinc-700">
+                          <input
+                            aria-label={`Premio especial ${definition.label}`}
+                            checked={draft.prizeEnabled}
+                            className="h-4 w-4"
+                            disabled={!canManage || savingDefinitions}
+                            onChange={(event) =>
+                              onUpdateDefinitionDraft(definition.code, {
+                                prizeEnabled: event.target.checked,
+                              })
+                            }
+                            type="checkbox"
+                          />
+                          <span>Especial</span>
+                        </label>
+                      </td>
+                      <td className="px-4 py-4">
+                        <label className="sr-only" htmlFor={`global-order-${definition.code}`}>
+                          Orden de {definition.label}
+                        </label>
+                        <input
+                          id={`global-order-${definition.code}`}
+                          className="min-h-10 w-20 rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-950 disabled:bg-zinc-100"
+                          disabled={!canManage || savingDefinitions}
+                          min={0}
+                          onChange={(event) =>
+                            onUpdateDefinitionDraft(definition.code, {
+                              sortOrder: event.target.value,
+                            })
+                          }
+                          step={1}
+                          type="number"
+                          value={draft.sortOrder}
+                        />
+                      </td>
+                      <td className="px-4 py-4">
+                        <label className="sr-only" htmlFor={`global-closes-${definition.code}`}>
+                          Cierre de {definition.label}
+                        </label>
+                        <input
+                          id={`global-closes-${definition.code}`}
+                          className="min-h-10 w-52 rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-950 disabled:bg-zinc-100"
+                          disabled={!canManage || savingDefinitions}
+                          onChange={(event) =>
+                            onUpdateDefinitionDraft(definition.code, {
+                              closesAt: event.target.value,
+                            })
+                          }
+                          type="datetime-local"
+                          value={draft.closesAt}
+                        />
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="flex justify-end">
+            <button
+              className="rounded-md bg-zinc-950 px-3 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
+              disabled={!canManage || savingDefinitions}
+              onClick={onSaveDefinitions}
+              type="button"
+            >
+              {savingDefinitions ? "Guardando" : "Guardar predicciones globales"}
+            </button>
+          </div>
+
+          <div className="border-t border-zinc-200 pt-5">
+            <div className="mb-4">
+              <h3 className="text-base font-semibold text-zinc-950">
+                Resultados globales oficiales
+              </h3>
+              <p className="text-sm text-zinc-600">
+                Los resultados por rango se cargan como numero real final.
+              </p>
+            </div>
+
+            {enabledDefinitions.length === 0 ? (
+              <p className="text-sm text-zinc-600">
+                Activa al menos una prediccion global para cargar resultados.
+              </p>
+            ) : (
+              <div className="grid gap-4 lg:grid-cols-2">
+                {enabledDefinitions.map((definition) => {
+                  const result = resultsByCode.get(definition.code);
+                  const draft = {
+                    ...emptyGlobalPredictionDraft(),
+                    ...globalPredictionDraft(result),
+                    ...resultDrafts[definition.code],
+                  };
+                  const closed = isGlobalDefinitionClosed(definition);
+                  const isSavingResult = savingResultCode === definition.code;
+                  const canSaveResult = canManage && closed;
+
+                  return (
+                    <div
+                      key={definition.code}
+                      className="rounded-lg border border-zinc-200 p-4"
+                    >
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <p className="font-semibold text-zinc-950">{definition.label}</p>
+                          <p className="mt-1 text-xs text-zinc-500">
+                            {globalValueTypeLabel(definition.value_type)} -{" "}
+                            {definition.points_enabled
+                              ? `${definition.points} pts`
+                              : "Sin puntos"}
+                            {definition.prize_enabled ? " - premio especial" : ""}
+                          </p>
+                        </div>
+                        <span
+                          className={`w-fit rounded-md px-2 py-1 text-xs font-medium ${
+                            closed ? "bg-zinc-100 text-zinc-700" : "bg-amber-100 text-amber-800"
+                          }`}
+                        >
+                          {result ? "Con resultado" : globalDefinitionCloseStatus(definition)}
+                        </span>
+                      </div>
+
+                      <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+                        <GlobalResultInput
+                          definition={definition}
+                          disabled={!canSaveResult || isSavingResult}
+                          draft={draft}
+                          onUpdate={(field, value) =>
+                            onUpdateResultDraft(definition.code, field, value)
+                          }
+                          teamOptions={teamOptions}
+                        />
+                        <button
+                          aria-label={`Guardar resultado ${definition.label}`}
+                          className="min-h-10 rounded-md bg-zinc-950 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
+                          disabled={!canSaveResult || isSavingResult}
+                          onClick={() => onSaveResult(definition)}
+                          type="button"
+                        >
+                          {isSavingResult ? "Guardando" : "Guardar resultado"}
+                        </button>
+                      </div>
+
+                      {result ? (
+                        <p className="mt-3 text-xs text-zinc-500">
+                          Actual:{" "}
+                          <span className="font-medium text-zinc-700">
+                            {globalValueLabel(result, teamOptions)}
+                          </span>
+                        </p>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function GlobalResultInput({
+  definition,
+  disabled,
+  draft,
+  onUpdate,
+  teamOptions,
+}: {
+  definition: GlobalPredictionDefinition;
+  disabled: boolean;
+  draft: GlobalPredictionDrafts[string];
+  onUpdate: (field: keyof GlobalPredictionDrafts[string], value: string) => void;
+  teamOptions: TournamentTeamOption[];
+}) {
+  if (definition.value_type === "team" && teamOptions.length > 0) {
+    return (
+      <label className="grid gap-2 text-sm font-medium text-zinc-700">
+        <span>Equipo</span>
+        <select
+          aria-label={`Resultado oficial ${definition.label}`}
+          className="min-h-10 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950 disabled:bg-zinc-100"
+          disabled={disabled}
+          onChange={(event) => onUpdate("valueText", event.target.value)}
+          value={draft.valueText}
+        >
+          <option value="">Elegir equipo</option>
+          {teamOptions.map((team) => (
+            <option key={team.id || team.name} value={team.id || team.name}>
+              {team.name}
+            </option>
+          ))}
+          {draft.valueText && !teamOptions.some((team) => (team.id || team.name) === draft.valueText) ? (
+            <option value={draft.valueText}>{draft.valueText}</option>
+          ) : null}
+        </select>
+      </label>
+    );
+  }
+
+  if (definition.value_type === "number" || definition.value_type === "number_range") {
+    return (
+      <label className="grid gap-2 text-sm font-medium text-zinc-700">
+        <span>
+          {definition.value_type === "number_range" ? "Resultado exacto" : "Numero oficial"}
+        </span>
+        <input
+          aria-label={`Resultado oficial ${definition.label}`}
+          className="min-h-10 rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-950 disabled:bg-zinc-100"
+          disabled={disabled}
+          min={0}
+          onChange={(event) => onUpdate("valueNumber", event.target.value)}
+          step={1}
+          type="number"
+          value={draft.valueNumber}
+        />
+      </label>
+    );
+  }
+
+  return (
+    <label className="grid gap-2 text-sm font-medium text-zinc-700">
+      <span>{globalValueTypeLabel(definition.value_type)}</span>
+      <input
+        aria-label={`Resultado oficial ${definition.label}`}
+        className="min-h-10 rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-950 disabled:bg-zinc-100"
+        disabled={disabled}
+        onChange={(event) => onUpdate("valueText", event.target.value)}
+        value={draft.valueText}
+      />
+    </label>
+  );
+}
+
 function ResultsPanel({
   auditLogsByMatchID,
   bonusDrafts,
@@ -2370,6 +3005,244 @@ function scoringRulesInDefaultOrder(rulesByCode: Map<ScoringRule["code"], Scorin
 
 function scoringRuleByCode(rules: ScoringRule[], code: ScoringRule["code"]) {
   return scoringRulesWithDefaults(rules).find((rule) => rule.code === code) ?? null;
+}
+
+function hydrateGlobalDefinitionDrafts(definitions: GlobalPredictionDefinition[]) {
+  const drafts: GlobalPredictionDefinitionDrafts = {};
+  for (const definition of definitions) {
+    drafts[definition.code] = globalDefinitionDraft(definition);
+  }
+  return drafts;
+}
+
+function hydrateGlobalResultDrafts(
+  definitions: GlobalPredictionDefinition[],
+  results: GlobalPredictionResult[],
+) {
+  const resultsByCode = indexGlobalPredictionResults(results);
+  const drafts: GlobalPredictionDrafts = {};
+  for (const definition of definitions) {
+    drafts[definition.code] = globalPredictionDraft(resultsByCode.get(definition.code));
+  }
+  return drafts;
+}
+
+function globalDefinitionDraft(
+  definition: GlobalPredictionDefinition | undefined,
+): GlobalPredictionDefinitionDrafts[string] {
+  return {
+    code: definition?.code ?? "",
+    label: definition?.label ?? "",
+    valueType: definition?.value_type ?? "text",
+    enabled: definition?.enabled ?? false,
+    pointsEnabled: definition?.points_enabled ?? true,
+    prizeEnabled: definition?.prize_enabled ?? false,
+    points: String(definition?.points ?? 0),
+    sortOrder: String(definition?.sort_order ?? 0),
+    closesAt: toDatetimeLocalInput(definition?.closes_at ?? null),
+  };
+}
+
+function parseGlobalDefinitionDrafts(
+  drafts: GlobalPredictionDefinitionDrafts,
+): GlobalPredictionDefinitionInput[] | null {
+  const definitions: GlobalPredictionDefinitionInput[] = [];
+  const seenCodes = new Set<string>();
+
+  for (const draft of Object.values(drafts)) {
+    const code = draft.code.trim() as GlobalPredictionDefinition["code"];
+    const label = draft.label.trim();
+    const points = parseWholeNumber(draft.points);
+    const sortOrder = parseWholeNumber(draft.sortOrder);
+    const closesAt = datetimeLocalToISO(draft.closesAt);
+
+    if (
+      !code ||
+      seenCodes.has(code) ||
+      !label ||
+      points === null ||
+      points > 1000 ||
+      sortOrder === null ||
+      closesAt === undefined
+    ) {
+      return null;
+    }
+
+    seenCodes.add(code);
+    definitions.push({
+      code,
+      label,
+      value_type: draft.valueType,
+      enabled: draft.enabled,
+      points_enabled: draft.pointsEnabled,
+      prize_enabled: draft.prizeEnabled,
+      points,
+      sort_order: sortOrder,
+      closes_at: closesAt,
+    });
+  }
+
+  return definitions.sort((left, right) => (left.sort_order ?? 0) - (right.sort_order ?? 0));
+}
+
+function emptyGlobalPredictionDraft(): GlobalPredictionDrafts[string] {
+  return { valueText: "", valueNumber: "", rangeMin: "", rangeMax: "" };
+}
+
+function globalPredictionDraft(
+  prediction: GlobalPredictionResult | undefined,
+): GlobalPredictionDrafts[string] {
+  if (!prediction) {
+    return emptyGlobalPredictionDraft();
+  }
+
+  return {
+    valueText: prediction.value_text ?? "",
+    valueNumber:
+      typeof prediction.value_number === "number" ? String(prediction.value_number) : "",
+    rangeMin: typeof prediction.range_min === "number" ? String(prediction.range_min) : "",
+    rangeMax: typeof prediction.range_max === "number" ? String(prediction.range_max) : "",
+  };
+}
+
+function globalPredictionInputFromDraft(
+  definition: GlobalPredictionDefinition,
+  draft: GlobalPredictionDrafts[string],
+): SaveGlobalPredictionInput | null {
+  if (
+    definition.value_type === "team" ||
+    definition.value_type === "player" ||
+    definition.value_type === "text"
+  ) {
+    const valueText = draft.valueText.trim();
+    return valueText ? { value_text: valueText } : null;
+  }
+
+  const valueNumber = parseWholeNumber(draft.valueNumber);
+  if (valueNumber === null) {
+    return null;
+  }
+  return { value_number: valueNumber };
+}
+
+function upsertGlobalPredictionResult(
+  results: GlobalPredictionResult[],
+  nextResult: GlobalPredictionResult,
+) {
+  const nextResults = results.filter((result) => result.code !== nextResult.code);
+  nextResults.push(nextResult);
+  return globalPredictionResultsInOrder(nextResults);
+}
+
+function indexGlobalPredictionResults(results: GlobalPredictionResult[]) {
+  const indexed = new Map<GlobalPredictionDefinition["code"], GlobalPredictionResult>();
+  for (const result of results) {
+    indexed.set(result.code, result);
+  }
+  return indexed;
+}
+
+function globalDefinitionsInOrder(definitions: GlobalPredictionDefinition[]) {
+  return [...definitions].sort(
+    (left, right) =>
+      left.sort_order - right.sort_order ||
+      left.label.localeCompare(right.label, "es") ||
+      left.code.localeCompare(right.code),
+  );
+}
+
+function globalPredictionResultsInOrder(results: GlobalPredictionResult[]) {
+  return [...results].sort((left, right) => left.code.localeCompare(right.code));
+}
+
+function globalValueTypeLabel(valueType: GlobalPredictionValueType) {
+  switch (valueType) {
+    case "team":
+      return "Equipo";
+    case "player":
+      return "Jugador";
+    case "number":
+      return "Numero exacto";
+    case "number_range":
+      return "Rango numerico";
+    case "text":
+    default:
+      return "Texto";
+  }
+}
+
+function isGlobalDefinitionClosed(definition: GlobalPredictionDefinition) {
+  if (!definition.closes_at) {
+    return false;
+  }
+
+  const closesAt = Date.parse(definition.closes_at);
+  return Number.isFinite(closesAt) && Date.now() >= closesAt;
+}
+
+function globalDefinitionCloseStatus(definition: GlobalPredictionDefinition) {
+  if (!definition.closes_at) {
+    return "Configura cierre";
+  }
+  return isGlobalDefinitionClosed(definition) ? "Cerrado" : "Abierto";
+}
+
+function tournamentTeamOptions(tournament: Tournament | null) {
+  const teamsByID = new Map<string, TournamentTeamOption>();
+  for (const group of tournament?.groups ?? []) {
+    for (const team of group.teams) {
+      teamsByID.set(team.id || team.name, team);
+    }
+  }
+  return [...teamsByID.values()].sort((left, right) => left.name.localeCompare(right.name, "es"));
+}
+
+function teamOptionLabel(value: string, teamOptions: TournamentTeamOption[]) {
+  const normalizedValue = value.trim();
+  const team = teamOptions.find(
+    (option) => option.id === normalizedValue || option.name === normalizedValue,
+  );
+  return team?.name ?? normalizedValue;
+}
+
+function globalValueLabel(value: GlobalPredictionResult, teamOptions: TournamentTeamOption[] = []) {
+  if (value.value_text) {
+    if (value.value_type === "team") {
+      return teamOptionLabel(value.value_text, teamOptions);
+    }
+    return value.value_text;
+  }
+  if (typeof value.value_number === "number") {
+    return String(value.value_number);
+  }
+  if (typeof value.range_min === "number" && typeof value.range_max === "number") {
+    return `${value.range_min} - ${value.range_max}`;
+  }
+  return "Sin valor";
+}
+
+function toDatetimeLocalInput(value: string | null) {
+  if (!value) {
+    return "";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  const offsetDate = new Date(date.getTime() - date.getTimezoneOffset() * 60 * 1000);
+  return offsetDate.toISOString().slice(0, 16);
+}
+
+function datetimeLocalToISO(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const date = new Date(trimmed);
+  if (Number.isNaN(date.getTime())) {
+    return undefined;
+  }
+  return date.toISOString();
 }
 
 function defaultThemeDraft(pool: Pool | null): ThemeDraft {

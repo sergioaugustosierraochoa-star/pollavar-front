@@ -4,6 +4,9 @@ import {
   createPollavarClient,
   serializeAuthSession,
   type AuthResult,
+  type GlobalPrediction,
+  type GlobalPredictionDefinition,
+  type GlobalPredictionResult,
   type MatchResultAuditLog,
   type MatchUnderdogBonus,
   type Payment,
@@ -242,6 +245,7 @@ const pointEventDetail: PointEventDetail = {
   user_id: "user-id",
   prediction_id: "prediction-id",
   standing_prediction_id: "",
+  global_prediction_id: "",
   match_id: "match-id",
   match_number: 1,
   rule_code: "exact_score",
@@ -258,6 +262,53 @@ const standingPrediction: StandingPrediction = {
   team_ids: ["MEX", "RSA"],
   created_at: "2026-06-11T12:00:00Z",
   updated_at: "2026-06-11T12:30:00Z",
+};
+
+const globalPredictionDefinition: GlobalPredictionDefinition = {
+  id: "definition-id",
+  pool_id: "pool-id",
+  code: "global_champion",
+  label: "Campeon",
+  value_type: "team",
+  enabled: true,
+  points_enabled: true,
+  prize_enabled: false,
+  points: 10,
+  sort_order: 10,
+  closes_at: null,
+  created_at: "2026-06-11T12:00:00Z",
+  updated_at: "2026-06-11T12:30:00Z",
+};
+
+const globalPrediction: GlobalPrediction = {
+  id: "global-prediction-id",
+  pool_id: "pool-id",
+  user_id: "user-id",
+  definition_id: "definition-id",
+  code: "global_champion",
+  value_type: "team",
+  value_text: "Colombia",
+  value_number: null,
+  range_min: null,
+  range_max: null,
+  created_at: "2026-06-11T12:00:00Z",
+  updated_at: "2026-06-11T12:30:00Z",
+};
+
+const globalPredictionResult: GlobalPredictionResult = {
+  id: "global-result-id",
+  pool_id: "pool-id",
+  definition_id: "definition-id",
+  code: "global_champion",
+  value_type: "team",
+  value_text: "Colombia",
+  value_number: null,
+  range_min: null,
+  range_max: null,
+  recorded_by: "admin-id",
+  recorded_at: "2026-07-20T23:00:00Z",
+  created_at: "2026-07-20T23:00:00Z",
+  updated_at: "2026-07-20T23:00:00Z",
 };
 
 const payment: Payment = {
@@ -759,6 +810,156 @@ describe("createPollavarClient", () => {
         Authorization: "Bearer token",
       },
     });
+  });
+
+  it("loads and saves global prediction resources", async () => {
+    const fetcher = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      const value = String(url);
+      if (value.endsWith("/global-prediction-definitions") && init?.method === "GET") {
+        return jsonResponse({ data: [globalPredictionDefinition] });
+      }
+      if (value.endsWith("/global-prediction-definitions") && init?.method === "PUT") {
+        return jsonResponse({ data: [globalPredictionDefinition] });
+      }
+      if (value.endsWith("/global-predictions") && init?.method === "GET") {
+        return jsonResponse({ data: [globalPrediction] });
+      }
+      if (value.endsWith("/global-predictions/global_champion") && init?.method === "PUT") {
+        return jsonResponse({ data: globalPrediction });
+      }
+      if (value.endsWith("/global-results") && init?.method === "GET") {
+        return jsonResponse({ data: [globalPredictionResult] });
+      }
+      if (value.endsWith("/global-results/global_champion") && init?.method === "PUT") {
+        return jsonResponse({ data: globalPredictionResult });
+      }
+      return jsonResponse({ code: "not_found" }, { status: 404 });
+    });
+    const client = createPollavarClient({
+      baseURL: "http://api.local",
+      fetcher,
+    });
+
+    await expect(client.listGlobalPredictionDefinitions("token", "pool id")).resolves.toEqual([
+      globalPredictionDefinition,
+    ]);
+    await expect(
+      client.updateGlobalPredictionDefinitions("token", "pool id", {
+        definitions: [
+          {
+            code: "global_champion",
+            label: "Campeon",
+            value_type: "team",
+            enabled: true,
+            points_enabled: true,
+            prize_enabled: false,
+            points: 10,
+            sort_order: 10,
+            closes_at: null,
+          },
+        ],
+      }),
+    ).resolves.toEqual([globalPredictionDefinition]);
+    await expect(client.listGlobalPredictions("token", "pool id")).resolves.toEqual([
+      globalPrediction,
+    ]);
+    await expect(
+      client.saveGlobalPrediction("token", "pool id", "global_champion", {
+        value_text: "Colombia",
+      }),
+    ).resolves.toEqual(globalPrediction);
+    await expect(client.listGlobalPredictionResults("token", "pool id")).resolves.toEqual([
+      globalPredictionResult,
+    ]);
+    await expect(
+      client.saveGlobalPredictionResult("token", "pool id", "global_champion", {
+        value_text: "Colombia",
+      }),
+    ).resolves.toEqual(globalPredictionResult);
+
+    expect(fetcher).toHaveBeenNthCalledWith(
+      1,
+      "http://api.local/api/v1/pools/pool%20id/global-prediction-definitions",
+      {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer token",
+        },
+      },
+    );
+    expect(fetcher).toHaveBeenNthCalledWith(
+      2,
+      "http://api.local/api/v1/pools/pool%20id/global-prediction-definitions",
+      {
+        method: "PUT",
+        body: JSON.stringify({
+          definitions: [
+            {
+              code: "global_champion",
+              label: "Campeon",
+              value_type: "team",
+              enabled: true,
+              points_enabled: true,
+              prize_enabled: false,
+              points: 10,
+              sort_order: 10,
+              closes_at: null,
+            },
+          ],
+        }),
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer token",
+        },
+      },
+    );
+    expect(fetcher).toHaveBeenNthCalledWith(
+      3,
+      "http://api.local/api/v1/pools/pool%20id/global-predictions",
+      {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer token",
+        },
+      },
+    );
+    expect(fetcher).toHaveBeenNthCalledWith(
+      4,
+      "http://api.local/api/v1/pools/pool%20id/global-predictions/global_champion",
+      {
+        method: "PUT",
+        body: JSON.stringify({ value_text: "Colombia" }),
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer token",
+        },
+      },
+    );
+    expect(fetcher).toHaveBeenNthCalledWith(
+      5,
+      "http://api.local/api/v1/pools/pool%20id/global-results",
+      {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer token",
+        },
+      },
+    );
+    expect(fetcher).toHaveBeenNthCalledWith(
+      6,
+      "http://api.local/api/v1/pools/pool%20id/global-results/global_champion",
+      {
+        method: "PUT",
+        body: JSON.stringify({ value_text: "Colombia" }),
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer token",
+        },
+      },
+    );
   });
 
   it("saves match results and loads audit logs", async () => {

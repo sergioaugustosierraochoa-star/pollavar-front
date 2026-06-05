@@ -221,7 +221,19 @@ export type ScoringRuleCode =
   | "exact_score"
   | "match_result"
   | "group_position_exact"
-  | "underdog_bonus";
+  | "underdog_bonus"
+  | "global_champion"
+  | "global_runner_up"
+  | "global_third_place"
+  | "global_fourth_place"
+  | "global_top_scorer"
+  | "global_top_assistant"
+  | "global_yellow_cards_exact"
+  | "global_yellow_cards_range"
+  | "global_red_cards_exact"
+  | "global_red_cards_range"
+  | "global_penalties_exact"
+  | "global_penalties_range";
 
 export type ScoringRule = {
   code: ScoringRuleCode;
@@ -346,6 +358,7 @@ export type PointEventDetail = {
   user_id: string;
   prediction_id: string;
   standing_prediction_id: string;
+  global_prediction_id: string;
   match_id: string;
   match_number: number;
   rule_code: ScoringRuleCode;
@@ -367,6 +380,54 @@ export type StandingPrediction = {
 export type MatchOutcome = "home" | "draw" | "away";
 export type PredictionMode = "score" | "outcome" | "score_with_outcome";
 export type MatchResultScoringMode = "exclusive" | "cumulative";
+export type GlobalPredictionValueType = "team" | "player" | "text" | "number" | "number_range";
+
+export type GlobalPredictionDefinition = {
+  id: string;
+  pool_id: string;
+  code: ScoringRuleCode;
+  label: string;
+  value_type: GlobalPredictionValueType;
+  enabled: boolean;
+  points_enabled: boolean;
+  prize_enabled: boolean;
+  points: number;
+  sort_order: number;
+  closes_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type GlobalPrediction = {
+  id: string;
+  pool_id: string;
+  user_id: string;
+  definition_id: string;
+  code: ScoringRuleCode;
+  value_type: GlobalPredictionValueType;
+  value_text: string;
+  value_number: number | null;
+  range_min: number | null;
+  range_max: number | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type GlobalPredictionResult = {
+  id: string;
+  pool_id: string;
+  definition_id: string;
+  code: ScoringRuleCode;
+  value_type: GlobalPredictionValueType;
+  value_text: string;
+  value_number: number | null;
+  range_min: number | null;
+  range_max: number | null;
+  recorded_by: string;
+  recorded_at: string;
+  created_at: string;
+  updated_at: string;
+};
 
 export type UpdatePredictionSettingsInput = {
   prediction_mode: PredictionMode;
@@ -403,6 +464,29 @@ export type SavePredictionInput =
 
 export type SaveStandingPredictionInput = {
   team_ids: string[];
+};
+
+export type GlobalPredictionDefinitionInput = {
+  code: ScoringRuleCode;
+  label: string;
+  value_type: GlobalPredictionValueType;
+  enabled?: boolean;
+  points_enabled?: boolean;
+  prize_enabled?: boolean;
+  points: number;
+  sort_order?: number;
+  closes_at?: string | null;
+};
+
+export type UpdateGlobalPredictionDefinitionsInput = {
+  definitions: GlobalPredictionDefinitionInput[];
+};
+
+export type SaveGlobalPredictionInput = {
+  value_text?: string;
+  value_number?: number | null;
+  range_min?: number | null;
+  range_max?: number | null;
 };
 
 export type PollavarClientOptions = {
@@ -699,6 +783,83 @@ export function createPollavarClient(options: PollavarClientOptions = {}) {
       return request<Pool>(
         fetcher,
         `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/theme`,
+        {
+          method: "PUT",
+          body: JSON.stringify(input),
+          headers: authHeaders(token),
+        },
+      );
+    },
+    listGlobalPredictionDefinitions(token: string, poolID: string) {
+      return request<GlobalPredictionDefinition[]>(
+        fetcher,
+        `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/global-prediction-definitions`,
+        {
+          method: "GET",
+          headers: authHeaders(token),
+        },
+      );
+    },
+    updateGlobalPredictionDefinitions(
+      token: string,
+      poolID: string,
+      input: UpdateGlobalPredictionDefinitionsInput,
+    ) {
+      return request<GlobalPredictionDefinition[]>(
+        fetcher,
+        `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/global-prediction-definitions`,
+        {
+          method: "PUT",
+          body: JSON.stringify(input),
+          headers: authHeaders(token),
+        },
+      );
+    },
+    listGlobalPredictions(token: string, poolID: string) {
+      return request<GlobalPrediction[]>(
+        fetcher,
+        `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/global-predictions`,
+        {
+          method: "GET",
+          headers: authHeaders(token),
+        },
+      );
+    },
+    saveGlobalPrediction(
+      token: string,
+      poolID: string,
+      definitionCode: string,
+      input: SaveGlobalPredictionInput,
+    ) {
+      return request<GlobalPrediction>(
+        fetcher,
+        `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/global-predictions/${encodeURIComponent(definitionCode)}`,
+        {
+          method: "PUT",
+          body: JSON.stringify(input),
+          headers: authHeaders(token),
+        },
+      );
+    },
+    listGlobalPredictionResults(token: string, poolID: string) {
+      return request<GlobalPredictionResult[]>(
+        fetcher,
+        `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/global-results`,
+        {
+          method: "GET",
+          headers: authHeaders(token),
+        },
+      );
+    },
+    saveGlobalPredictionResult(
+      token: string,
+      poolID: string,
+      definitionCode: string,
+      input: SaveGlobalPredictionInput,
+    ) {
+      return request<GlobalPredictionResult>(
+        fetcher,
+        `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/global-results/${encodeURIComponent(definitionCode)}`,
         {
           method: "PUT",
           body: JSON.stringify(input),
