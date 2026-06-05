@@ -5,6 +5,8 @@ import {
   createPollavarClient,
   type AuthUser,
   type EffectiveMatchPredictionSettings,
+  type GlobalPredictionAnswerGroup,
+  type GlobalPredictionAnswerSummary,
   type GlobalPredictionDefinition,
   type GlobalPredictionDefinitionInput,
   type GlobalPredictionPrizePreview,
@@ -244,6 +246,9 @@ export default function AdminHome() {
   const [globalDefinitionDrafts, setGlobalDefinitionDrafts] =
     useState<GlobalPredictionDefinitionDrafts>({});
   const [globalResultDrafts, setGlobalResultDrafts] = useState<GlobalPredictionDrafts>({});
+  const [globalAnswerSummaries, setGlobalAnswerSummaries] = useState<
+    Record<string, GlobalPredictionAnswerSummary>
+  >({});
   const [underdogBonusDrafts, setUnderdogBonusDrafts] = useState<UnderdogBonusDrafts>({});
   const [themeDraft, setThemeDraft] = useState<ThemeDraft>(defaultThemeDraft(null));
   const [predictionSettingsDraft, setPredictionSettingsDraft] =
@@ -265,6 +270,8 @@ export default function AdminHome() {
   const [savingGlobalDefinitions, setSavingGlobalDefinitions] = useState(false);
   const [savingGlobalTemplateCode, setSavingGlobalTemplateCode] = useState("");
   const [savingGlobalResultCode, setSavingGlobalResultCode] = useState("");
+  const [loadingGlobalAnswersCode, setLoadingGlobalAnswersCode] = useState("");
+  const [savingGlobalAliasesCode, setSavingGlobalAliasesCode] = useState("");
   const [savingTheme, setSavingTheme] = useState(false);
   const [savingPredictionSettings, setSavingPredictionSettings] = useState(false);
   const [savingPredictionOverrides, setSavingPredictionOverrides] = useState(false);
@@ -328,6 +335,7 @@ export default function AdminHome() {
     setGlobalPredictionResults([]);
     setGlobalDefinitionDrafts({});
     setGlobalResultDrafts({});
+    setGlobalAnswerSummaries({});
     setUnderdogBonusDrafts({});
     setThemeDraft(defaultThemeDraft(null));
     setPredictionSettingsDraft(defaultPredictionSettingsDraft(null, []));
@@ -343,6 +351,8 @@ export default function AdminHome() {
     setSavingGlobalDefinitions(false);
     setSavingGlobalTemplateCode("");
     setSavingGlobalResultCode("");
+    setLoadingGlobalAnswersCode("");
+    setSavingGlobalAliasesCode("");
     setSavingTheme(false);
     setSavingPredictionSettings(false);
     setSavingPredictionOverrides(false);
@@ -366,6 +376,8 @@ export default function AdminHome() {
     setSavingBonusMatchID("");
     setSavingGlobalDefinitions(false);
     setSavingGlobalResultCode("");
+    setLoadingGlobalAnswersCode("");
+    setSavingGlobalAliasesCode("");
     setSavingTheme(false);
     setSavingPredictionSettings(false);
     setSavingPredictionOverrides(false);
@@ -406,6 +418,7 @@ export default function AdminHome() {
         setGlobalPredictionResults([]);
         setGlobalDefinitionDrafts({});
         setGlobalResultDrafts({});
+        setGlobalAnswerSummaries({});
         setUnderdogBonusDrafts({});
         setThemeDraft(defaultThemeDraft(null));
         setPredictionSettingsDraft(defaultPredictionSettingsDraft(null, []));
@@ -496,6 +509,7 @@ export default function AdminHome() {
       setGlobalResultDrafts(
         hydrateGlobalResultDrafts(nextGlobalDefinitions, nextGlobalResults),
       );
+      setGlobalAnswerSummaries({});
       setUnderdogBonusDrafts(hydrateUnderdogBonusDrafts(nextUnderdogBonuses));
       setThemeDraft(defaultThemeDraft(poolDetail));
       setPredictionSettingsDraft(defaultPredictionSettingsDraft(poolDetail, nextScoringRules));
@@ -820,7 +834,7 @@ export default function AdminHome() {
   }
 
   async function saveGlobalPredictionResult(definition: GlobalPredictionDefinition) {
-    if (!session || !pool || !canManageSelectedPoolGlobalPredictions) {
+    if (!session || !pool || !canManageSelectedPoolResults) {
       return;
     }
     if (!isGlobalDefinitionClosed(definition)) {
@@ -854,6 +868,11 @@ export default function AdminHome() {
         ...current,
         [definition.code]: globalPredictionDraft(result),
       }));
+      setGlobalAnswerSummaries((current) => {
+        const next = { ...current };
+        delete next[definition.code];
+        return next;
+      });
       void refreshGlobalPrizePreview(session.token, pool.id);
       setMessage("Resultado global actualizado.");
     } catch (error) {
@@ -1102,6 +1121,88 @@ export default function AdminHome() {
       if (isForbidden(error)) {
         setMessage("No tienes permisos para ver premios globales de esta polla.");
       }
+    }
+  }
+
+  async function loadGlobalPredictionAnswerSummary(definition: GlobalPredictionDefinition) {
+    if (!session || !pool || !canManageSelectedPoolResults) {
+      return;
+    }
+
+    setLoadingGlobalAnswersCode(definition.code);
+    setMessage("");
+
+    try {
+      const summary = await createPollavarClient().getGlobalPredictionAnswerSummary(
+        session.token,
+        pool.id,
+        definition.code,
+      );
+      setGlobalAnswerSummaries((current) => ({
+        ...current,
+        [definition.code]: summary,
+      }));
+    } catch (error) {
+      if (isUnauthorized(error)) {
+        signOutAdmin();
+        return;
+      }
+      if (isForbidden(error)) {
+        setMessage("No tienes permisos para revisar respuestas globales.");
+        return;
+      }
+      setMessage("No pudimos cargar las respuestas globales.");
+    } finally {
+      setLoadingGlobalAnswersCode("");
+    }
+  }
+
+  async function toggleGlobalPredictionAlias(
+    definition: GlobalPredictionDefinition,
+    answer: GlobalPredictionAnswerGroup,
+  ) {
+    if (!session || !pool || !canManageSelectedPoolResults) {
+      return;
+    }
+
+    const summary = globalAnswerSummaries[definition.code];
+    if (!summary?.result_recorded || isDirectGlobalAnswerMatch(summary, answer)) {
+      return;
+    }
+
+    const currentAliasValues = globalPredictionAliasValues(summary);
+    const nextAliasValues = answer.approved
+      ? currentAliasValues.filter((value) => value !== answer.value_text)
+      : [...currentAliasValues, answer.value_text];
+
+    setSavingGlobalAliasesCode(definition.code);
+    setMessage("");
+
+    try {
+      const nextSummary = await createPollavarClient().updateGlobalPredictionAliases(
+        session.token,
+        pool.id,
+        definition.code,
+        { alias_values: nextAliasValues },
+      );
+      setGlobalAnswerSummaries((current) => ({
+        ...current,
+        [definition.code]: nextSummary,
+      }));
+      void refreshGlobalPrizePreview(session.token, pool.id);
+      setMessage("Alias globales actualizados.");
+    } catch (error) {
+      if (isUnauthorized(error)) {
+        signOutAdmin();
+        return;
+      }
+      if (isForbidden(error)) {
+        setMessage("No tienes permisos para aprobar alias globales.");
+        return;
+      }
+      setMessage("No pudimos actualizar los alias globales.");
+    } finally {
+      setSavingGlobalAliasesCode("");
     }
   }
 
@@ -1474,6 +1575,7 @@ export default function AdminHome() {
             {pool ? (
               <GlobalPredictionAdminPanel
                 canManage={canManageSelectedPoolGlobalPredictions}
+                canManageResults={canManageSelectedPoolResults}
                 definitionDrafts={globalDefinitionDrafts}
                 definitions={globalPredictionDefinitions}
                 templates={globalPredictionTemplates}
@@ -1483,11 +1585,18 @@ export default function AdminHome() {
                 onSaveDefinitions={() => void saveGlobalPredictionDefinitions()}
                 onSaveResult={(definition) => void saveGlobalPredictionResult(definition)}
                 onSaveTemplate={(code) => void saveGlobalPredictionTemplate(code)}
+                onLoadAnswers={(definition) => void loadGlobalPredictionAnswerSummary(definition)}
+                onToggleAlias={(definition, answer) =>
+                  void toggleGlobalPredictionAlias(definition, answer)
+                }
                 onUpdateDefinitionDraft={updateGlobalDefinitionDraft}
                 onUpdateResultDraft={updateGlobalResultDraft}
                 onUpdateTemplateDraft={updateGlobalTemplateDraft}
                 resultDrafts={globalResultDrafts}
                 results={globalPredictionResults}
+                answerSummaries={globalAnswerSummaries}
+                loadingAnswersCode={loadingGlobalAnswersCode}
+                savingAliasesCode={savingGlobalAliasesCode}
                 savingDefinitions={savingGlobalDefinitions}
                 savingResultCode={savingGlobalResultCode}
                 savingTemplateCode={savingGlobalTemplateCode}
@@ -2572,37 +2681,51 @@ function PredictionSettingsOverrideTable({
 }
 
 function GlobalPredictionAdminPanel({
+  answerSummaries,
   canManage,
+  canManageResults,
   definitionDrafts,
   definitions,
+  loadingAnswersCode,
   templates,
   onAddCustomDefinition,
   onAddReusableTemplate,
   onAddTemplate,
+  onLoadAnswers,
   onSaveDefinitions,
   onSaveResult,
   onSaveTemplate,
+  onToggleAlias,
   onUpdateDefinitionDraft,
   onUpdateResultDraft,
   onUpdateTemplateDraft,
   resultDrafts,
   results,
   savingDefinitions,
+  savingAliasesCode,
   savingResultCode,
   savingTemplateCode,
   templateDrafts,
   tournament,
 }: {
+  answerSummaries: Record<string, GlobalPredictionAnswerSummary>;
   canManage: boolean;
+  canManageResults: boolean;
   definitionDrafts: GlobalPredictionDefinitionDrafts;
   definitions: GlobalPredictionDefinition[];
+  loadingAnswersCode: string;
   templates: GlobalPredictionTemplate[];
   onAddCustomDefinition: () => void;
   onAddReusableTemplate: () => void;
   onAddTemplate: (template: GlobalPredictionTemplate) => void;
+  onLoadAnswers: (definition: GlobalPredictionDefinition) => void;
   onSaveDefinitions: () => void;
   onSaveResult: (definition: GlobalPredictionDefinition) => void;
   onSaveTemplate: (code: string) => void;
+  onToggleAlias: (
+    definition: GlobalPredictionDefinition,
+    answer: GlobalPredictionAnswerGroup,
+  ) => void;
   onUpdateDefinitionDraft: (
     code: string,
     patch: Partial<GlobalPredictionDefinitionDrafts[string]>,
@@ -2619,6 +2742,7 @@ function GlobalPredictionAdminPanel({
   resultDrafts: GlobalPredictionDrafts;
   results: GlobalPredictionResult[];
   savingDefinitions: boolean;
+  savingAliasesCode: string;
   savingResultCode: string;
   savingTemplateCode: string;
   templateDrafts: GlobalPredictionTemplateDrafts;
@@ -3004,7 +3128,10 @@ function GlobalPredictionAdminPanel({
                   };
                   const closed = isGlobalDefinitionClosed(definition);
                   const isSavingResult = savingResultCode === definition.code;
-                  const canSaveResult = canManage && closed;
+                  const canSaveResult = canManageResults && closed;
+                  const supportsAliases = globalPredictionValueTypeSupportsAliases(
+                    definition.value_type,
+                  );
 
                   return (
                     <div
@@ -3060,6 +3187,18 @@ function GlobalPredictionAdminPanel({
                           </span>
                         </p>
                       ) : null}
+
+                      {supportsAliases ? (
+                        <GlobalPredictionAnswerReview
+                          answerSummary={answerSummaries[definition.code]}
+                          canManage={canManageResults}
+                          definition={definition}
+                          loading={loadingAnswersCode === definition.code}
+                          onLoad={() => onLoadAnswers(definition)}
+                          onToggleAlias={(answer) => onToggleAlias(definition, answer)}
+                          saving={savingAliasesCode === definition.code}
+                        />
+                      ) : null}
                     </div>
                   );
                 })}
@@ -3069,6 +3208,122 @@ function GlobalPredictionAdminPanel({
         </div>
       )}
     </section>
+  );
+}
+
+function GlobalPredictionAnswerReview({
+  answerSummary,
+  canManage,
+  definition,
+  loading,
+  onLoad,
+  onToggleAlias,
+  saving,
+}: {
+  answerSummary?: GlobalPredictionAnswerSummary;
+  canManage: boolean;
+  definition: GlobalPredictionDefinition;
+  loading: boolean;
+  onLoad: () => void;
+  onToggleAlias: (answer: GlobalPredictionAnswerGroup) => void;
+  saving: boolean;
+}) {
+  const answers = answerSummary?.answers ?? [];
+
+  return (
+    <div className="mt-4 rounded-md border border-zinc-200 bg-zinc-50 p-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-sm font-semibold text-zinc-900">Variantes de respuesta</p>
+          <p className="text-xs text-zinc-600">
+            Agrupa respuestas escritas libremente para puntuar alias equivalentes.
+          </p>
+        </div>
+        <button
+          aria-label={`Revisar respuestas de ${definition.label}`}
+          className="min-h-9 w-fit rounded-md border border-zinc-300 bg-white px-3 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-400"
+          disabled={!canManage || loading || saving}
+          onClick={onLoad}
+          type="button"
+        >
+          {loading ? "Cargando" : answerSummary ? "Actualizar" : "Revisar respuestas"}
+        </button>
+      </div>
+
+      {!answerSummary ? (
+        <p className="mt-3 text-xs text-zinc-500">
+          Carga las respuestas para revisar diferencias de escritura.
+        </p>
+      ) : null}
+
+      {answerSummary && !answerSummary.result_recorded ? (
+        <p className="mt-3 text-xs text-amber-700">
+          Carga primero el resultado oficial para aprobar alias.
+        </p>
+      ) : null}
+
+      {answerSummary && answers.length === 0 ? (
+        <p className="mt-3 text-xs text-zinc-500">No hay respuestas para revisar.</p>
+      ) : null}
+
+      {answers.length > 0 ? (
+        <div className="mt-3 grid gap-2">
+          {answers.map((answer) => {
+            const directMatch = isDirectGlobalAnswerMatch(answerSummary, answer);
+            const resultRecorded = Boolean(answerSummary?.result_recorded);
+            const canToggle =
+              canManage && resultRecorded && !directMatch && !loading && !saving;
+            const statusLabel = directMatch
+              ? "Coincide"
+              : answer.approved
+                ? "Alias aprobado"
+                : "Pendiente";
+
+            return (
+              <div
+                className="grid gap-2 rounded-md border border-zinc-200 bg-white p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
+                key={answer.normalized_value}
+              >
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="break-words text-sm font-medium text-zinc-900">
+                      {answer.value_text}
+                    </p>
+                    <span
+                      className={`rounded-md px-2 py-1 text-xs font-medium ${
+                        directMatch
+                          ? "bg-emerald-100 text-emerald-800"
+                          : answer.approved
+                            ? "bg-sky-100 text-sky-800"
+                            : "bg-zinc-100 text-zinc-600"
+                      }`}
+                    >
+                      {statusLabel}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-xs text-zinc-500">
+                    {answer.prediction_count} respuesta
+                    {answer.prediction_count === 1 ? "" : "s"} agrupada
+                    {answer.prediction_count === 1 ? "" : "s"}.
+                  </p>
+                </div>
+                <button
+                  aria-label={`${answer.approved ? "Quitar alias" : "Aceptar alias"} ${
+                    answer.value_text
+                  }`}
+                  className="min-h-9 rounded-md border border-zinc-300 px-3 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-400"
+                  disabled={!canToggle}
+                  onClick={() => onToggleAlias(answer)}
+                  type="button"
+                >
+                  {directMatch ? "Coincide" : answer.approved ? "Quitar alias" : "Aceptar alias"}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -4753,6 +5008,32 @@ function globalPredictionInputFromDraft(
     return null;
   }
   return { value_number: valueNumber };
+}
+
+function globalPredictionValueTypeSupportsAliases(valueType: GlobalPredictionValueType) {
+  return valueType === "player" || valueType === "text";
+}
+
+function isDirectGlobalAnswerMatch(
+  summary: GlobalPredictionAnswerSummary | undefined,
+  answer: GlobalPredictionAnswerGroup,
+) {
+  return Boolean(
+    summary?.result_recorded &&
+      summary.result_normalized_value &&
+      answer.normalized_value === summary.result_normalized_value,
+  );
+}
+
+function globalPredictionAliasValues(summary: GlobalPredictionAnswerSummary) {
+  return summary.answers
+    .filter(
+      (answer) =>
+        answer.approved &&
+        answer.value_text.trim() &&
+        !isDirectGlobalAnswerMatch(summary, answer),
+    )
+    .map((answer) => answer.value_text);
 }
 
 function upsertGlobalPredictionResult(

@@ -5,6 +5,7 @@ import {
   serializeAuthSession,
   type AuthResult,
   type GlobalPrediction,
+  type GlobalPredictionAnswerSummary,
   type GlobalPredictionDefinition,
   type GlobalPredictionPrizePreview,
   type GlobalPredictionResult,
@@ -363,6 +364,30 @@ const globalPredictionResult: GlobalPredictionResult = {
   recorded_at: "2026-07-20T23:00:00Z",
   created_at: "2026-07-20T23:00:00Z",
   updated_at: "2026-07-20T23:00:00Z",
+};
+
+const globalPredictionAnswerSummary: GlobalPredictionAnswerSummary = {
+  pool_id: "pool-id",
+  definition_id: "definition-id",
+  code: "global_top_scorer",
+  label: "Goleador",
+  value_type: "player",
+  result_recorded: true,
+  result_value_text: "Kylian Mbappe",
+  result_normalized_value: "kylianmbappe",
+  answers: [
+    {
+      value_text: "Mbappe",
+      normalized_value: "mbappe",
+      prediction_count: 2,
+      approved: true,
+      alias_id: "alias-id",
+      target_value_text: "Kylian Mbappe",
+      target_normalized_value: "kylianmbappe",
+      updated_by: "admin-id",
+      updated_at: "2026-07-20T23:10:00Z",
+    },
+  ],
 };
 
 const payment: Payment = {
@@ -996,6 +1021,12 @@ describe("createPollavarClient", () => {
       if (value.endsWith("/global-results/global_champion") && init?.method === "PUT") {
         return jsonResponse({ data: globalPredictionResult });
       }
+      if (value.endsWith("/global-results/global_top_scorer/answers") && init?.method === "GET") {
+        return jsonResponse({ data: globalPredictionAnswerSummary });
+      }
+      if (value.endsWith("/global-results/global_top_scorer/aliases") && init?.method === "PUT") {
+        return jsonResponse({ data: globalPredictionAnswerSummary });
+      }
       if (value.endsWith("/global-prizes/preview") && init?.method === "GET") {
         return jsonResponse({ data: globalPrizePreview });
       }
@@ -1064,6 +1095,14 @@ describe("createPollavarClient", () => {
         value_text: "Colombia",
       }),
     ).resolves.toEqual(globalPredictionResult);
+    await expect(
+      client.getGlobalPredictionAnswerSummary("token", "pool id", "global_top_scorer"),
+    ).resolves.toEqual(globalPredictionAnswerSummary);
+    await expect(
+      client.updateGlobalPredictionAliases("token", "pool id", "global_top_scorer", {
+        alias_values: ["Mbappe"],
+      }),
+    ).resolves.toEqual(globalPredictionAnswerSummary);
     await expect(client.getGlobalPredictionPrizePreview("token", "pool id")).resolves.toEqual(
       globalPrizePreview,
     );
@@ -1192,6 +1231,29 @@ describe("createPollavarClient", () => {
     );
     expect(fetcher).toHaveBeenNthCalledWith(
       9,
+      "http://api.local/api/v1/pools/pool%20id/global-results/global_top_scorer/answers",
+      {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer token",
+        },
+      },
+    );
+    expect(fetcher).toHaveBeenNthCalledWith(
+      10,
+      "http://api.local/api/v1/pools/pool%20id/global-results/global_top_scorer/aliases",
+      {
+        method: "PUT",
+        body: JSON.stringify({ alias_values: ["Mbappe"] }),
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer token",
+        },
+      },
+    );
+    expect(fetcher).toHaveBeenNthCalledWith(
+      11,
       "http://api.local/api/v1/pools/pool%20id/global-prizes/preview",
       {
         method: "GET",

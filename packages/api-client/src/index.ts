@@ -497,6 +497,30 @@ export type GlobalPredictionResult = {
   updated_at: string;
 };
 
+export type GlobalPredictionAnswerGroup = {
+  value_text: string;
+  normalized_value: string;
+  prediction_count: number;
+  approved: boolean;
+  alias_id: string;
+  target_value_text: string;
+  target_normalized_value: string;
+  updated_by: string;
+  updated_at: string;
+};
+
+export type GlobalPredictionAnswerSummary = {
+  pool_id: string;
+  definition_id: string;
+  code: ScoringRuleCode;
+  label: string;
+  value_type: GlobalPredictionValueType;
+  result_recorded: boolean;
+  result_value_text: string;
+  result_normalized_value: string;
+  answers: GlobalPredictionAnswerGroup[];
+};
+
 export type UpdatePredictionSettingsInput = {
   prediction_mode: PredictionMode;
   match_result_scoring_mode: MatchResultScoringMode;
@@ -587,6 +611,10 @@ export type SaveGlobalPredictionInput = {
   value_number?: number | null;
   range_min?: number | null;
   range_max?: number | null;
+};
+
+export type UpdateGlobalPredictionAliasesInput = {
+  alias_values: string[];
 };
 
 export type PollavarClientOptions = {
@@ -1031,6 +1059,32 @@ export function createPollavarClient(options: PollavarClientOptions = {}) {
       return request<GlobalPredictionResult>(
         fetcher,
         `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/global-results/${encodeURIComponent(definitionCode)}`,
+        {
+          method: "PUT",
+          body: JSON.stringify(input),
+          headers: authHeaders(token),
+        },
+      );
+    },
+    getGlobalPredictionAnswerSummary(token: string, poolID: string, definitionCode: string) {
+      return request<GlobalPredictionAnswerSummary>(
+        fetcher,
+        `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/global-results/${encodeURIComponent(definitionCode)}/answers`,
+        {
+          method: "GET",
+          headers: authHeaders(token),
+        },
+      );
+    },
+    updateGlobalPredictionAliases(
+      token: string,
+      poolID: string,
+      definitionCode: string,
+      input: UpdateGlobalPredictionAliasesInput,
+    ) {
+      return request<GlobalPredictionAnswerSummary>(
+        fetcher,
+        `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/global-results/${encodeURIComponent(definitionCode)}/aliases`,
         {
           method: "PUT",
           body: JSON.stringify(input),

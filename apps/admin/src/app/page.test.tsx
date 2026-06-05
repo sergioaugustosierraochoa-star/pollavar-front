@@ -381,6 +381,25 @@ const globalPredictionDefinitions = [
     created_at: "2026-05-27T01:00:00Z",
     updated_at: "2026-05-27T01:00:00Z",
   },
+  {
+    id: "global-definition-top-scorer",
+    pool_id: "pool-id",
+    code: "global_top_scorer",
+    label: "Goleador",
+    value_type: "player",
+    enabled: true,
+    points_enabled: true,
+    prize_enabled: false,
+    prize_type: "none",
+    prize_fixed_amount_cents: 0,
+    prize_percentage: 0,
+    prize_share_policy: "split_equal",
+    points: 4,
+    sort_order: 3,
+    closes_at: "2020-06-11T00:00:00Z",
+    created_at: "2026-05-27T01:00:00Z",
+    updated_at: "2026-05-27T01:00:00Z",
+  },
 ];
 
 const globalPredictionTemplates = [
@@ -419,7 +438,47 @@ const globalPredictionResults = [
     created_at: "2026-07-20T01:00:00Z",
     updated_at: "2026-07-20T01:00:00Z",
   },
+  {
+    id: "global-result-top-scorer",
+    pool_id: "pool-id",
+    definition_id: "global-definition-top-scorer",
+    code: "global_top_scorer",
+    value_type: "player",
+    value_text: "Kylian Mbappe",
+    value_number: null,
+    range_min: null,
+    range_max: null,
+    recorded_by: "admin-id",
+    recorded_at: "2026-07-20T01:00:00Z",
+    created_at: "2026-07-20T01:00:00Z",
+    updated_at: "2026-07-20T01:00:00Z",
+  },
 ];
+
+const globalPredictionAnswerSummary = {
+  pool_id: "pool-id",
+  definition_id: "global-definition-top-scorer",
+  code: "global_top_scorer",
+  label: "Goleador",
+  value_type: "player",
+  result_recorded: true,
+  result_value_text: "Kylian Mbappe",
+  result_normalized_value: "kylian mbappe",
+  answers: [
+    {
+      value_text: "Kylian Mbappe",
+      normalized_value: "kylian mbappe",
+      prediction_count: 1,
+      approved: true,
+    },
+    {
+      value_text: "Mbappe",
+      normalized_value: "mbappe",
+      prediction_count: 2,
+      approved: false,
+    },
+  ],
+};
 
 describe("Admin home", () => {
   afterEach(() => {
@@ -492,9 +551,16 @@ describe("Admin home", () => {
     expect(metricValue("Total porcentajes")).toHaveTextContent("100%");
     expect(screen.getByText("COP 35.000")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Predicciones globales" })).toBeInTheDocument();
-    expect(screen.getByText("2 activas de 2 configuradas.")).toBeInTheDocument();
+    expect(screen.getByText("3 activas de 3 configuradas.")).toBeInTheDocument();
     expect(screen.getByText("Resultados globales oficiales")).toBeInTheDocument();
-    expect(screen.getByText("Actual:")).toBeInTheDocument();
+    expect(screen.getAllByText("Actual:").length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: "Revisar respuestas de Goleador" }));
+    expect(await screen.findByText("Mbappe")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Aceptar alias Mbappe" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("status")).toHaveTextContent("Alias globales actualizados.");
+    });
 
     const participantRow = rowWithText("@participante");
     expect(within(participantRow).getByText("@participante")).toBeInTheDocument();
@@ -528,6 +594,19 @@ describe("Admin home", () => {
           payment_method: "bank_transfer",
           reference: "TRX-999",
           status: "confirmed",
+        }),
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer token",
+        },
+      }),
+    );
+    expect(fetcher).toHaveBeenCalledWith(
+      "http://localhost:8080/api/v1/pools/pool-id/global-results/global_top_scorer/aliases",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({
+          alias_values: ["Mbappe"],
         }),
         headers: {
           "Content-Type": "application/json",
@@ -871,6 +950,21 @@ describe("Admin home", () => {
               points: 5,
               sort_order: 2,
               closes_at: null,
+            },
+            {
+              code: "global_top_scorer",
+              label: "Goleador",
+              value_type: "player",
+              enabled: true,
+              points_enabled: true,
+              prize_enabled: false,
+              prize_type: "none",
+              prize_fixed_amount_cents: 0,
+              prize_percentage: 0,
+              prize_share_policy: "split_equal",
+              points: 4,
+              sort_order: 3,
+              closes_at: "2020-06-11T00:00:00.000Z",
             },
             {
               code: "global_best_defense",
@@ -1453,6 +1547,30 @@ async function adminFetch(url: RequestInfo | URL, init?: RequestInit) {
         range_max: body.range_max ?? null,
         recorded_at: "2026-07-20T02:00:00Z",
         updated_at: "2026-07-20T02:00:00Z",
+      },
+    });
+  }
+  if (
+    value.endsWith("/api/v1/pools/pool-id/global-results/global_top_scorer/answers") &&
+    init?.method === "GET"
+  ) {
+    return jsonResponse({ data: globalPredictionAnswerSummary });
+  }
+  if (
+    value.endsWith("/api/v1/pools/pool-id/global-results/global_top_scorer/aliases") &&
+    init?.method === "PUT"
+  ) {
+    const body = JSON.parse(String(init.body)) as { alias_values: string[] };
+    const aliases = new Set(body.alias_values);
+    return jsonResponse({
+      data: {
+        ...globalPredictionAnswerSummary,
+        answers: globalPredictionAnswerSummary.answers.map((answer) => ({
+          ...answer,
+          approved:
+            answer.normalized_value === globalPredictionAnswerSummary.result_normalized_value ||
+            aliases.has(answer.value_text),
+        })),
       },
     });
   }
