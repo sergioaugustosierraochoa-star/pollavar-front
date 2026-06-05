@@ -460,6 +460,18 @@ describe("Admin home", () => {
     expect(await screen.findByRole("heading", { name: "Oficina FC" })).toBeInTheDocument();
     expect(screen.getByText("Administracion de polla")).toBeInTheDocument();
     expect(screen.getByLabelText("Polla")).toHaveValue("pool-id");
+    const adminNavigation = screen.getByRole("navigation", {
+      name: "Secciones de administracion",
+    });
+    expect(within(adminNavigation).getByRole("link", { name: "Identidad" })).toHaveAttribute(
+      "href",
+      "#identidad",
+    );
+    expect(within(adminNavigation).getByRole("link", { name: "Recaudo" })).toHaveAttribute(
+      "href",
+      "#recaudo",
+    );
+    expectAdminNavigationTargetsToExist(adminNavigation);
     expect(screen.getByRole("heading", { name: "Resultados oficiales" })).toBeInTheDocument();
     expect(screen.getByText("1 de 2 partidos con marcador final.")).toBeInTheDocument();
     const officialResultsSection = screen
@@ -1220,6 +1232,14 @@ function rowWithTextIn(container: HTMLElement, text: string) {
     throw new Error(`Row with ${text} not found`);
   }
   return row;
+}
+
+function expectAdminNavigationTargetsToExist(navigation: HTMLElement) {
+  for (const link of within(navigation).getAllByRole("link")) {
+    const href = link.getAttribute("href");
+    const target = href ? document.querySelector(href) : null;
+    expect(target).not.toBeNull();
+  }
 }
 
 async function adminFetch(url: RequestInfo | URL, init?: RequestInit) {

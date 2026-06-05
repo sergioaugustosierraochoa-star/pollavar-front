@@ -1432,6 +1432,12 @@ export default function AdminHome() {
             ) : null}
 
             {pool ? (
+              <AdminSectionNavigation
+                pool={pool}
+              />
+            ) : null}
+
+            {pool ? (
               <PoolThemePanel
                 canManage={canManageSelectedPoolTheme}
                 draft={themeDraft}
@@ -1511,7 +1517,10 @@ export default function AdminHome() {
             ) : null}
 
             {pool ? (
-              <section className="rounded-lg border border-zinc-200 bg-white shadow-sm">
+              <section
+                className="scroll-mt-4 rounded-lg border border-zinc-200 bg-white shadow-sm"
+                id="premios"
+              >
                 <div className="flex flex-col gap-3 border-b border-zinc-200 px-5 py-4 md:flex-row md:items-center md:justify-between">
                   <div>
                     <h2 className="text-lg font-semibold text-zinc-950">Premios</h2>
@@ -1686,7 +1695,10 @@ export default function AdminHome() {
             ) : null}
 
             {pool ? (
-              <section className="rounded-lg border border-zinc-200 bg-white shadow-sm">
+              <section
+                className="scroll-mt-4 rounded-lg border border-zinc-200 bg-white shadow-sm"
+                id="recaudo"
+              >
                 <div className="flex flex-col gap-3 border-b border-zinc-200 px-5 py-4 md:flex-row md:items-center md:justify-between">
                   <div>
                     <h2 className="text-lg font-semibold text-zinc-950">
@@ -1949,6 +1961,43 @@ function PoolThemeOverview({
   );
 }
 
+function AdminSectionNavigation({ pool }: { pool: Pool }) {
+  const items = [
+    { href: "#identidad", label: "Identidad" },
+    { href: "#pronosticos", label: "Pronosticos" },
+    { href: "#overrides", label: "Overrides" },
+    { href: "#globales", label: "Globales" },
+    { href: "#resultados", label: "Resultados" },
+    { href: "#premios", label: "Premios" },
+    { href: "#recaudo", label: "Recaudo" },
+  ];
+
+  return (
+    <section className="rounded-lg border border-zinc-200 bg-white shadow-sm">
+      <div className="grid gap-4 px-5 py-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+        <div>
+          <p className="text-xs font-medium uppercase text-emerald-700">Administrar</p>
+          <p className="mt-1 text-lg font-semibold text-zinc-950">{poolDisplayName(pool)}</p>
+          <p className="mt-1 text-sm text-zinc-600">
+            Codigo {pool.invite_code} - cierre {pool.prediction_close_hours_before}h antes
+          </p>
+        </div>
+        <nav aria-label="Secciones de administracion" className="flex flex-wrap gap-2">
+          {items.map((item) => (
+            <a
+              className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-800 hover:border-zinc-400"
+              href={item.href}
+              key={item.href}
+            >
+              {item.label}
+            </a>
+          ))}
+        </nav>
+      </div>
+    </section>
+  );
+}
+
 function PoolThemePanel({
   canManage,
   draft,
@@ -1965,7 +2014,10 @@ function PoolThemePanel({
   const update = (patch: Partial<ThemeDraft>) => onChange({ ...draft, ...patch });
 
   return (
-    <section className="rounded-lg border border-zinc-200 bg-white shadow-sm">
+    <section
+      className="scroll-mt-4 rounded-lg border border-zinc-200 bg-white shadow-sm"
+      id="identidad"
+    >
       <div className="flex flex-col gap-3 border-b border-zinc-200 px-5 py-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h2 className="text-lg font-semibold text-zinc-950">Identidad visual</h2>
@@ -2156,7 +2208,10 @@ function PredictionSettingsPanel({
   saving: boolean;
 }) {
   return (
-    <section className="rounded-lg border border-zinc-200 bg-white shadow-sm">
+    <section
+      className="scroll-mt-4 rounded-lg border border-zinc-200 bg-white shadow-sm"
+      id="pronosticos"
+    >
       <div className="flex flex-col gap-3 border-b border-zinc-200 px-5 py-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h2 className="text-lg font-semibold text-zinc-950">Pronosticos</h2>
@@ -2293,7 +2348,10 @@ function PredictionSettingsOverridesPanel({
   const activeOverrides = Object.values(drafts).filter(predictionSettingsOverrideDraftHasValue);
 
   return (
-    <section className="rounded-lg border border-zinc-200 bg-white shadow-sm">
+    <section
+      className="scroll-mt-4 rounded-lg border border-zinc-200 bg-white shadow-sm"
+      id="overrides"
+    >
       <div className="flex flex-col gap-3 border-b border-zinc-200 px-5 py-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h2 className="text-lg font-semibold text-zinc-950">Overrides de pronostico</h2>
@@ -2588,7 +2646,10 @@ function GlobalPredictionAdminPanel({
   const teamOptions = tournamentTeamOptions(tournament);
 
   return (
-    <section className="rounded-lg border border-zinc-200 bg-white shadow-sm">
+    <section
+      className="scroll-mt-4 rounded-lg border border-zinc-200 bg-white shadow-sm"
+      id="globales"
+    >
       <div className="flex flex-col gap-3 border-b border-zinc-200 px-5 py-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h2 className="text-lg font-semibold text-zinc-950">Predicciones globales</h2>
@@ -3353,7 +3414,10 @@ function ResultsPanel({
   ).length;
 
   return (
-    <section className="rounded-lg border border-zinc-200 bg-white shadow-sm">
+    <section
+      className="scroll-mt-4 rounded-lg border border-zinc-200 bg-white shadow-sm"
+      id="resultados"
+    >
       <div className="flex flex-col gap-3 border-b border-zinc-200 px-5 py-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h2 className="text-lg font-semibold text-zinc-950">Resultados oficiales</h2>
