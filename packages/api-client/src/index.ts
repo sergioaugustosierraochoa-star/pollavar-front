@@ -339,6 +339,11 @@ export type MatchOutcome = "home" | "draw" | "away";
 export type PredictionMode = "score" | "outcome" | "score_with_outcome";
 export type MatchResultScoringMode = "exclusive" | "cumulative";
 
+export type UpdatePredictionSettingsInput = {
+  prediction_mode: PredictionMode;
+  match_result_scoring_mode: MatchResultScoringMode;
+};
+
 export type SavePredictionInput =
   | {
       home_score: number;
@@ -595,6 +600,21 @@ export function createPollavarClient(options: PollavarClientOptions = {}) {
       return request<ScoringRule[]>(
         fetcher,
         `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/scoring-rules`,
+        {
+          method: "PUT",
+          body: JSON.stringify(input),
+          headers: authHeaders(token),
+        },
+      );
+    },
+    updatePredictionSettings(
+      token: string,
+      poolID: string,
+      input: UpdatePredictionSettingsInput,
+    ) {
+      return request<Pool>(
+        fetcher,
+        `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/prediction-settings`,
         {
           method: "PUT",
           body: JSON.stringify(input),

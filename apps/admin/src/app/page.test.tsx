@@ -460,6 +460,71 @@ describe("Admin home", () => {
     );
   });
 
+  it("updates prediction settings from the admin panel", async () => {
+    storeSession();
+    const fetcher = vi.fn(adminFetch);
+    vi.stubGlobal("fetch", fetcher);
+
+    render(<AdminHome />);
+
+    expect(await screen.findByRole("heading", { name: "Pronosticos" })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Modo de pronostico"), {
+      target: { value: "outcome" },
+    });
+    fireEvent.change(screen.getByLabelText("Puntaje de resultado"), {
+      target: { value: "cumulative" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar configuracion" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("status")).toHaveTextContent(
+        "Configuracion de pronosticos actualizada.",
+      );
+    });
+    expect(screen.getByText("Local / empate / visitante - Acumulativo")).toBeInTheDocument();
+
+    expect(fetcher).toHaveBeenCalledWith(
+      "http://localhost:8080/api/v1/pools/pool-id/prediction-settings",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({
+          prediction_mode: "outcome",
+          match_result_scoring_mode: "cumulative",
+        }),
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer token",
+        },
+      }),
+    );
+  });
+
+  it("shows a locked message when prediction settings already have activity", async () => {
+    storeSession();
+    const fetcher = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      const value = String(url);
+      if (value.endsWith("/api/v1/pools/pool-id/prediction-settings") && init?.method === "PUT") {
+        return jsonResponse({ code: "prediction_settings_locked" }, { status: 409 });
+      }
+      return adminFetch(url, init);
+    });
+    vi.stubGlobal("fetch", fetcher);
+
+    render(<AdminHome />);
+
+    expect(await screen.findByRole("heading", { name: "Pronosticos" })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Modo de pronostico"), {
+      target: { value: "outcome" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar configuracion" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "No pudimos cambiar los modos porque la polla ya tiene pronosticos o resultados.",
+      );
+    });
+  });
+
   it("keeps unsaved prize rule drafts when payment changes refresh the prize preview", async () => {
     storeSession();
     const fetcher = vi.fn(adminFetch);
@@ -684,6 +749,16 @@ async function adminFetch(url: RequestInfo | URL, init?: RequestInit) {
         description: rule.description,
         created_at: "2026-05-27T01:00:00Z",
       })),
+    });
+  }
+  if (value.endsWith("/api/v1/pools/pool-id/prediction-settings") && init?.method === "PUT") {
+    const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+    return jsonResponse({
+      data: {
+        ...pool,
+        prediction_mode: body.prediction_mode,
+        match_result_scoring_mode: body.match_result_scoring_mode,
+      },
     });
   }
   if (value.endsWith("/api/v1/pools/pool-id/prizes/preview") && init?.method === "GET") {

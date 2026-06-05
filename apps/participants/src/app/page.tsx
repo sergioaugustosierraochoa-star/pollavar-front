@@ -4,6 +4,7 @@ import {
   PollavarAPIError,
   createPollavarClient,
   type Match,
+  type MatchOutcome,
   type PointEventDetail,
   type Pool,
   type Prediction,
@@ -36,7 +37,7 @@ type AuthSession = {
 };
 
 type DashboardStatus = "checking" | "signed-out" | "loading" | "ready" | "error";
-type ScoreDrafts = Record<string, { home: string; away: string }>;
+type ScoreDrafts = Record<string, { home: string; away: string; outcome: MatchOutcome | "" }>;
 type StandingDrafts = Record<string, string[]>;
 const defaultScoringRules: ScoringRule[] = [
   { code: "exact_score", points: 5, enabled: true },
@@ -493,12 +494,13 @@ export default function ParticipantsHome() {
     }
   }
 
-  function updateDraft(matchID: string, side: "home" | "away", value: string) {
+  function updateDraft(matchID: string, side: "home" | "away" | "outcome", value: string) {
     setDrafts((current) => ({
       ...current,
       [matchID]: {
         home: current[matchID]?.home ?? "",
         away: current[matchID]?.away ?? "",
+        outcome: current[matchID]?.outcome ?? "",
         [side]: value,
       },
     }));
@@ -510,18 +512,14 @@ export default function ParticipantsHome() {
       return;
     }
 
-    const draft = drafts[match.id] ?? { home: "", away: "" };
-    const homeScore = Number(draft.home);
-    const awayScore = Number(draft.away);
-    if (
-      draft.home === "" ||
-      draft.away === "" ||
-      !Number.isInteger(homeScore) ||
-      !Number.isInteger(awayScore) ||
-      homeScore < 0 ||
-      awayScore < 0
-    ) {
-      setSaveMessage("Completa ambos marcadores con numeros validos.");
+    const draft = drafts[match.id] ?? emptyPredictionDraft();
+    const input = predictionInputFromDraft(pool, draft);
+    if (!input) {
+      setSaveMessage(
+        pool.prediction_mode === "outcome"
+          ? "Elige local, empate o visitante."
+          : "Completa ambos marcadores con numeros validos.",
+      );
       return;
     }
 
@@ -530,10 +528,7 @@ export default function ParticipantsHome() {
     const requestID = dashboardRequestID.current;
     try {
       const client = createPollavarClient();
-      await client.savePrediction(session.token, pool.id, match.id, {
-        home_score: homeScore,
-        away_score: awayScore,
-      });
+      await client.savePrediction(session.token, pool.id, match.id, input);
       if (dashboardRequestID.current !== requestID) {
         return;
       }
@@ -775,7 +770,7 @@ function Dashboard({
   onSaveStanding: (group: PredictionGroup) => void;
   onSelectPool: (poolID: string) => void;
   onMoveStanding: (group: PredictionGroup, teamID: string, direction: -1 | 1) => void;
-  onUpdateDraft: (matchID: string, side: "home" | "away", value: string) => void;
+  onUpdateDraft: (matchID: string, side: "home" | "away" | "outcome", value: string) => void;
   pool: Pool | null;
   pools: Pool[];
   predictionsByMatch: Map<string, Prediction>;
@@ -1467,7 +1462,7 @@ function PredictionList({
   onSave: (event: FormEvent<HTMLFormElement>, match: Match) => void;
   onSaveStanding: (group: PredictionGroup) => void;
   onMoveStanding: (group: PredictionGroup, teamID: string, direction: -1 | 1) => void;
-  onUpdateDraft: (matchID: string, side: "home" | "away", value: string) => void;
+  onUpdateDraft: (matchID: string, side: "home" | "away" | "outcome", value: string) => void;
   pool: Pool | null;
   predictionGroups: PredictionGroup[];
   predictionsByMatch: Map<string, Prediction>;
@@ -1575,7 +1570,7 @@ function PredictionList({
             <div className="divide-y divide-zinc-100">
               {group.matches.map((match) => (
                 <MatchPredictionForm
-                  draft={drafts[match.id] ?? { home: "", away: "" }}
+                  draft={drafts[match.id] ?? emptyPredictionDraft()}
                   key={match.id}
                   match={match}
                   onDownloadSnapshot={onDownloadSnapshot}
@@ -1584,6 +1579,7 @@ function PredictionList({
                   onUpdateDraft={onUpdateDraft}
                   prediction={predictionsByMatch.get(match.id)}
                   predictionCloseHoursBefore={pool?.prediction_close_hours_before}
+                  predictionMode={pool?.prediction_mode ?? "score_with_outcome"}
                   predictionStatus={predictionStatusesByMatch.get(match.id)}
                   savingMatchID={savingMatchID}
                   snapshot={snapshotsByMatchID[match.id]}
@@ -1751,6 +1747,7 @@ function MatchPredictionForm({
   onUpdateDraft,
   prediction,
   predictionCloseHoursBefore,
+  predictionMode,
   predictionStatus,
   savingMatchID,
   snapshot,
@@ -1758,14 +1755,15 @@ function MatchPredictionForm({
   snapshotLoadInProgress,
   snapshotMessage,
 }: {
-  draft: { home: string; away: string };
+  draft: ScoreDrafts[string];
   match: Match;
   onDownloadSnapshot: (matchID: string) => void;
   onLoadSnapshot: (matchID: string) => void;
   onSave: (event: FormEvent<HTMLFormElement>, match: Match) => void;
-  onUpdateDraft: (matchID: string, side: "home" | "away", value: string) => void;
+  onUpdateDraft: (matchID: string, side: "home" | "away" | "outcome", value: string) => void;
   prediction?: Prediction;
   predictionCloseHoursBefore?: number;
+  predictionMode: Pool["prediction_mode"];
   predictionStatus?: PredictionMatchStatus;
   savingMatchID: string;
   snapshot?: PredictionSnapshot;
@@ -1802,34 +1800,28 @@ function MatchPredictionForm({
           </p>
         </div>
 
-        <div className="grid grid-cols-2 gap-2">
-          <label className="grid gap-1 text-xs font-medium text-zinc-600">
-            <span>{match.home_team?.short_name ?? match.home_slot}</span>
-            <input
-              aria-label={`Marcador ${homeName}`}
-              className="h-10 rounded-md border border-zinc-300 px-3 text-base font-semibold text-zinc-950 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100 disabled:bg-zinc-100"
-              disabled={closed}
-              min={0}
-              onChange={(event) => onUpdateDraft(match.id, "home", event.target.value)}
-              step={1}
-              type="number"
-              value={draft.home}
-            />
-          </label>
-          <label className="grid gap-1 text-xs font-medium text-zinc-600">
-            <span>{match.away_team?.short_name ?? match.away_slot}</span>
-            <input
-              aria-label={`Marcador ${awayName}`}
-              className="h-10 rounded-md border border-zinc-300 px-3 text-base font-semibold text-zinc-950 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100 disabled:bg-zinc-100"
-              disabled={closed}
-              min={0}
-              onChange={(event) => onUpdateDraft(match.id, "away", event.target.value)}
-              step={1}
-              type="number"
-              value={draft.away}
-            />
-          </label>
-        </div>
+        {predictionMode === "outcome" ? (
+          <OutcomePredictionControl
+            awayName={awayName}
+            closed={closed}
+            homeName={homeName}
+            matchID={match.id}
+            onUpdateDraft={onUpdateDraft}
+            value={draft.outcome}
+          />
+        ) : (
+          <ScorePredictionControl
+            awayLabel={match.away_team?.short_name ?? match.away_slot}
+            awayName={awayName}
+            closed={closed}
+            draft={draft}
+            homeLabel={match.home_team?.short_name ?? match.home_slot}
+            homeName={homeName}
+            matchID={match.id}
+            onUpdateDraft={onUpdateDraft}
+            showDerivedOutcome={predictionMode === "score_with_outcome"}
+          />
+        )}
 
         <div className="flex flex-wrap items-end gap-2 lg:justify-end">
           <span
@@ -1870,6 +1862,119 @@ function MatchPredictionForm({
         />
       ) : null}
     </div>
+  );
+}
+
+function ScorePredictionControl({
+  awayLabel,
+  awayName,
+  closed,
+  draft,
+  homeLabel,
+  homeName,
+  matchID,
+  onUpdateDraft,
+  showDerivedOutcome,
+}: {
+  awayLabel: string;
+  awayName: string;
+  closed: boolean;
+  draft: ScoreDrafts[string];
+  homeLabel: string;
+  homeName: string;
+  matchID: string;
+  onUpdateDraft: (matchID: string, side: "home" | "away" | "outcome", value: string) => void;
+  showDerivedOutcome: boolean;
+}) {
+  const derivedOutcome = outcomeFromDraftScore(draft);
+
+  return (
+    <div>
+      <div className="grid grid-cols-2 gap-2">
+        <label className="grid gap-1 text-xs font-medium text-zinc-600">
+          <span>{homeLabel}</span>
+          <input
+            aria-label={`Marcador ${homeName}`}
+            className="h-10 rounded-md border border-zinc-300 px-3 text-base font-semibold text-zinc-950 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100 disabled:bg-zinc-100"
+            disabled={closed}
+            min={0}
+            onChange={(event) => onUpdateDraft(matchID, "home", event.target.value)}
+            step={1}
+            type="number"
+            value={draft.home}
+          />
+        </label>
+        <label className="grid gap-1 text-xs font-medium text-zinc-600">
+          <span>{awayLabel}</span>
+          <input
+            aria-label={`Marcador ${awayName}`}
+            className="h-10 rounded-md border border-zinc-300 px-3 text-base font-semibold text-zinc-950 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100 disabled:bg-zinc-100"
+            disabled={closed}
+            min={0}
+            onChange={(event) => onUpdateDraft(matchID, "away", event.target.value)}
+            step={1}
+            type="number"
+            value={draft.away}
+          />
+        </label>
+      </div>
+      {showDerivedOutcome && derivedOutcome ? (
+        <p className="mt-2 text-xs font-medium text-zinc-500">
+          Resultado: {matchOutcomeLabel(derivedOutcome)}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function OutcomePredictionControl({
+  awayName,
+  closed,
+  homeName,
+  matchID,
+  onUpdateDraft,
+  value,
+}: {
+  awayName: string;
+  closed: boolean;
+  homeName: string;
+  matchID: string;
+  onUpdateDraft: (matchID: string, side: "home" | "away" | "outcome", value: string) => void;
+  value: MatchOutcome | "";
+}) {
+  const options: Array<{ value: MatchOutcome; label: string }> = [
+    { value: "home", label: "Local" },
+    { value: "draw", label: "Empate" },
+    { value: "away", label: "Visitante" },
+  ];
+
+  return (
+    <fieldset className="grid gap-2">
+      <legend className="sr-only">
+        Resultado {homeName} contra {awayName}
+      </legend>
+      <div className="grid grid-cols-3 gap-2">
+        {options.map((option) => {
+          const selected = value === option.value;
+          return (
+            <button
+              aria-pressed={selected}
+              className={`h-10 rounded-md border px-2 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-60 ${
+                selected
+                  ? "border-emerald-700 bg-emerald-700 text-white"
+                  : "border-zinc-300 bg-white text-zinc-700 hover:border-zinc-400"
+              }`}
+              disabled={closed}
+              key={option.value}
+              onClick={() => onUpdateDraft(matchID, "outcome", option.value)}
+              type="button"
+            >
+              {option.label}
+            </button>
+          );
+        })}
+      </div>
+    </fieldset>
   );
 }
 
@@ -2147,14 +2252,19 @@ function predictionHasScore(prediction: Prediction) {
   return prediction.has_score !== false;
 }
 
-function predictionScoreDraft(prediction: Prediction | undefined) {
+function predictionScoreDraft(prediction: Prediction | undefined): ScoreDrafts[string] {
   if (!prediction || !predictionHasScore(prediction)) {
-    return { home: "", away: "" };
+    return { ...emptyPredictionDraft(), outcome: matchOutcomeValue(prediction?.outcome ?? "") };
   }
   return {
     home: String(prediction.home_score),
     away: String(prediction.away_score),
+    outcome: matchOutcomeValue(prediction.outcome),
   };
+}
+
+function emptyPredictionDraft(): ScoreDrafts[string] {
+  return { home: "", away: "", outcome: "" };
 }
 
 function downloadTextFile(content: string, filename: string, type: string) {
@@ -2604,6 +2714,63 @@ function hydrateDrafts(matches: Match[], predictions: Prediction[]) {
     nextDrafts[match.id] = predictionScoreDraft(indexed.get(match.id));
   }
   return nextDrafts;
+}
+
+function predictionInputFromDraft(pool: Pool, draft: ScoreDrafts[string]) {
+  if (pool.prediction_mode === "outcome") {
+    return draft.outcome ? { outcome: draft.outcome } : null;
+  }
+
+  const homeScore = Number(draft.home);
+  const awayScore = Number(draft.away);
+  if (
+    draft.home === "" ||
+    draft.away === "" ||
+    !Number.isInteger(homeScore) ||
+    !Number.isInteger(awayScore) ||
+    homeScore < 0 ||
+    awayScore < 0
+  ) {
+    return null;
+  }
+
+  return {
+    home_score: homeScore,
+    away_score: awayScore,
+  };
+}
+
+function outcomeFromDraftScore(draft: ScoreDrafts[string]): MatchOutcome | "" {
+  const homeScore = Number(draft.home);
+  const awayScore = Number(draft.away);
+  if (
+    draft.home === "" ||
+    draft.away === "" ||
+    !Number.isInteger(homeScore) ||
+    !Number.isInteger(awayScore)
+  ) {
+    return "";
+  }
+  if (homeScore > awayScore) {
+    return "home";
+  }
+  if (homeScore < awayScore) {
+    return "away";
+  }
+  return "draw";
+}
+
+function matchOutcomeValue(value: string): MatchOutcome | "" {
+  switch (value) {
+    case "home":
+      return "home";
+    case "draw":
+      return "draw";
+    case "away":
+      return "away";
+    default:
+      return "";
+  }
 }
 
 function predictionStatusLabel(status: PredictionMatchStatus["status"]) {

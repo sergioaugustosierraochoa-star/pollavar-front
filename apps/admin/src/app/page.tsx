@@ -6,12 +6,14 @@ import {
   type AuthUser,
   type Match,
   type MatchResultAuditLog,
+  type MatchResultScoringMode,
   type Payment,
   type PaymentCollection,
   type PaymentMethod,
   type PaymentStatus,
   type Pool,
   type PoolParticipant,
+  type PredictionMode,
   type PredictionMatchStatus,
   type PrizePreview,
   type Tournament,
@@ -56,6 +58,10 @@ type ResultMatchGroup = {
   subtitle: string;
   matches: Match[];
 };
+type PredictionSettingsDraft = {
+  predictionMode: PredictionMode;
+  matchResultScoringMode: MatchResultScoringMode;
+};
 type RefreshPrizePreviewOptions = {
   syncDrafts?: boolean;
 };
@@ -75,6 +81,20 @@ const paymentStatuses: Array<{ value: PaymentStatus; label: string }> = [
   { value: "rejected", label: "Rechazado" },
 ];
 
+const predictionModeOptions: Array<{ value: PredictionMode; label: string }> = [
+  { value: "score_with_outcome", label: "Marcador + resultado" },
+  { value: "outcome", label: "Local / empate / visitante" },
+  { value: "score", label: "Marcador simple" },
+];
+
+const matchResultScoringModeOptions: Array<{
+  value: MatchResultScoringMode;
+  label: string;
+}> = [
+  { value: "exclusive", label: "Exclusivo" },
+  { value: "cumulative", label: "Acumulativo" },
+];
+
 export default function AdminHome() {
   const [session, setSession] = useState<AuthSession | null>(null);
   const [status, setStatus] = useState<DashboardStatus>("checking");
@@ -88,6 +108,8 @@ export default function AdminHome() {
   const [paymentCurrency, setPaymentCurrency] = useState("COP");
   const [prizePreview, setPrizePreview] = useState<PrizePreview | null>(null);
   const [prizeDrafts, setPrizeDrafts] = useState<PrizeRuleDraft[]>([]);
+  const [predictionSettingsDraft, setPredictionSettingsDraft] =
+    useState<PredictionSettingsDraft>(defaultPredictionSettingsDraft(null));
   const [resultDrafts, setResultDrafts] = useState<ResultDrafts>({});
   const [resultAuditLogsByMatchID, setResultAuditLogsByMatchID] = useState<
     Record<string, MatchResultAuditLog[]>
@@ -96,6 +118,7 @@ export default function AdminHome() {
   const [savingResultMatchID, setSavingResultMatchID] = useState("");
   const [loadingAuditMatchID, setLoadingAuditMatchID] = useState("");
   const [savingUserID, setSavingUserID] = useState("");
+  const [savingPredictionSettings, setSavingPredictionSettings] = useState(false);
   const [savingPrizes, setSavingPrizes] = useState(false);
   const requestID = useRef(0);
 
@@ -112,6 +135,9 @@ export default function AdminHome() {
     session && pool && canManagePayments(pool, session.user.id),
   );
   const canManageSelectedPoolPrizes = Boolean(pool && canManagePrizeRules(pool));
+  const canManageSelectedPoolPredictionSettings = Boolean(
+    pool && canManagePredictionSettings(pool),
+  );
   const canManageSelectedPoolResults = Boolean(pool && canManageResults(pool));
   const totals = useMemo(
     () => paymentTotals(pool?.participants ?? [], paymentsByUserID),
@@ -133,12 +159,14 @@ export default function AdminHome() {
     setPaymentCurrency("COP");
     setPrizePreview(null);
     setPrizeDrafts([]);
+    setPredictionSettingsDraft(defaultPredictionSettingsDraft(null));
     setResultDrafts({});
     setResultAuditLogsByMatchID({});
     setDrafts({});
     setSavingResultMatchID("");
     setLoadingAuditMatchID("");
     setSavingUserID("");
+    setSavingPredictionSettings(false);
     setSavingPrizes(false);
   }, []);
 
@@ -156,6 +184,7 @@ export default function AdminHome() {
     setSavingResultMatchID("");
     setLoadingAuditMatchID("");
     setSavingUserID("");
+    setSavingPredictionSettings(false);
 
     try {
       const client = createPollavarClient();
@@ -184,6 +213,7 @@ export default function AdminHome() {
         setPaymentCurrency("COP");
         setPrizePreview(null);
         setPrizeDrafts([]);
+        setPredictionSettingsDraft(defaultPredictionSettingsDraft(null));
         setResultDrafts({});
         setResultAuditLogsByMatchID({});
         setDrafts({});
@@ -236,6 +266,7 @@ export default function AdminHome() {
       setPaymentCurrency(nextPaymentCollection.currency || poolDetail.currency || "COP");
       setPrizePreview(nextPrizePreview);
       setPrizeDrafts(hydratePrizeDrafts(nextPrizePreview));
+      setPredictionSettingsDraft(defaultPredictionSettingsDraft(poolDetail));
       setResultDrafts(
         hydrateResultDrafts(tournamentDetail?.matches ?? [], nextPredictionStatuses),
       );
@@ -534,6 +565,50 @@ export default function AdminHome() {
     }
   }
 
+  async function savePredictionSettings() {
+    if (!session || !pool || !canManageSelectedPoolPredictionSettings) {
+      return;
+    }
+
+    setSavingPredictionSettings(true);
+    setMessage("");
+
+    try {
+      const updatedPool = await createPollavarClient().updatePredictionSettings(
+        session.token,
+        pool.id,
+        {
+          prediction_mode: predictionSettingsDraft.predictionMode,
+          match_result_scoring_mode: predictionSettingsDraft.matchResultScoringMode,
+        },
+      );
+      setPool(updatedPool);
+      setPools((current) =>
+        current.map((item) => (item.id === updatedPool.id ? { ...item, ...updatedPool } : item)),
+      );
+      setPredictionSettingsDraft(defaultPredictionSettingsDraft(updatedPool));
+      setMessage("Configuracion de pronosticos actualizada.");
+    } catch (error) {
+      if (isUnauthorized(error)) {
+        signOutAdmin();
+        return;
+      }
+      if (isForbidden(error)) {
+        setMessage("No tienes permisos para configurar pronosticos.");
+        return;
+      }
+      if (error instanceof PollavarAPIError && error.code === "prediction_settings_locked") {
+        setMessage(
+          "No pudimos cambiar los modos porque la polla ya tiene pronosticos o resultados.",
+        );
+        return;
+      }
+      setMessage("No pudimos actualizar la configuracion de pronosticos.");
+    } finally {
+      setSavingPredictionSettings(false);
+    }
+  }
+
   return (
     <main className="min-h-screen bg-[#f7f8fb] text-[#191b1f]">
       <header className="border-b border-zinc-200 bg-white">
@@ -652,6 +727,16 @@ export default function AdminHome() {
               >
                 {message}
               </p>
+            ) : null}
+
+            {pool ? (
+              <PredictionSettingsPanel
+                canManage={canManageSelectedPoolPredictionSettings}
+                draft={predictionSettingsDraft}
+                onChange={setPredictionSettingsDraft}
+                onSave={() => void savePredictionSettings()}
+                saving={savingPredictionSettings}
+              />
             ) : null}
 
             {pool ? (
@@ -1064,6 +1149,94 @@ function SignedOutPanel() {
   );
 }
 
+function PredictionSettingsPanel({
+  canManage,
+  draft,
+  onChange,
+  onSave,
+  saving,
+}: {
+  canManage: boolean;
+  draft: PredictionSettingsDraft;
+  onChange: (draft: PredictionSettingsDraft) => void;
+  onSave: () => void;
+  saving: boolean;
+}) {
+  return (
+    <section className="rounded-lg border border-zinc-200 bg-white shadow-sm">
+      <div className="flex flex-col gap-3 border-b border-zinc-200 px-5 py-4 md:flex-row md:items-center md:justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-zinc-950">Pronosticos</h2>
+          <p className="text-sm text-zinc-600">
+            {predictionModeLabel(draft.predictionMode)} -{" "}
+            {matchResultScoringModeLabel(draft.matchResultScoringMode)}
+          </p>
+        </div>
+        <span
+          className={`w-fit rounded-md px-2 py-1 text-xs font-medium ${
+            canManage ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"
+          }`}
+        >
+          {canManage ? "Configurable" : "Solo lectura"}
+        </span>
+      </div>
+
+      <div className="grid gap-4 p-5 lg:grid-cols-[minmax(0,1fr)_minmax(260px,0.8fr)_auto] lg:items-end">
+        <label className="grid gap-2 text-sm font-medium text-zinc-700">
+          <span>Modo de pronostico</span>
+          <select
+            className="min-h-10 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950 disabled:bg-zinc-100"
+            disabled={!canManage || saving}
+            value={draft.predictionMode}
+            onChange={(event) =>
+              onChange({
+                ...draft,
+                predictionMode: event.target.value as PredictionMode,
+              })
+            }
+          >
+            {predictionModeOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="grid gap-2 text-sm font-medium text-zinc-700">
+          <span>Puntaje de resultado</span>
+          <select
+            className="min-h-10 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950 disabled:bg-zinc-100"
+            disabled={!canManage || saving}
+            value={draft.matchResultScoringMode}
+            onChange={(event) =>
+              onChange({
+                ...draft,
+                matchResultScoringMode: event.target.value as MatchResultScoringMode,
+              })
+            }
+          >
+            {matchResultScoringModeOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <button
+          className="min-h-10 rounded-md bg-zinc-950 px-3 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
+          disabled={!canManage || saving}
+          onClick={onSave}
+          type="button"
+        >
+          {saving ? "Guardando" : "Guardar configuracion"}
+        </button>
+      </div>
+    </section>
+  );
+}
+
 function ResultsPanel({
   auditLogsByMatchID,
   canManage,
@@ -1327,6 +1500,10 @@ function canManagePrizeRules(pool: Pool) {
   return pool.current_user_role === "pool_admin";
 }
 
+function canManagePredictionSettings(pool: Pool) {
+  return pool.current_user_role === "pool_admin";
+}
+
 function canManageResults(pool: Pool) {
   return pool.current_user_role === "pool_admin";
 }
@@ -1537,6 +1714,13 @@ function hydratePrizeDrafts(preview: PrizePreview | null) {
   }));
 }
 
+function defaultPredictionSettingsDraft(pool: Pool | null): PredictionSettingsDraft {
+  return {
+    predictionMode: pool?.prediction_mode ?? "score_with_outcome",
+    matchResultScoringMode: pool?.match_result_scoring_mode ?? "exclusive",
+  };
+}
+
 function defaultDraft(pool: Pool | null, payment?: Payment) {
   return {
     amount: centsToInput(payment?.amount_cents ?? pool?.entry_fee_cents ?? 0),
@@ -1704,6 +1888,28 @@ function paymentStatusClass(status: PaymentStatus) {
     case "pending":
     default:
       return "bg-amber-100 text-amber-800";
+  }
+}
+
+function predictionModeLabel(mode: PredictionMode) {
+  switch (mode) {
+    case "score":
+      return "Marcador simple";
+    case "outcome":
+      return "Local / empate / visitante";
+    case "score_with_outcome":
+    default:
+      return "Marcador con resultado";
+  }
+}
+
+function matchResultScoringModeLabel(mode: MatchResultScoringMode) {
+  switch (mode) {
+    case "cumulative":
+      return "Acumulativo";
+    case "exclusive":
+    default:
+      return "Exclusivo";
   }
 }
 

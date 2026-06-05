@@ -485,6 +485,15 @@ describe("createPollavarClient", () => {
       if (value.endsWith("/scoring-rules")) {
         return jsonResponse({ data: scoringRules });
       }
+      if (value.endsWith("/prediction-settings") && init?.method === "PUT") {
+        return jsonResponse({
+          data: {
+            ...pool,
+            prediction_mode: "outcome",
+            match_result_scoring_mode: "cumulative",
+          },
+        });
+      }
       if (value.endsWith("/standing-predictions")) {
         return jsonResponse({ data: [standingPrediction] });
       }
@@ -552,6 +561,15 @@ describe("createPollavarClient", () => {
         team_ids: ["MEX", "RSA"],
       }),
     ).resolves.toEqual(standingPrediction);
+    await expect(
+      client.updatePredictionSettings("token", "pool id", {
+        prediction_mode: "outcome",
+        match_result_scoring_mode: "cumulative",
+      }),
+    ).resolves.toMatchObject({
+      prediction_mode: "outcome",
+      match_result_scoring_mode: "cumulative",
+    });
 
     expect(fetcher).toHaveBeenNthCalledWith(2, "http://api.local/api/v1/pools/pool%20id", {
       method: "GET",
@@ -660,6 +678,20 @@ describe("createPollavarClient", () => {
       {
         method: "PUT",
         body: JSON.stringify({ team_ids: ["MEX", "RSA"] }),
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer token",
+        },
+      },
+    );
+    expect(fetcher).toHaveBeenCalledWith(
+      "http://api.local/api/v1/pools/pool%20id/prediction-settings",
+      {
+        method: "PUT",
+        body: JSON.stringify({
+          prediction_mode: "outcome",
+          match_result_scoring_mode: "cumulative",
+        }),
         headers: {
           "Content-Type": "application/json",
           Authorization: "Bearer token",

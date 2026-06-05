@@ -918,6 +918,56 @@ describe("Participants home", () => {
     );
   });
 
+  it("saves an outcome-only prediction when the pool uses outcome mode", async () => {
+    storeSession();
+    const outcomePool = { ...pool, prediction_mode: "outcome" };
+    const fetcher = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      const value = String(url);
+      if (value.endsWith("/api/v1/pools")) {
+        return jsonResponse({ data: [outcomePool] });
+      }
+      if (value.endsWith("/api/v1/pools/pool-id")) {
+        return jsonResponse({ data: outcomePool });
+      }
+      if (value.endsWith("/api/v1/pools/pool-id/predictions/match-2") && init?.method === "PUT") {
+        return jsonResponse({
+          data: {
+            ...prediction,
+            id: "prediction-outcome",
+            match_id: "match-2",
+            has_score: false,
+            home_score: 0,
+            away_score: 0,
+            outcome: "away",
+          },
+        });
+      }
+      return dashboardFetch(url, init);
+    });
+    vi.stubGlobal("fetch", fetcher);
+
+    render(<ParticipantsHome />);
+
+    expect(await screen.findByRole("heading", { name: "Oficina FC" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("Marcador Canada")).not.toBeInTheDocument();
+    const groupB = screen.getByRole("heading", { name: "Grupo B" }).closest("section");
+    expect(groupB).not.toBeNull();
+
+    fireEvent.click(within(groupB as HTMLElement).getByRole("button", { name: "Visitante" }));
+    fireEvent.click(within(groupB as HTMLElement).getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("status")).toHaveTextContent("Pronostico guardado.");
+    });
+    expect(fetcher).toHaveBeenCalledWith(
+      "http://localhost:8080/api/v1/pools/pool-id/predictions/match-2",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({ outcome: "away" }),
+      }),
+    );
+  });
+
   it("shows a validation message before saving incomplete scores", async () => {
     storeSession();
     vi.stubGlobal("fetch", vi.fn(dashboardFetch));
