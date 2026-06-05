@@ -255,6 +255,11 @@ export default function AdminHome() {
         signOutAdmin();
         return;
       }
+      if (isForbidden(error)) {
+        setStatus("error");
+        setMessage("No tienes permisos para administrar esta polla.");
+        return;
+      }
       setStatus("error");
       setMessage("No pudimos cargar el panel admin.");
     }
@@ -349,6 +354,10 @@ export default function AdminHome() {
         signOutAdmin();
         return;
       }
+      if (isForbidden(error)) {
+        setMessage("No tienes permisos para actualizar resultados oficiales.");
+        return;
+      }
       if (error instanceof PollavarAPIError && error.code === "prediction_open") {
         setMessage("El partido todavia no cerro para pronosticos.");
         return;
@@ -382,6 +391,10 @@ export default function AdminHome() {
         signOutAdmin();
         return;
       }
+      if (isForbidden(error)) {
+        setMessage("No tienes permisos para ver la auditoria de resultados.");
+        return;
+      }
       setMessage("No pudimos cargar la auditoria del resultado.");
     } finally {
       setLoadingAuditMatchID("");
@@ -402,6 +415,10 @@ export default function AdminHome() {
     } catch (error) {
       if (isUnauthorized(error)) {
         signOutAdmin();
+        return;
+      }
+      if (isForbidden(error)) {
+        setMessage("No tienes permisos para ver premios de esta polla.");
       }
     }
   }
@@ -446,6 +463,10 @@ export default function AdminHome() {
     } catch (error) {
       if (isUnauthorized(error)) {
         signOutAdmin();
+        return;
+      }
+      if (isForbidden(error)) {
+        setMessage("No tienes permisos para actualizar pagos.");
         return;
       }
       setMessage("No pudimos actualizar el pago.");
@@ -501,6 +522,10 @@ export default function AdminHome() {
     } catch (error) {
       if (isUnauthorized(error)) {
         signOutAdmin();
+        return;
+      }
+      if (isForbidden(error)) {
+        setMessage("No tienes permisos para actualizar premios.");
         return;
       }
       setMessage("No pudimos actualizar los premios.");
@@ -616,7 +641,13 @@ export default function AdminHome() {
 
             {message ? (
               <p
-                role={message.includes("No pudimos") || message.includes("Revisa") ? "alert" : "status"}
+                role={
+                  message.includes("No pudimos") ||
+                  message.includes("No tienes permisos") ||
+                  message.includes("Revisa")
+                    ? "alert"
+                    : "status"
+                }
                 className="rounded-md border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-700"
               >
                 {message}
@@ -1678,4 +1709,8 @@ function paymentStatusClass(status: PaymentStatus) {
 
 function isUnauthorized(error: unknown) {
   return error instanceof PollavarAPIError && error.status === 401;
+}
+
+function isForbidden(error: unknown) {
+  return error instanceof PollavarAPIError && error.status === 403;
 }

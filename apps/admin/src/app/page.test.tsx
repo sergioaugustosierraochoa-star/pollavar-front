@@ -330,6 +330,34 @@ describe("Admin home", () => {
     );
   });
 
+  it("shows a permission message when payment update is forbidden", async () => {
+    storeSession();
+    const fetcher = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      const value = String(url);
+      if (
+        value.endsWith("/api/v1/pools/pool-id/payments/participant-id") &&
+        init?.method === "PUT"
+      ) {
+        return jsonResponse({ code: "forbidden" }, { status: 403 });
+      }
+      return adminFetch(url, init);
+    });
+    vi.stubGlobal("fetch", fetcher);
+
+    render(<AdminHome />);
+
+    await screen.findByText("@participante");
+    const participantRow = rowWithText("@participante");
+    fireEvent.click(within(participantRow).getByRole("button", { name: "Confirmar" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "No tienes permisos para actualizar pagos.",
+      );
+    });
+    expect(window.localStorage.getItem("pollavar.admin.session")).not.toBeNull();
+  });
+
   it("updates official match results from the admin panel", async () => {
     storeSession();
     const fetcher = vi.fn(adminFetch);
