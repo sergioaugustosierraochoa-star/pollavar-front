@@ -301,6 +301,26 @@ const globalPredictionDefinitions = [
   },
 ];
 
+const globalPredictionTemplates = [
+  {
+    id: "template-best-defense",
+    code: "global_best_defense",
+    label: "Valla menos vencida",
+    value_type: "team",
+    sport: "football",
+    category: "teams",
+    resolution_mode: "manual",
+    enabled: true,
+    points_enabled: true,
+    prize_enabled: false,
+    points: 4,
+    sort_order: 65,
+    default_enabled: false,
+    created_at: "2026-06-11T12:00:00Z",
+    updated_at: "2026-06-11T12:30:00Z",
+  },
+];
+
 const globalPredictionResults = [
   {
     id: "global-result-champion",
@@ -598,6 +618,23 @@ describe("Admin home", () => {
     render(<AdminHome />);
 
     expect(await screen.findByRole("heading", { name: "Predicciones globales" })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Puntos plantilla Valla menos vencida"), {
+      target: { value: "6" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar plantilla Valla menos vencida" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("status")).toHaveTextContent("Plantilla del catalogo guardada.");
+    });
+
+    fireEvent.change(screen.getByLabelText("Plantilla"), {
+      target: { value: "global_best_defense" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Agregar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Nueva custom" }));
+    expect(screen.getAllByDisplayValue("Valla menos vencida").length).toBeGreaterThan(0);
+    expect(screen.getByDisplayValue("Nueva prediccion")).toBeInTheDocument();
+
     fireEvent.change(screen.getByLabelText("Puntos de Campeon"), {
       target: { value: "12" },
     });
@@ -647,7 +684,52 @@ describe("Admin home", () => {
               sort_order: 2,
               closes_at: null,
             },
+            {
+              code: "global_best_defense",
+              label: "Valla menos vencida",
+              value_type: "team",
+              enabled: true,
+              points_enabled: true,
+              prize_enabled: false,
+              points: 6,
+              sort_order: 65,
+              closes_at: null,
+            },
+            {
+              code: "custom_global_1",
+              label: "Nueva prediccion",
+              value_type: "text",
+              enabled: true,
+              points_enabled: true,
+              prize_enabled: false,
+              points: 0,
+              sort_order: 75,
+              closes_at: null,
+            },
           ],
+        }),
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer token",
+        },
+      }),
+    );
+    expect(fetcher).toHaveBeenCalledWith(
+      "http://localhost:8080/api/v1/pools/pool-id/global-prediction-templates/global_best_defense",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({
+          label: "Valla menos vencida",
+          value_type: "team",
+          sport: "football",
+          category: "teams",
+          resolution_mode: "manual",
+          enabled: true,
+          points_enabled: true,
+          prize_enabled: false,
+          points: 6,
+          sort_order: 65,
+          default_enabled: false,
         }),
         headers: {
           "Content-Type": "application/json",
@@ -997,6 +1079,58 @@ async function adminFetch(url: RequestInfo | URL, init?: RequestInit) {
   }
   if (value.endsWith("/api/v1/pools/pool-id/scoring-rules")) {
     return jsonResponse({ data: scoringRules });
+  }
+  if (
+    value.endsWith("/api/v1/pools/pool-id/global-prediction-templates/global_best_defense") &&
+    init?.method === "PUT"
+  ) {
+    const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+    return jsonResponse({
+      data: {
+        ...globalPredictionTemplates[0],
+        label: body.label,
+        value_type: body.value_type,
+        sport: body.sport,
+        category: body.category,
+        resolution_mode: body.resolution_mode,
+        enabled: body.enabled,
+        points_enabled: body.points_enabled,
+        prize_enabled: body.prize_enabled,
+        points: body.points,
+        sort_order: body.sort_order,
+        default_enabled: body.default_enabled,
+        updated_at: "2026-06-11T13:00:00Z",
+      },
+    });
+  }
+  if (
+    value.includes("/api/v1/pools/pool-id/global-prediction-templates/catalog_template_") &&
+    init?.method === "PUT"
+  ) {
+    const code = value.split("/").pop() ?? "catalog_template_1";
+    const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+    return jsonResponse({
+      data: {
+        id: `template-${code}`,
+        code,
+        label: body.label,
+        value_type: body.value_type,
+        sport: body.sport,
+        category: body.category,
+        resolution_mode: body.resolution_mode,
+        enabled: body.enabled,
+        points_enabled: body.points_enabled,
+        prize_enabled: body.prize_enabled,
+        points: body.points,
+        sort_order: body.sort_order,
+        default_enabled: body.default_enabled,
+        created_at: "2026-06-11T13:00:00Z",
+        updated_at: "2026-06-11T13:00:00Z",
+      },
+    });
+  }
+  if (value.endsWith("/api/v1/pools/pool-id/global-prediction-templates")) {
+    return jsonResponse({ data: globalPredictionTemplates });
   }
   if (
     value.endsWith("/api/v1/pools/pool-id/global-prediction-definitions") &&

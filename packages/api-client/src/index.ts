@@ -217,23 +217,7 @@ export type PredictionSummary = {
   scored_matches: number;
 };
 
-export type ScoringRuleCode =
-  | "exact_score"
-  | "match_result"
-  | "group_position_exact"
-  | "underdog_bonus"
-  | "global_champion"
-  | "global_runner_up"
-  | "global_third_place"
-  | "global_fourth_place"
-  | "global_top_scorer"
-  | "global_top_assistant"
-  | "global_yellow_cards_exact"
-  | "global_yellow_cards_range"
-  | "global_red_cards_exact"
-  | "global_red_cards_range"
-  | "global_penalties_exact"
-  | "global_penalties_range";
+export type ScoringRuleCode = string;
 
 export type ScoringRule = {
   code: ScoringRuleCode;
@@ -398,6 +382,24 @@ export type GlobalPredictionDefinition = {
   updated_at: string;
 };
 
+export type GlobalPredictionTemplate = {
+  id: string;
+  code: string;
+  label: string;
+  value_type: GlobalPredictionValueType;
+  sport: string;
+  category: string;
+  resolution_mode: string;
+  enabled: boolean;
+  points_enabled: boolean;
+  prize_enabled: boolean;
+  points: number;
+  sort_order: number;
+  default_enabled: boolean;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
 export type GlobalPrediction = {
   id: string;
   pool_id: string;
@@ -480,6 +482,20 @@ export type GlobalPredictionDefinitionInput = {
 
 export type UpdateGlobalPredictionDefinitionsInput = {
   definitions: GlobalPredictionDefinitionInput[];
+};
+
+export type GlobalPredictionTemplateInput = {
+  label: string;
+  value_type: GlobalPredictionValueType;
+  sport: string;
+  category: string;
+  resolution_mode: string;
+  enabled: boolean;
+  points_enabled: boolean;
+  prize_enabled: boolean;
+  points: number;
+  sort_order: number;
+  default_enabled: boolean;
 };
 
 export type SaveGlobalPredictionInput = {
@@ -783,6 +799,32 @@ export function createPollavarClient(options: PollavarClientOptions = {}) {
       return request<Pool>(
         fetcher,
         `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/theme`,
+        {
+          method: "PUT",
+          body: JSON.stringify(input),
+          headers: authHeaders(token),
+        },
+      );
+    },
+    listGlobalPredictionTemplates(token: string, poolID: string) {
+      return request<GlobalPredictionTemplate[]>(
+        fetcher,
+        `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/global-prediction-templates`,
+        {
+          method: "GET",
+          headers: authHeaders(token),
+        },
+      );
+    },
+    saveGlobalPredictionTemplate(
+      token: string,
+      poolID: string,
+      templateCode: string,
+      input: GlobalPredictionTemplateInput,
+    ) {
+      return request<GlobalPredictionTemplate>(
+        fetcher,
+        `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/global-prediction-templates/${encodeURIComponent(templateCode)}`,
         {
           method: "PUT",
           body: JSON.stringify(input),

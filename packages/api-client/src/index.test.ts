@@ -7,6 +7,7 @@ import {
   type GlobalPrediction,
   type GlobalPredictionDefinition,
   type GlobalPredictionResult,
+  type GlobalPredictionTemplate,
   type MatchResultAuditLog,
   type MatchUnderdogBonus,
   type Payment,
@@ -276,6 +277,24 @@ const globalPredictionDefinition: GlobalPredictionDefinition = {
   points: 10,
   sort_order: 10,
   closes_at: null,
+  created_at: "2026-06-11T12:00:00Z",
+  updated_at: "2026-06-11T12:30:00Z",
+};
+
+const globalPredictionTemplate: GlobalPredictionTemplate = {
+  id: "template-id",
+  code: "global_best_defense",
+  label: "Valla menos vencida",
+  value_type: "team",
+  sport: "football",
+  category: "teams",
+  resolution_mode: "manual",
+  enabled: true,
+  points_enabled: true,
+  prize_enabled: false,
+  points: 4,
+  sort_order: 65,
+  default_enabled: false,
   created_at: "2026-06-11T12:00:00Z",
   updated_at: "2026-06-11T12:30:00Z",
 };
@@ -815,6 +834,15 @@ describe("createPollavarClient", () => {
   it("loads and saves global prediction resources", async () => {
     const fetcher = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
       const value = String(url);
+      if (value.endsWith("/global-prediction-templates") && init?.method === "GET") {
+        return jsonResponse({ data: [globalPredictionTemplate] });
+      }
+      if (
+        value.endsWith("/global-prediction-templates/global_best_defense") &&
+        init?.method === "PUT"
+      ) {
+        return jsonResponse({ data: globalPredictionTemplate });
+      }
       if (value.endsWith("/global-prediction-definitions") && init?.method === "GET") {
         return jsonResponse({ data: [globalPredictionDefinition] });
       }
@@ -840,6 +868,24 @@ describe("createPollavarClient", () => {
       fetcher,
     });
 
+    await expect(client.listGlobalPredictionTemplates("token", "pool id")).resolves.toEqual([
+      globalPredictionTemplate,
+    ]);
+    await expect(
+      client.saveGlobalPredictionTemplate("token", "pool id", "global_best_defense", {
+        label: "Valla menos vencida",
+        value_type: "team",
+        sport: "football",
+        category: "teams",
+        resolution_mode: "manual",
+        enabled: true,
+        points_enabled: true,
+        prize_enabled: false,
+        points: 4,
+        sort_order: 65,
+        default_enabled: false,
+      }),
+    ).resolves.toEqual(globalPredictionTemplate);
     await expect(client.listGlobalPredictionDefinitions("token", "pool id")).resolves.toEqual([
       globalPredictionDefinition,
     ]);
@@ -879,7 +925,7 @@ describe("createPollavarClient", () => {
 
     expect(fetcher).toHaveBeenNthCalledWith(
       1,
-      "http://api.local/api/v1/pools/pool%20id/global-prediction-definitions",
+      "http://api.local/api/v1/pools/pool%20id/global-prediction-templates",
       {
         method: "GET",
         headers: {
@@ -890,6 +936,41 @@ describe("createPollavarClient", () => {
     );
     expect(fetcher).toHaveBeenNthCalledWith(
       2,
+      "http://api.local/api/v1/pools/pool%20id/global-prediction-templates/global_best_defense",
+      {
+        method: "PUT",
+        body: JSON.stringify({
+          label: "Valla menos vencida",
+          value_type: "team",
+          sport: "football",
+          category: "teams",
+          resolution_mode: "manual",
+          enabled: true,
+          points_enabled: true,
+          prize_enabled: false,
+          points: 4,
+          sort_order: 65,
+          default_enabled: false,
+        }),
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer token",
+        },
+      },
+    );
+    expect(fetcher).toHaveBeenNthCalledWith(
+      3,
+      "http://api.local/api/v1/pools/pool%20id/global-prediction-definitions",
+      {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer token",
+        },
+      },
+    );
+    expect(fetcher).toHaveBeenNthCalledWith(
+      4,
       "http://api.local/api/v1/pools/pool%20id/global-prediction-definitions",
       {
         method: "PUT",
@@ -915,7 +996,7 @@ describe("createPollavarClient", () => {
       },
     );
     expect(fetcher).toHaveBeenNthCalledWith(
-      3,
+      5,
       "http://api.local/api/v1/pools/pool%20id/global-predictions",
       {
         method: "GET",
@@ -926,7 +1007,7 @@ describe("createPollavarClient", () => {
       },
     );
     expect(fetcher).toHaveBeenNthCalledWith(
-      4,
+      6,
       "http://api.local/api/v1/pools/pool%20id/global-predictions/global_champion",
       {
         method: "PUT",
@@ -938,7 +1019,7 @@ describe("createPollavarClient", () => {
       },
     );
     expect(fetcher).toHaveBeenNthCalledWith(
-      5,
+      7,
       "http://api.local/api/v1/pools/pool%20id/global-results",
       {
         method: "GET",
@@ -949,7 +1030,7 @@ describe("createPollavarClient", () => {
       },
     );
     expect(fetcher).toHaveBeenNthCalledWith(
-      6,
+      8,
       "http://api.local/api/v1/pools/pool%20id/global-results/global_champion",
       {
         method: "PUT",

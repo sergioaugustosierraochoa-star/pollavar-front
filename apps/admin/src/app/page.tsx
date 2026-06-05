@@ -7,6 +7,8 @@ import {
   type GlobalPredictionDefinition,
   type GlobalPredictionDefinitionInput,
   type GlobalPredictionResult,
+  type GlobalPredictionTemplate,
+  type GlobalPredictionTemplateInput,
   type GlobalPredictionValueType,
   type Match,
   type MatchOutcome,
@@ -79,6 +81,24 @@ type GlobalPredictionDefinitionDrafts = Record<
     closesAt: string;
   }
 >;
+type GlobalPredictionTemplateDrafts = Record<
+  string,
+  {
+    code: string;
+    label: string;
+    valueType: GlobalPredictionValueType;
+    sport: string;
+    category: string;
+    resolutionMode: string;
+    enabled: boolean;
+    pointsEnabled: boolean;
+    prizeEnabled: boolean;
+    points: string;
+    sortOrder: string;
+    defaultEnabled: boolean;
+  }
+>;
+type GlobalPredictionTemplateDraftInput = GlobalPredictionTemplateInput & { code: string };
 type ResultMatchGroup = {
   id: string;
   title: string;
@@ -180,6 +200,11 @@ export default function AdminHome() {
   const [globalPredictionDefinitions, setGlobalPredictionDefinitions] = useState<
     GlobalPredictionDefinition[]
   >([]);
+  const [globalPredictionTemplates, setGlobalPredictionTemplates] = useState<
+    GlobalPredictionTemplate[]
+  >([]);
+  const [globalTemplateDrafts, setGlobalTemplateDrafts] =
+    useState<GlobalPredictionTemplateDrafts>({});
   const [globalPredictionResults, setGlobalPredictionResults] = useState<
     GlobalPredictionResult[]
   >([]);
@@ -200,6 +225,7 @@ export default function AdminHome() {
   const [savingUserID, setSavingUserID] = useState("");
   const [savingBonusMatchID, setSavingBonusMatchID] = useState("");
   const [savingGlobalDefinitions, setSavingGlobalDefinitions] = useState(false);
+  const [savingGlobalTemplateCode, setSavingGlobalTemplateCode] = useState("");
   const [savingGlobalResultCode, setSavingGlobalResultCode] = useState("");
   const [savingTheme, setSavingTheme] = useState(false);
   const [savingPredictionSettings, setSavingPredictionSettings] = useState(false);
@@ -249,6 +275,8 @@ export default function AdminHome() {
     setPrizeDrafts([]);
     setScoringRules([]);
     setGlobalPredictionDefinitions([]);
+    setGlobalPredictionTemplates([]);
+    setGlobalTemplateDrafts({});
     setGlobalPredictionResults([]);
     setGlobalDefinitionDrafts({});
     setGlobalResultDrafts({});
@@ -263,6 +291,7 @@ export default function AdminHome() {
     setSavingUserID("");
     setSavingBonusMatchID("");
     setSavingGlobalDefinitions(false);
+    setSavingGlobalTemplateCode("");
     setSavingGlobalResultCode("");
     setSavingTheme(false);
     setSavingPredictionSettings(false);
@@ -319,6 +348,8 @@ export default function AdminHome() {
         setPrizeDrafts([]);
         setScoringRules([]);
         setGlobalPredictionDefinitions([]);
+        setGlobalPredictionTemplates([]);
+        setGlobalTemplateDrafts({});
         setGlobalPredictionResults([]);
         setGlobalDefinitionDrafts({});
         setGlobalResultDrafts({});
@@ -355,6 +386,7 @@ export default function AdminHome() {
         paymentCollection,
         nextScoringRules,
         nextUnderdogBonuses,
+        nextGlobalTemplates,
         nextGlobalDefinitions,
         nextGlobalResults,
       ] = await Promise.all([
@@ -364,6 +396,9 @@ export default function AdminHome() {
         paymentCollectionRequest,
         client.listScoringRules(token, poolDetail.id),
         client.listMatchUnderdogBonuses(token, poolDetail.id),
+        canManagePredictionSettings(poolDetail)
+          ? client.listGlobalPredictionTemplates(token, poolDetail.id)
+          : Promise.resolve([]),
         client.listGlobalPredictionDefinitions(token, poolDetail.id),
         client.listGlobalPredictionResults(token, poolDetail.id),
       ]);
@@ -386,6 +421,8 @@ export default function AdminHome() {
       setPrizePreview(nextPrizePreview);
       setPrizeDrafts(hydratePrizeDrafts(nextPrizePreview));
       setScoringRules(nextScoringRules);
+      setGlobalPredictionTemplates(nextGlobalTemplates);
+      setGlobalTemplateDrafts(hydrateGlobalTemplateDrafts(nextGlobalTemplates));
       setGlobalPredictionDefinitions(nextGlobalDefinitions);
       setGlobalPredictionResults(nextGlobalResults);
       setGlobalDefinitionDrafts(hydrateGlobalDefinitionDrafts(nextGlobalDefinitions));
@@ -496,6 +533,135 @@ export default function AdminHome() {
         ...patch,
       },
     }));
+  }
+
+  function addGlobalDefinitionTemplate(template: GlobalPredictionTemplate) {
+    if (!pool || !canManageSelectedPoolGlobalPredictions) {
+      return;
+    }
+
+    const nextDefinition = globalDefinitionFromTemplate(pool.id, template);
+    setGlobalPredictionDefinitions((current) => {
+      if (current.some((definition) => definition.code === template.code)) {
+        return current;
+      }
+      return globalDefinitionsInOrder([...current, nextDefinition]);
+    });
+    setGlobalDefinitionDrafts((current) => ({
+      ...current,
+      [template.code]: {
+        ...globalDefinitionDraft(nextDefinition),
+        ...current[template.code],
+        enabled: true,
+      },
+    }));
+    setMessage("Plantilla agregada. Guarda la configuracion para aplicarla.");
+  }
+
+  function updateGlobalTemplateDraft(
+    code: string,
+    patch: Partial<GlobalPredictionTemplateDrafts[string]>,
+  ) {
+    setGlobalTemplateDrafts((current) => ({
+      ...current,
+      [code]: {
+        ...globalTemplateDraft(globalPredictionTemplates.find((template) => template.code === code)),
+        ...current[code],
+        ...patch,
+      },
+    }));
+  }
+
+  function addReusableGlobalTemplateDraft() {
+    if (!pool || !canManageSelectedPoolGlobalPredictions) {
+      return;
+    }
+
+    const code = nextReusableGlobalTemplateCode(globalPredictionTemplates, globalTemplateDrafts);
+    const sortOrder = nextGlobalTemplateSortOrder(globalPredictionTemplates, globalTemplateDrafts);
+    const nextTemplate = globalReusableTemplate(code, sortOrder);
+    setGlobalPredictionTemplates((current) => globalTemplatesInOrder([...current, nextTemplate]));
+    setGlobalTemplateDrafts((current) => ({
+      ...current,
+      [code]: globalTemplateDraft(nextTemplate),
+    }));
+    setMessage("Plantilla reusable agregada. Ajustala y guardala en el catalogo.");
+  }
+
+  async function saveGlobalPredictionTemplate(originalCode: string) {
+    if (!session || !pool || !canManageSelectedPoolGlobalPredictions) {
+      return;
+    }
+
+    const draft = {
+      ...globalTemplateDraft(
+        globalPredictionTemplates.find((template) => template.code === originalCode),
+      ),
+      ...globalTemplateDrafts[originalCode],
+    };
+    const input = parseGlobalTemplateDraft(draft);
+    if (!input) {
+      setMessage("Revisa la plantilla del catalogo.");
+      return;
+    }
+
+    setSavingGlobalTemplateCode(originalCode);
+    setMessage("");
+
+    try {
+      const { code, ...payload } = input;
+      const savedTemplate = await createPollavarClient().saveGlobalPredictionTemplate(
+        session.token,
+        pool.id,
+        code,
+        payload,
+      );
+      setGlobalPredictionTemplates((current) =>
+        globalTemplatesInOrder(
+          current
+            .filter(
+              (template) =>
+                template.code !== originalCode && template.code !== savedTemplate.code,
+            )
+            .concat(savedTemplate),
+        ),
+      );
+      setGlobalTemplateDrafts((current) => {
+        const next = { ...current };
+        delete next[originalCode];
+        next[savedTemplate.code] = globalTemplateDraft(savedTemplate);
+        return next;
+      });
+      setMessage("Plantilla del catalogo guardada.");
+    } catch (error) {
+      if (isUnauthorized(error)) {
+        signOutAdmin();
+        return;
+      }
+      if (isForbidden(error)) {
+        setMessage("No tienes permisos para administrar el catalogo.");
+        return;
+      }
+      setMessage("No pudimos guardar la plantilla del catalogo.");
+    } finally {
+      setSavingGlobalTemplateCode("");
+    }
+  }
+
+  function addCustomGlobalDefinitionDraft() {
+    if (!pool || !canManageSelectedPoolGlobalPredictions) {
+      return;
+    }
+
+    const code = nextCustomGlobalPredictionCode(globalPredictionDefinitions, globalDefinitionDrafts);
+    const sortOrder = nextGlobalPredictionSortOrder(globalPredictionDefinitions, globalDefinitionDrafts);
+    const nextDefinition = globalCustomDefinition(pool.id, code, sortOrder);
+    setGlobalPredictionDefinitions((current) => globalDefinitionsInOrder([...current, nextDefinition]));
+    setGlobalDefinitionDrafts((current) => ({
+      ...current,
+      [code]: globalDefinitionDraft(nextDefinition),
+    }));
+    setMessage("Prediccion custom agregada. Completa el nombre y guarda la configuracion.");
   }
 
   function updateGlobalResultDraft(
@@ -1120,14 +1286,22 @@ export default function AdminHome() {
                 canManage={canManageSelectedPoolGlobalPredictions}
                 definitionDrafts={globalDefinitionDrafts}
                 definitions={globalPredictionDefinitions}
+                templates={globalPredictionTemplates}
+                onAddCustomDefinition={addCustomGlobalDefinitionDraft}
+                onAddReusableTemplate={addReusableGlobalTemplateDraft}
+                onAddTemplate={addGlobalDefinitionTemplate}
                 onSaveDefinitions={() => void saveGlobalPredictionDefinitions()}
                 onSaveResult={(definition) => void saveGlobalPredictionResult(definition)}
+                onSaveTemplate={(code) => void saveGlobalPredictionTemplate(code)}
                 onUpdateDefinitionDraft={updateGlobalDefinitionDraft}
                 onUpdateResultDraft={updateGlobalResultDraft}
+                onUpdateTemplateDraft={updateGlobalTemplateDraft}
                 resultDrafts={globalResultDrafts}
                 results={globalPredictionResults}
                 savingDefinitions={savingGlobalDefinitions}
                 savingResultCode={savingGlobalResultCode}
+                savingTemplateCode={savingGlobalTemplateCode}
+                templateDrafts={globalTemplateDrafts}
                 tournament={tournament}
               />
             ) : null}
@@ -1904,21 +2078,34 @@ function GlobalPredictionAdminPanel({
   canManage,
   definitionDrafts,
   definitions,
+  templates,
+  onAddCustomDefinition,
+  onAddReusableTemplate,
+  onAddTemplate,
   onSaveDefinitions,
   onSaveResult,
+  onSaveTemplate,
   onUpdateDefinitionDraft,
   onUpdateResultDraft,
+  onUpdateTemplateDraft,
   resultDrafts,
   results,
   savingDefinitions,
   savingResultCode,
+  savingTemplateCode,
+  templateDrafts,
   tournament,
 }: {
   canManage: boolean;
   definitionDrafts: GlobalPredictionDefinitionDrafts;
   definitions: GlobalPredictionDefinition[];
+  templates: GlobalPredictionTemplate[];
+  onAddCustomDefinition: () => void;
+  onAddReusableTemplate: () => void;
+  onAddTemplate: (template: GlobalPredictionTemplate) => void;
   onSaveDefinitions: () => void;
   onSaveResult: (definition: GlobalPredictionDefinition) => void;
+  onSaveTemplate: (code: string) => void;
   onUpdateDefinitionDraft: (
     code: string,
     patch: Partial<GlobalPredictionDefinitionDrafts[string]>,
@@ -1928,14 +2115,36 @@ function GlobalPredictionAdminPanel({
     field: keyof GlobalPredictionDrafts[string],
     value: string,
   ) => void;
+  onUpdateTemplateDraft: (
+    code: string,
+    patch: Partial<GlobalPredictionTemplateDrafts[string]>,
+  ) => void;
   resultDrafts: GlobalPredictionDrafts;
   results: GlobalPredictionResult[];
   savingDefinitions: boolean;
   savingResultCode: string;
+  savingTemplateCode: string;
+  templateDrafts: GlobalPredictionTemplateDrafts;
   tournament: Tournament | null;
 }) {
   const sortedDefinitions = globalDefinitionsInOrder(definitions);
   const enabledDefinitions = sortedDefinitions.filter((definition) => definition.enabled);
+  const [templateSearch, setTemplateSearch] = useState("");
+  const [selectedTemplateCode, setSelectedTemplateCode] = useState("");
+  const configuredCodes = new Set(sortedDefinitions.map((definition) => definition.code));
+  const normalizedTemplateSearch = templateSearch.trim().toLowerCase();
+  const availableTemplates = templates.filter(
+    (template) =>
+      template.enabled &&
+      !configuredCodes.has(template.code) &&
+      (!normalizedTemplateSearch ||
+        template.label.toLowerCase().includes(normalizedTemplateSearch) ||
+        template.code.toLowerCase().includes(normalizedTemplateSearch) ||
+        template.category.toLowerCase().includes(normalizedTemplateSearch) ||
+        globalTemplateSportLabel(template.sport).toLowerCase().includes(normalizedTemplateSearch)),
+  );
+  const selectedTemplate =
+    availableTemplates.find((template) => template.code === selectedTemplateCode) ?? null;
   const resultsByCode = indexGlobalPredictionResults(results);
   const teamOptions = tournamentTeamOptions(tournament);
 
@@ -1956,6 +2165,72 @@ function GlobalPredictionAdminPanel({
           {canManage ? "Configurable" : "Solo lectura"}
         </span>
       </div>
+
+      {canManage ? (
+        <GlobalTemplateCatalogPanel
+          drafts={templateDrafts}
+          onAddTemplate={onAddReusableTemplate}
+          onSaveTemplate={onSaveTemplate}
+          onUpdateDraft={onUpdateTemplateDraft}
+          savingTemplateCode={savingTemplateCode}
+          templates={templates}
+        />
+      ) : null}
+
+      {canManage ? (
+        <div className="grid gap-3 border-b border-zinc-200 px-5 py-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto_auto] md:items-end">
+          <label className="grid gap-2 text-sm font-medium text-zinc-700">
+            <span>Buscar</span>
+            <input
+              className="min-h-10 rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-950 disabled:bg-zinc-100"
+              disabled={savingDefinitions || templates.length === 0}
+              onChange={(event) => setTemplateSearch(event.target.value)}
+              placeholder="Nombre o codigo"
+              value={templateSearch}
+            />
+          </label>
+          <label className="grid gap-2 text-sm font-medium text-zinc-700">
+            <span>Plantilla</span>
+            <select
+              className="min-h-10 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950 disabled:bg-zinc-100"
+              disabled={savingDefinitions || availableTemplates.length === 0}
+              onChange={(event) => setSelectedTemplateCode(event.target.value)}
+              value={selectedTemplateCode}
+            >
+              <option value="">
+                {availableTemplates.length === 0 ? "Sin plantillas disponibles" : "Elegir plantilla"}
+              </option>
+              {availableTemplates.map((template) => (
+                <option key={template.code} value={template.code}>
+                  {template.label} ({globalTemplateSportLabel(template.sport)})
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            className="min-h-10 rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-400"
+            disabled={!selectedTemplate || savingDefinitions}
+            onClick={() => {
+              if (!selectedTemplate) {
+                return;
+              }
+              onAddTemplate(selectedTemplate);
+              setSelectedTemplateCode("");
+            }}
+            type="button"
+          >
+            Agregar
+          </button>
+          <button
+            className="min-h-10 rounded-md bg-zinc-950 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
+            disabled={savingDefinitions}
+            onClick={onAddCustomDefinition}
+            type="button"
+          >
+            Nueva custom
+          </button>
+        </div>
+      ) : null}
 
       {sortedDefinitions.length === 0 ? (
         <div className="p-5 text-sm text-zinc-600">
@@ -2238,6 +2513,234 @@ function GlobalPredictionAdminPanel({
         </div>
       )}
     </section>
+  );
+}
+
+function GlobalTemplateCatalogPanel({
+  drafts,
+  onAddTemplate,
+  onSaveTemplate,
+  onUpdateDraft,
+  savingTemplateCode,
+  templates,
+}: {
+  drafts: GlobalPredictionTemplateDrafts;
+  onAddTemplate: () => void;
+  onSaveTemplate: (code: string) => void;
+  onUpdateDraft: (
+    code: string,
+    patch: Partial<GlobalPredictionTemplateDrafts[string]>,
+  ) => void;
+  savingTemplateCode: string;
+  templates: GlobalPredictionTemplate[];
+}) {
+  const sortedTemplates = globalTemplatesInOrder(templates);
+
+  return (
+    <div className="border-b border-zinc-200 px-5 py-4">
+      <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h3 className="text-base font-semibold text-zinc-950">Catalogo de plantillas</h3>
+          <p className="text-sm text-zinc-600">
+            {sortedTemplates.filter((template) => template.enabled).length} activas de{" "}
+            {sortedTemplates.length}.
+          </p>
+        </div>
+        <button
+          className="min-h-10 w-fit rounded-md bg-zinc-950 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
+          disabled={Boolean(savingTemplateCode)}
+          onClick={onAddTemplate}
+          type="button"
+        >
+          Nueva plantilla
+        </button>
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="min-w-[1180px] w-full border-collapse text-left text-sm">
+          <thead className="bg-zinc-50 text-xs uppercase text-zinc-500">
+            <tr>
+              <th className="px-4 py-3 font-semibold">Activa</th>
+              <th className="px-4 py-3 font-semibold">Codigo</th>
+              <th className="px-4 py-3 font-semibold">Nombre</th>
+              <th className="px-4 py-3 font-semibold">Deporte</th>
+              <th className="px-4 py-3 font-semibold">Categoria</th>
+              <th className="px-4 py-3 font-semibold">Tipo</th>
+              <th className="px-4 py-3 font-semibold">Puntos</th>
+              <th className="px-4 py-3 font-semibold">Premio</th>
+              <th className="px-4 py-3 font-semibold">Default</th>
+              <th className="px-4 py-3 font-semibold">Orden</th>
+              <th className="px-4 py-3 font-semibold">Accion</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-zinc-200">
+            {sortedTemplates.map((template) => {
+              const draft = {
+                ...globalTemplateDraft(template),
+                ...drafts[template.code],
+              };
+              const isSaving = savingTemplateCode === template.code;
+              const canEditCode = isDraftGlobalTemplate(template);
+
+              return (
+                <tr key={template.code} className="align-top">
+                  <td className="px-4 py-4">
+                    <input
+                      aria-label={`Activar plantilla ${template.label}`}
+                      checked={draft.enabled}
+                      className="h-4 w-4"
+                      disabled={isSaving}
+                      onChange={(event) =>
+                        onUpdateDraft(template.code, { enabled: event.target.checked })
+                      }
+                      type="checkbox"
+                    />
+                  </td>
+                  <td className="px-4 py-4">
+                    <input
+                      aria-label={`Codigo plantilla ${template.label}`}
+                      className="min-h-10 w-44 rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-950 disabled:bg-zinc-100"
+                      disabled={isSaving || !canEditCode}
+                      onChange={(event) =>
+                        onUpdateDraft(template.code, { code: event.target.value })
+                      }
+                      value={draft.code}
+                    />
+                  </td>
+                  <td className="px-4 py-4">
+                    <input
+                      aria-label={`Nombre plantilla ${template.label}`}
+                      className="min-h-10 w-52 rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-950 disabled:bg-zinc-100"
+                      disabled={isSaving}
+                      onChange={(event) =>
+                        onUpdateDraft(template.code, { label: event.target.value })
+                      }
+                      value={draft.label}
+                    />
+                  </td>
+                  <td className="px-4 py-4">
+                    <input
+                      aria-label={`Deporte plantilla ${template.label}`}
+                      className="min-h-10 w-32 rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-950 disabled:bg-zinc-100"
+                      disabled={isSaving}
+                      onChange={(event) =>
+                        onUpdateDraft(template.code, { sport: event.target.value })
+                      }
+                      value={draft.sport}
+                    />
+                  </td>
+                  <td className="px-4 py-4">
+                    <input
+                      aria-label={`Categoria plantilla ${template.label}`}
+                      className="min-h-10 w-36 rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-950 disabled:bg-zinc-100"
+                      disabled={isSaving}
+                      onChange={(event) =>
+                        onUpdateDraft(template.code, { category: event.target.value })
+                      }
+                      value={draft.category}
+                    />
+                  </td>
+                  <td className="px-4 py-4">
+                    <select
+                      aria-label={`Tipo plantilla ${template.label}`}
+                      className="min-h-10 w-36 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950 disabled:bg-zinc-100"
+                      disabled={isSaving}
+                      onChange={(event) =>
+                        onUpdateDraft(template.code, {
+                          valueType: event.target.value as GlobalPredictionValueType,
+                        })
+                      }
+                      value={draft.valueType}
+                    >
+                      {globalPredictionValueTypeOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td className="px-4 py-4">
+                    <div className="flex items-center gap-2">
+                      <input
+                        aria-label={`Puntua plantilla ${template.label}`}
+                        checked={draft.pointsEnabled}
+                        className="h-4 w-4"
+                        disabled={isSaving}
+                        onChange={(event) =>
+                          onUpdateDraft(template.code, { pointsEnabled: event.target.checked })
+                        }
+                        type="checkbox"
+                      />
+                      <input
+                        aria-label={`Puntos plantilla ${template.label}`}
+                        className="min-h-10 w-20 rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-950 disabled:bg-zinc-100"
+                        disabled={isSaving || !draft.pointsEnabled}
+                        min={0}
+                        onChange={(event) =>
+                          onUpdateDraft(template.code, { points: event.target.value })
+                        }
+                        step={1}
+                        type="number"
+                        value={draft.points}
+                      />
+                    </div>
+                  </td>
+                  <td className="px-4 py-4">
+                    <input
+                      aria-label={`Premio plantilla ${template.label}`}
+                      checked={draft.prizeEnabled}
+                      className="h-4 w-4"
+                      disabled={isSaving}
+                      onChange={(event) =>
+                        onUpdateDraft(template.code, { prizeEnabled: event.target.checked })
+                      }
+                      type="checkbox"
+                    />
+                  </td>
+                  <td className="px-4 py-4">
+                    <input
+                      aria-label={`Default plantilla ${template.label}`}
+                      checked={draft.defaultEnabled}
+                      className="h-4 w-4"
+                      disabled={isSaving}
+                      onChange={(event) =>
+                        onUpdateDraft(template.code, { defaultEnabled: event.target.checked })
+                      }
+                      type="checkbox"
+                    />
+                  </td>
+                  <td className="px-4 py-4">
+                    <input
+                      aria-label={`Orden plantilla ${template.label}`}
+                      className="min-h-10 w-20 rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-950 disabled:bg-zinc-100"
+                      disabled={isSaving}
+                      min={0}
+                      onChange={(event) =>
+                        onUpdateDraft(template.code, { sortOrder: event.target.value })
+                      }
+                      step={1}
+                      type="number"
+                      value={draft.sortOrder}
+                    />
+                  </td>
+                  <td className="px-4 py-4">
+                    <button
+                      aria-label={`Guardar plantilla ${template.label}`}
+                      className="min-h-10 rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-400"
+                      disabled={isSaving}
+                      onClick={() => onSaveTemplate(template.code)}
+                      type="button"
+                    >
+                      {isSaving ? "Guardando" : "Guardar"}
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 }
 
@@ -3027,6 +3530,93 @@ function hydrateGlobalResultDrafts(
   return drafts;
 }
 
+function hydrateGlobalTemplateDrafts(templates: GlobalPredictionTemplate[]) {
+  const drafts: GlobalPredictionTemplateDrafts = {};
+  for (const template of templates) {
+    drafts[template.code] = globalTemplateDraft(template);
+  }
+  return drafts;
+}
+
+function globalTemplateDraft(
+  template: GlobalPredictionTemplate | undefined,
+): GlobalPredictionTemplateDrafts[string] {
+  return {
+    code: template?.code ?? "",
+    label: template?.label ?? "",
+    valueType: template?.value_type ?? "text",
+    sport: template?.sport ?? "general",
+    category: template?.category ?? "general",
+    resolutionMode: template?.resolution_mode ?? "manual",
+    enabled: template?.enabled ?? true,
+    pointsEnabled: template?.points_enabled ?? true,
+    prizeEnabled: template?.prize_enabled ?? false,
+    points: String(template?.points ?? 0),
+    sortOrder: String(template?.sort_order ?? 0),
+    defaultEnabled: template?.default_enabled ?? false,
+  };
+}
+
+function globalReusableTemplate(code: string, sortOrder: number): GlobalPredictionTemplate {
+  const now = new Date().toISOString();
+  return {
+    id: `draft-${code}`,
+    code,
+    label: "Nueva plantilla",
+    value_type: "text",
+    sport: "general",
+    category: "general",
+    resolution_mode: "manual",
+    enabled: true,
+    points_enabled: true,
+    prize_enabled: false,
+    points: 0,
+    sort_order: sortOrder,
+    default_enabled: false,
+    created_at: now,
+    updated_at: now,
+  };
+}
+
+function parseGlobalTemplateDraft(
+  draft: GlobalPredictionTemplateDrafts[string],
+): GlobalPredictionTemplateDraftInput | null {
+  const code = normalizeConfigCode(draft.code);
+  const label = draft.label.trim();
+  const sport = normalizeConfigCode(draft.sport || "general");
+  const category = normalizeConfigCode(draft.category || "general");
+  const resolutionMode = normalizeConfigCode(draft.resolutionMode || "manual");
+  const points = parseWholeNumber(draft.points);
+  const sortOrder = parseWholeNumber(draft.sortOrder);
+  if (
+    !code ||
+    !label ||
+    !sport ||
+    !category ||
+    resolutionMode !== "manual" ||
+    points === null ||
+    points > 1000 ||
+    sortOrder === null
+  ) {
+    return null;
+  }
+
+  return {
+    code,
+    label,
+    value_type: draft.valueType,
+    sport,
+    category,
+    resolution_mode: resolutionMode,
+    enabled: draft.enabled,
+    points_enabled: draft.pointsEnabled,
+    prize_enabled: draft.prizeEnabled,
+    points,
+    sort_order: sortOrder,
+    default_enabled: draft.defaultEnabled,
+  };
+}
+
 function globalDefinitionDraft(
   definition: GlobalPredictionDefinition | undefined,
 ): GlobalPredictionDefinitionDrafts[string] {
@@ -3041,6 +3631,134 @@ function globalDefinitionDraft(
     sortOrder: String(definition?.sort_order ?? 0),
     closesAt: toDatetimeLocalInput(definition?.closes_at ?? null),
   };
+}
+
+function globalDefinitionFromTemplate(
+  poolID: string,
+  template: GlobalPredictionTemplate,
+): GlobalPredictionDefinition {
+  const now = new Date().toISOString();
+  return {
+    id: `draft-${template.code}`,
+    pool_id: poolID,
+    code: template.code,
+    label: template.label,
+    value_type: template.value_type,
+    enabled: true,
+    points_enabled: template.points_enabled,
+    prize_enabled: template.prize_enabled,
+    points: template.points,
+    sort_order: template.sort_order,
+    closes_at: null,
+    created_at: now,
+    updated_at: now,
+  };
+}
+
+function globalCustomDefinition(
+  poolID: string,
+  code: string,
+  sortOrder: number,
+): GlobalPredictionDefinition {
+  const now = new Date().toISOString();
+  return {
+    id: `draft-${code}`,
+    pool_id: poolID,
+    code,
+    label: "Nueva prediccion",
+    value_type: "text",
+    enabled: true,
+    points_enabled: true,
+    prize_enabled: false,
+    points: 0,
+    sort_order: sortOrder,
+    closes_at: null,
+    created_at: now,
+    updated_at: now,
+  };
+}
+
+function nextCustomGlobalPredictionCode(
+  definitions: GlobalPredictionDefinition[],
+  drafts: GlobalPredictionDefinitionDrafts,
+) {
+  const usedCodes = new Set([
+    ...definitions.map((definition) => definition.code),
+    ...Object.values(drafts).map((draft) => draft.code.trim()).filter(Boolean),
+  ]);
+  for (let index = 1; index < 1000; index += 1) {
+    const code = `custom_global_${index}`;
+    if (!usedCodes.has(code)) {
+      return code;
+    }
+  }
+
+  return `custom_global_${Date.now()}`;
+}
+
+function nextReusableGlobalTemplateCode(
+  templates: GlobalPredictionTemplate[],
+  drafts: GlobalPredictionTemplateDrafts,
+) {
+  const usedCodes = new Set([
+    ...templates.map((template) => template.code),
+    ...Object.values(drafts).map((draft) => normalizeConfigCode(draft.code)).filter(Boolean),
+  ]);
+  for (let index = 1; index < 1000; index += 1) {
+    const code = `catalog_template_${index}`;
+    if (!usedCodes.has(code)) {
+      return code;
+    }
+  }
+
+  return `catalog_template_${Date.now()}`;
+}
+
+function nextGlobalTemplateSortOrder(
+  templates: GlobalPredictionTemplate[],
+  drafts: GlobalPredictionTemplateDrafts,
+) {
+  const draftOrders = Object.values(drafts)
+    .map((draft) => parseWholeNumber(draft.sortOrder))
+    .filter((order): order is number => order !== null);
+  const currentMax = Math.max(
+    0,
+    ...templates.map((template) => template.sort_order),
+    ...draftOrders,
+  );
+  return currentMax + 10;
+}
+
+function nextGlobalPredictionSortOrder(
+  definitions: GlobalPredictionDefinition[],
+  drafts: GlobalPredictionDefinitionDrafts,
+) {
+  const draftOrders = Object.values(drafts)
+    .map((draft) => parseWholeNumber(draft.sortOrder))
+    .filter((order): order is number => order !== null);
+  const currentMax = Math.max(
+    0,
+    ...definitions.map((definition) => definition.sort_order),
+    ...draftOrders,
+  );
+  return currentMax + 10;
+}
+
+function globalTemplatesInOrder(templates: GlobalPredictionTemplate[]) {
+  return [...templates].sort(
+    (left, right) =>
+      left.sort_order - right.sort_order ||
+      left.label.localeCompare(right.label, "es") ||
+      left.code.localeCompare(right.code),
+  );
+}
+
+function isDraftGlobalTemplate(template: GlobalPredictionTemplate) {
+  return template.id.startsWith("draft-");
+}
+
+function normalizeConfigCode(value: string) {
+  return value.trim().toLowerCase().replace(/[^a-z0-9_]+/g, "_").replace(/^_+|_+$/g, "");
 }
 
 function parseGlobalDefinitionDrafts(
@@ -3168,6 +3886,16 @@ function globalValueTypeLabel(valueType: GlobalPredictionValueType) {
     case "text":
     default:
       return "Texto";
+  }
+}
+
+function globalTemplateSportLabel(sport: string) {
+  switch (sport) {
+    case "football":
+      return "Futbol";
+    case "general":
+    default:
+      return "General";
   }
 }
 
