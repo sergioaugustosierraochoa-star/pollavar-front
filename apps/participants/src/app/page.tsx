@@ -3,6 +3,7 @@
 import {
   PollavarAPIError,
   createPollavarClient,
+  type EffectiveMatchPredictionSettings,
   type GlobalPrediction,
   type GlobalPredictionDefinition,
   type GlobalPredictionPrizePreview,
@@ -67,6 +68,7 @@ type LoadedPoolData = {
   globalPredictionDefinitions: GlobalPredictionDefinition[];
   userGlobalPredictions: GlobalPrediction[];
   globalPredictionResults: GlobalPredictionResult[];
+  effectiveMatchSettings: EffectiveMatchPredictionSettings[];
   underdogBonuses: MatchUnderdogBonus[];
   ranking: RankingEntry[];
   prizePreview: PrizePreview;
@@ -139,6 +141,9 @@ export default function ParticipantsHome() {
   const [globalPredictionResults, setGlobalPredictionResults] = useState<
     GlobalPredictionResult[]
   >([]);
+  const [effectiveMatchSettings, setEffectiveMatchSettings] = useState<
+    EffectiveMatchPredictionSettings[]
+  >([]);
   const [underdogBonuses, setUnderdogBonuses] = useState<MatchUnderdogBonus[]>([]);
   const [selectedRankingUserID, setSelectedRankingUserID] = useState("");
   const [pointDetailsByUserID, setPointDetailsByUserID] = useState<
@@ -171,6 +176,10 @@ export default function ParticipantsHome() {
     () => indexUnderdogBonuses(underdogBonuses),
     [underdogBonuses],
   );
+  const effectiveMatchSettingsByMatch = useMemo(
+    () => indexEffectiveMatchSettings(effectiveMatchSettings),
+    [effectiveMatchSettings],
+  );
 
   const signOutParticipant = useCallback(function signOutParticipant() {
     dashboardRequestID.current += 1;
@@ -197,6 +206,7 @@ export default function ParticipantsHome() {
     setGlobalPredictionDefinitions([]);
     setGlobalPredictions([]);
     setGlobalPredictionResults([]);
+    setEffectiveMatchSettings([]);
     setUnderdogBonuses([]);
     setSelectedRankingUserID("");
     setPointDetailsByUserID({});
@@ -235,6 +245,7 @@ export default function ParticipantsHome() {
       globalPredictionDefinitions,
       userGlobalPredictions,
       globalPredictionResults,
+      loadedEffectiveMatchSettings,
       loadedUnderdogBonuses,
       ranking,
       prizePreview,
@@ -250,6 +261,7 @@ export default function ParticipantsHome() {
       listGlobalPredictionDefinitionsWithFallback(client, token, activePool.id),
       listGlobalPredictionsWithFallback(client, token, activePool.id),
       listGlobalPredictionResultsWithFallback(client, token, activePool.id),
+      listEffectiveMatchPredictionSettingsWithFallback(client, token, activePool.id),
       listMatchUnderdogBonusesWithFallback(client, token, activePool.id),
       listRankingWithFallback(client, token, activePool.id),
       getPrizePreviewWithFallback(client, token, activePool.id),
@@ -267,6 +279,7 @@ export default function ParticipantsHome() {
       globalPredictionDefinitions,
       userGlobalPredictions,
       globalPredictionResults,
+      effectiveMatchSettings: loadedEffectiveMatchSettings,
       underdogBonuses: loadedUnderdogBonuses,
       ranking,
       prizePreview,
@@ -323,6 +336,7 @@ export default function ParticipantsHome() {
         setGlobalPredictionDefinitions([]);
         setGlobalPredictions([]);
         setGlobalPredictionResults([]);
+        setEffectiveMatchSettings([]);
         setUnderdogBonuses([]);
         setSelectedRankingUserID("");
         setPointDetailsByUserID({});
@@ -356,6 +370,7 @@ export default function ParticipantsHome() {
       setGlobalPredictionDefinitions(loadedPoolData.globalPredictionDefinitions);
       setGlobalPredictions(loadedPoolData.userGlobalPredictions);
       setGlobalPredictionResults(loadedPoolData.globalPredictionResults);
+      setEffectiveMatchSettings(loadedPoolData.effectiveMatchSettings);
       setUnderdogBonuses(loadedPoolData.underdogBonuses);
       setSelectedRankingUserID("");
       setPointDetailsByUserID({});
@@ -597,10 +612,12 @@ export default function ParticipantsHome() {
     }
 
     const draft = drafts[match.id] ?? emptyPredictionDraft();
-    const input = predictionInputFromDraft(pool, draft);
+    const predictionMode =
+      effectiveMatchSettingsByMatch.get(match.id)?.prediction_mode ?? pool.prediction_mode;
+    const input = predictionInputFromDraft(predictionMode, draft);
     if (!input) {
       setSaveMessage(
-        pool.prediction_mode === "outcome"
+        predictionMode === "outcome"
           ? "Elige local, empate o visitante."
           : "Completa ambos marcadores con numeros validos.",
       );
@@ -840,6 +857,7 @@ export default function ParticipantsHome() {
         <Dashboard
           drafts={drafts}
           currentUserID={session.user.id}
+          effectiveMatchSettingsByMatch={effectiveMatchSettingsByMatch}
           underdogBonusesByMatch={underdogBonusesByMatch}
           onSave={savePrediction}
           onDownloadSnapshot={downloadPredictionSnapshot}
@@ -893,6 +911,7 @@ function Dashboard({
   clockTick,
   currentUserID,
   drafts,
+  effectiveMatchSettingsByMatch,
   globalDrafts,
   globalPredictionDefinitions,
   globalPredictionResults,
@@ -939,6 +958,7 @@ function Dashboard({
   clockTick: number;
   currentUserID: string;
   drafts: ScoreDrafts;
+  effectiveMatchSettingsByMatch: Map<string, EffectiveMatchPredictionSettings>;
   globalDrafts: GlobalPredictionDrafts;
   globalPredictionDefinitions: GlobalPredictionDefinition[];
   globalPredictionResults: GlobalPredictionResult[];
@@ -1091,6 +1111,7 @@ function Dashboard({
         <PredictionList
           drafts={drafts}
           clockTick={clockTick}
+          effectiveMatchSettingsByMatch={effectiveMatchSettingsByMatch}
           underdogBonusesByMatch={underdogBonusesByMatch}
           underdogRule={scoringRuleByCode(scoringRules, "underdog_bonus")}
           onDownloadSnapshot={onDownloadSnapshot}
@@ -2048,6 +2069,7 @@ function RankingPanel({
 function PredictionList({
   clockTick,
   drafts,
+  effectiveMatchSettingsByMatch,
   underdogBonusesByMatch,
   underdogRule,
   onDownloadSnapshot,
@@ -2074,6 +2096,7 @@ function PredictionList({
 }: {
   clockTick: number;
   drafts: ScoreDrafts;
+  effectiveMatchSettingsByMatch: Map<string, EffectiveMatchPredictionSettings>;
   underdogBonusesByMatch: Map<string, MatchUnderdogBonus>;
   underdogRule?: ScoringRule;
   onDownloadSnapshot: (matchID: string) => void;
@@ -2187,28 +2210,33 @@ function PredictionList({
               </div>
             ) : null}
             <div className="divide-y divide-zinc-100">
-              {group.matches.map((match) => (
-                <MatchPredictionForm
-                  draft={drafts[match.id] ?? emptyPredictionDraft()}
-                  key={match.id}
-                  match={match}
-                  underdogBonus={underdogBonusesByMatch.get(match.id)}
-                  underdogRule={underdogRule}
-                  onDownloadSnapshot={onDownloadSnapshot}
-                  onLoadSnapshot={onLoadSnapshot}
-                  onSave={onSave}
-                  onUpdateDraft={onUpdateDraft}
-                  prediction={predictionsByMatch.get(match.id)}
-                  predictionCloseHoursBefore={pool?.prediction_close_hours_before}
-                  predictionMode={pool?.prediction_mode ?? "score_with_outcome"}
-                  predictionStatus={predictionStatusesByMatch.get(match.id)}
-                  savingMatchID={savingMatchID}
-                  snapshot={snapshotsByMatchID[match.id]}
-                  snapshotDownloadInProgress={snapshotDownloadingMatchID === match.id}
-                  snapshotLoadInProgress={snapshotLoadingMatchID === match.id}
-                  snapshotMessage={snapshotMessages[match.id] ?? ""}
-                />
-              ))}
+              {group.matches.map((match) => {
+                const matchSettings = effectiveMatchSettingsByMatch.get(match.id);
+                return (
+                  <MatchPredictionForm
+                    draft={drafts[match.id] ?? emptyPredictionDraft()}
+                    key={match.id}
+                    match={match}
+                    underdogBonus={underdogBonusesByMatch.get(match.id)}
+                    underdogRule={effectiveUnderdogRule(underdogRule, matchSettings)}
+                    onDownloadSnapshot={onDownloadSnapshot}
+                    onLoadSnapshot={onLoadSnapshot}
+                    onSave={onSave}
+                    onUpdateDraft={onUpdateDraft}
+                    prediction={predictionsByMatch.get(match.id)}
+                    predictionCloseHoursBefore={pool?.prediction_close_hours_before}
+                    predictionMode={
+                      matchSettings?.prediction_mode ?? pool?.prediction_mode ?? "score_with_outcome"
+                    }
+                    predictionStatus={predictionStatusesByMatch.get(match.id)}
+                    savingMatchID={savingMatchID}
+                    snapshot={snapshotsByMatchID[match.id]}
+                    snapshotDownloadInProgress={snapshotDownloadingMatchID === match.id}
+                    snapshotLoadInProgress={snapshotLoadingMatchID === match.id}
+                    snapshotMessage={snapshotMessages[match.id] ?? ""}
+                  />
+                );
+              })}
             </div>
           </section>
         ))}
@@ -2971,6 +2999,21 @@ async function listScoringRulesWithFallback(
   }
 }
 
+async function listEffectiveMatchPredictionSettingsWithFallback(
+  client: ReturnType<typeof createPollavarClient>,
+  token: string,
+  poolID: string,
+) {
+  try {
+    return await client.listEffectiveMatchPredictionSettings(token, poolID);
+  } catch (error) {
+    if (isMissingEndpointError(error)) {
+      return [];
+    }
+    throw error;
+  }
+}
+
 async function listMatchUnderdogBonusesWithFallback(
   client: ReturnType<typeof createPollavarClient>,
   token: string,
@@ -3396,6 +3439,14 @@ function indexUnderdogBonuses(bonuses: MatchUnderdogBonus[]) {
   return indexed;
 }
 
+function indexEffectiveMatchSettings(settings: EffectiveMatchPredictionSettings[]) {
+  const indexed = new Map<string, EffectiveMatchPredictionSettings>();
+  for (const setting of settings) {
+    indexed.set(setting.match_id, setting);
+  }
+  return indexed;
+}
+
 function resolveStandingTeamIDs(
   group: PredictionGroup,
   standingPredictionsByGroup: Map<string, StandingPrediction>,
@@ -3516,8 +3567,8 @@ function globalPredictionDraft(
   };
 }
 
-function predictionInputFromDraft(pool: Pool, draft: ScoreDrafts[string]) {
-  if (pool.prediction_mode === "outcome") {
+function predictionInputFromDraft(predictionMode: Pool["prediction_mode"], draft: ScoreDrafts[string]) {
+  if (predictionMode === "outcome") {
     return draft.outcome ? { outcome: draft.outcome } : null;
   }
 
@@ -3692,6 +3743,20 @@ function scoringRuleLabel(code: ScoringRule["code"]) {
 
 function scoringRuleByCode(rules: ScoringRule[], code: ScoringRule["code"]) {
   return rules.find((rule) => rule.code === code);
+}
+
+function effectiveUnderdogRule(
+  rule: ScoringRule | undefined,
+  settings: EffectiveMatchPredictionSettings | undefined,
+) {
+  if (!settings) {
+    return rule;
+  }
+  return {
+    code: "underdog_bonus",
+    enabled: settings.underdog_bonus_enabled,
+    points: settings.underdog_bonus_points,
+  } satisfies ScoringRule;
 }
 
 function rankingDisplayName(entry: RankingEntry) {

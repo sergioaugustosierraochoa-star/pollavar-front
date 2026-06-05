@@ -346,6 +346,22 @@ const matchUnderdogBonuses = [
   },
 ];
 
+const effectiveMatchPredictionSettings = [
+  {
+    pool_id: "pool-id",
+    match_id: "match-2",
+    stage_id: "group-stage",
+    prediction_mode: "outcome",
+    match_result_scoring_mode: "exclusive",
+    underdog_bonus_enabled: true,
+    underdog_bonus_points: 7,
+    prediction_mode_source: "match",
+    match_result_scoring_mode_source: "pool",
+    underdog_bonus_enabled_source: "match",
+    underdog_bonus_points_source: "match",
+  },
+];
+
 const globalPredictionDefinitions = [
   {
     id: "global-definition-champion",
@@ -1033,6 +1049,9 @@ describe("Participants home", () => {
       if (value.endsWith("/scoring-rules")) {
         return jsonResponse({ data: scoringRules });
       }
+      if (value.endsWith("/match-prediction-settings")) {
+        return jsonResponse({ data: [] });
+      }
       if (value.endsWith("/underdog-bonuses")) {
         return jsonResponse({ data: matchUnderdogBonuses });
       }
@@ -1194,6 +1213,56 @@ describe("Participants home", () => {
     );
   });
 
+  it("uses effective prediction settings per match when saving predictions", async () => {
+    storeSession();
+    const fetcher = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      const value = String(url);
+      if (value.endsWith("/match-prediction-settings")) {
+        return jsonResponse({ data: effectiveMatchPredictionSettings });
+      }
+      if (value.endsWith("/api/v1/pools/pool-id/predictions/match-2") && init?.method === "PUT") {
+        return jsonResponse({
+          data: {
+            ...prediction,
+            id: "prediction-effective-outcome",
+            match_id: "match-2",
+            has_score: false,
+            home_score: 0,
+            away_score: 0,
+            outcome: "away",
+          },
+        });
+      }
+      return dashboardFetch(url, init);
+    });
+    vi.stubGlobal("fetch", fetcher);
+
+    render(<ParticipantsHome />);
+
+    expect(await screen.findByRole("heading", { name: "Oficina FC" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("Marcador Canada")).not.toBeInTheDocument();
+    const groupB = screen.getByRole("heading", { name: "Grupo B" }).closest("section");
+    expect(groupB).not.toBeNull();
+
+    expect(within(groupB as HTMLElement).getByRole("button", { name: "Visitante" })).toHaveAttribute(
+      "title",
+      "Bonus sorpresa +7 puntos",
+    );
+    fireEvent.click(within(groupB as HTMLElement).getByRole("button", { name: "Visitante" }));
+    fireEvent.click(within(groupB as HTMLElement).getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("status")).toHaveTextContent("Pronostico guardado.");
+    });
+    expect(fetcher).toHaveBeenCalledWith(
+      "http://localhost:8080/api/v1/pools/pool-id/predictions/match-2",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({ outcome: "away" }),
+      }),
+    );
+  });
+
   it("shows a validation message before saving incomplete scores", async () => {
     storeSession();
     vi.stubGlobal("fetch", vi.fn(dashboardFetch));
@@ -1280,6 +1349,9 @@ describe("Participants home", () => {
         return jsonResponse({ data: globalPrizePreview });
       }
       if (value.endsWith("/scoring-rules")) {
+        return jsonResponse({ data: [] });
+      }
+      if (value.endsWith("/match-prediction-settings")) {
         return jsonResponse({ data: [] });
       }
       if (value.endsWith("/underdog-bonuses")) {
@@ -1373,6 +1445,9 @@ async function dashboardFetch(url: RequestInfo | URL, init?: RequestInit) {
   if (value.endsWith("/scoring-rules")) {
     return jsonResponse({ data: scoringRules });
   }
+  if (value.endsWith("/match-prediction-settings")) {
+    return jsonResponse({ data: [] });
+  }
   if (value.endsWith("/underdog-bonuses")) {
     return jsonResponse({ data: matchUnderdogBonuses });
   }
@@ -1463,6 +1538,9 @@ async function standingsFetch(url: RequestInfo | URL, init?: RequestInit) {
   }
   if (value.endsWith("/scoring-rules")) {
     return jsonResponse({ data: scoringRules });
+  }
+  if (value.endsWith("/match-prediction-settings")) {
+    return jsonResponse({ data: [] });
   }
   if (value.endsWith("/underdog-bonuses")) {
     return jsonResponse({ data: [] });

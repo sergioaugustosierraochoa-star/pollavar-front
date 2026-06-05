@@ -396,7 +396,37 @@ export type StandingPrediction = {
 export type MatchOutcome = "home" | "draw" | "away";
 export type PredictionMode = "score" | "outcome" | "score_with_outcome";
 export type MatchResultScoringMode = "exclusive" | "cumulative";
+export type PredictionSettingsOverrideScope = "stage" | "match";
+export type PredictionSettingsSource = "pool" | "stage" | "match";
 export type GlobalPredictionValueType = "team" | "player" | "text" | "number" | "number_range";
+
+export type PredictionSettingsOverride = {
+  id: string;
+  pool_id: string;
+  scope_type: PredictionSettingsOverrideScope;
+  stage_id: string;
+  match_id: string;
+  prediction_mode: PredictionMode | null;
+  match_result_scoring_mode: MatchResultScoringMode | null;
+  underdog_bonus_enabled: boolean | null;
+  underdog_bonus_points: number | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type EffectiveMatchPredictionSettings = {
+  pool_id: string;
+  match_id: string;
+  stage_id: string;
+  prediction_mode: PredictionMode;
+  match_result_scoring_mode: MatchResultScoringMode;
+  underdog_bonus_enabled: boolean;
+  underdog_bonus_points: number;
+  prediction_mode_source: PredictionSettingsSource;
+  match_result_scoring_mode_source: PredictionSettingsSource;
+  underdog_bonus_enabled_source: PredictionSettingsSource;
+  underdog_bonus_points_source: PredictionSettingsSource;
+};
 
 export type GlobalPredictionDefinition = {
   id: string;
@@ -470,6 +500,20 @@ export type GlobalPredictionResult = {
 export type UpdatePredictionSettingsInput = {
   prediction_mode: PredictionMode;
   match_result_scoring_mode: MatchResultScoringMode;
+};
+
+export type PredictionSettingsOverrideInput = {
+  scope_type: PredictionSettingsOverrideScope;
+  stage_id?: string;
+  match_id?: string;
+  prediction_mode?: PredictionMode | null;
+  match_result_scoring_mode?: MatchResultScoringMode | null;
+  underdog_bonus_enabled?: boolean | null;
+  underdog_bonus_points?: number | null;
+};
+
+export type UpdatePredictionSettingsOverridesInput = {
+  overrides: PredictionSettingsOverrideInput[];
 };
 
 export type UpdatePoolThemeInput = {
@@ -841,6 +885,41 @@ export function createPollavarClient(options: PollavarClientOptions = {}) {
         {
           method: "PUT",
           body: JSON.stringify(input),
+          headers: authHeaders(token),
+        },
+      );
+    },
+    listPredictionSettingsOverrides(token: string, poolID: string) {
+      return request<PredictionSettingsOverride[]>(
+        fetcher,
+        `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/prediction-settings-overrides`,
+        {
+          method: "GET",
+          headers: authHeaders(token),
+        },
+      );
+    },
+    updatePredictionSettingsOverrides(
+      token: string,
+      poolID: string,
+      input: UpdatePredictionSettingsOverridesInput,
+    ) {
+      return request<PredictionSettingsOverride[]>(
+        fetcher,
+        `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/prediction-settings-overrides`,
+        {
+          method: "PUT",
+          body: JSON.stringify(input),
+          headers: authHeaders(token),
+        },
+      );
+    },
+    listEffectiveMatchPredictionSettings(token: string, poolID: string) {
+      return request<EffectiveMatchPredictionSettings[]>(
+        fetcher,
+        `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/match-prediction-settings`,
+        {
+          method: "GET",
           headers: authHeaders(token),
         },
       );

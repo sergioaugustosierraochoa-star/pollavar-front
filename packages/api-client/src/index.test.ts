@@ -15,6 +15,8 @@ import {
   type PaymentCollection,
   type PointEventDetail,
   type Pool,
+  type EffectiveMatchPredictionSettings,
+  type PredictionSettingsOverride,
   type PredictionMatchStatus,
   type PredictionSnapshot,
   type PredictionSummary,
@@ -218,6 +220,34 @@ const matchUnderdogBonus: MatchUnderdogBonus = {
   locked_at: null,
   created_at: "2026-06-11T12:00:00Z",
   updated_at: "2026-06-11T12:30:00Z",
+};
+
+const predictionSettingsOverride: PredictionSettingsOverride = {
+  id: "override-id",
+  pool_id: "pool-id",
+  scope_type: "stage",
+  stage_id: "stage-id",
+  match_id: "",
+  prediction_mode: "outcome",
+  match_result_scoring_mode: "cumulative",
+  underdog_bonus_enabled: true,
+  underdog_bonus_points: 5,
+  created_at: "2026-06-11T12:00:00Z",
+  updated_at: "2026-06-11T12:30:00Z",
+};
+
+const effectiveMatchPredictionSettings: EffectiveMatchPredictionSettings = {
+  pool_id: "pool-id",
+  match_id: "match-id",
+  stage_id: "stage-id",
+  prediction_mode: "outcome",
+  match_result_scoring_mode: "cumulative",
+  underdog_bonus_enabled: true,
+  underdog_bonus_points: 5,
+  prediction_mode_source: "stage",
+  match_result_scoring_mode_source: "stage",
+  underdog_bonus_enabled_source: "stage",
+  underdog_bonus_points_source: "stage",
 };
 
 const rankingEntry: RankingEntry = {
@@ -623,6 +653,15 @@ describe("createPollavarClient", () => {
           },
         });
       }
+      if (value.endsWith("/prediction-settings-overrides") && init?.method === "PUT") {
+        return jsonResponse({ data: [predictionSettingsOverride] });
+      }
+      if (value.endsWith("/prediction-settings-overrides")) {
+        return jsonResponse({ data: [predictionSettingsOverride] });
+      }
+      if (value.endsWith("/match-prediction-settings")) {
+        return jsonResponse({ data: [effectiveMatchPredictionSettings] });
+      }
       if (value.endsWith("/theme") && init?.method === "PUT") {
         const body = JSON.parse(String(init.body));
         return jsonResponse({ data: { ...pool, theme: { ...pool.theme, ...body } } });
@@ -703,6 +742,26 @@ describe("createPollavarClient", () => {
       prediction_mode: "outcome",
       match_result_scoring_mode: "cumulative",
     });
+    await expect(
+      client.listPredictionSettingsOverrides("token", "pool id"),
+    ).resolves.toEqual([predictionSettingsOverride]);
+    await expect(
+      client.updatePredictionSettingsOverrides("token", "pool id", {
+        overrides: [
+          {
+            scope_type: "stage",
+            stage_id: "stage-id",
+            prediction_mode: "outcome",
+            match_result_scoring_mode: "cumulative",
+            underdog_bonus_enabled: true,
+            underdog_bonus_points: 5,
+          },
+        ],
+      }),
+    ).resolves.toEqual([predictionSettingsOverride]);
+    await expect(
+      client.listEffectiveMatchPredictionSettings("token", "pool id"),
+    ).resolves.toEqual([effectiveMatchPredictionSettings]);
     await expect(
       client.updatePoolTheme("token", "pool id", {
         display_name: "Mundialistas",
@@ -841,6 +900,48 @@ describe("createPollavarClient", () => {
           prediction_mode: "outcome",
           match_result_scoring_mode: "cumulative",
         }),
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer token",
+        },
+      },
+    );
+    expect(fetcher).toHaveBeenCalledWith(
+      "http://api.local/api/v1/pools/pool%20id/prediction-settings-overrides",
+      {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer token",
+        },
+      },
+    );
+    expect(fetcher).toHaveBeenCalledWith(
+      "http://api.local/api/v1/pools/pool%20id/prediction-settings-overrides",
+      {
+        method: "PUT",
+        body: JSON.stringify({
+          overrides: [
+            {
+              scope_type: "stage",
+              stage_id: "stage-id",
+              prediction_mode: "outcome",
+              match_result_scoring_mode: "cumulative",
+              underdog_bonus_enabled: true,
+              underdog_bonus_points: 5,
+            },
+          ],
+        }),
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer token",
+        },
+      },
+    );
+    expect(fetcher).toHaveBeenCalledWith(
+      "http://api.local/api/v1/pools/pool%20id/match-prediction-settings",
+      {
+        method: "GET",
         headers: {
           "Content-Type": "application/json",
           Authorization: "Bearer token",
