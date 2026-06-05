@@ -217,7 +217,11 @@ export type PredictionSummary = {
   scored_matches: number;
 };
 
-export type ScoringRuleCode = "exact_score" | "match_result" | "group_position_exact";
+export type ScoringRuleCode =
+  | "exact_score"
+  | "match_result"
+  | "group_position_exact"
+  | "underdog_bonus";
 
 export type ScoringRule = {
   code: ScoringRuleCode;
@@ -310,6 +314,21 @@ export type PredictionSnapshot = {
   entries: PredictionSnapshotEntry[];
 };
 
+export type MatchUnderdogBonus = {
+  id: string;
+  pool_id: string;
+  match_id: string;
+  enabled: boolean;
+  outcome: MatchOutcome | "";
+  source: string;
+  home_probability: number | null;
+  draw_probability: number | null;
+  away_probability: number | null;
+  locked_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type RankingEntry = {
   position: number;
   user_id: string;
@@ -362,6 +381,14 @@ export type UpdatePoolThemeInput = {
   primary_color: string;
   secondary_color: string;
   accent_color: string;
+};
+
+export type SaveMatchUnderdogBonusInput = {
+  enabled: boolean;
+  outcome?: MatchOutcome | "";
+  home_probability?: number | null;
+  draw_probability?: number | null;
+  away_probability?: number | null;
 };
 
 export type SavePredictionInput =
@@ -562,6 +589,32 @@ export function createPollavarClient(options: PollavarClientOptions = {}) {
         `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/match-results/${encodeURIComponent(matchID)}/audit-logs`,
         {
           method: "GET",
+          headers: authHeaders(token),
+        },
+      );
+    },
+    listMatchUnderdogBonuses(token: string, poolID: string) {
+      return request<MatchUnderdogBonus[]>(
+        fetcher,
+        `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/underdog-bonuses`,
+        {
+          method: "GET",
+          headers: authHeaders(token),
+        },
+      );
+    },
+    saveMatchUnderdogBonus(
+      token: string,
+      poolID: string,
+      matchID: string,
+      input: SaveMatchUnderdogBonusInput,
+    ) {
+      return request<MatchUnderdogBonus>(
+        fetcher,
+        `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/underdog-bonuses/${encodeURIComponent(matchID)}`,
+        {
+          method: "PUT",
+          body: JSON.stringify(input),
           headers: authHeaders(token),
         },
       );

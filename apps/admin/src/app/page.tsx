@@ -5,7 +5,9 @@ import {
   createPollavarClient,
   type AuthUser,
   type Match,
+  type MatchOutcome,
   type MatchResultAuditLog,
+  type MatchUnderdogBonus,
   type MatchResultScoringMode,
   type Payment,
   type PaymentCollection,
@@ -17,6 +19,7 @@ import {
   type PredictionMode,
   type PredictionMatchStatus,
   type PrizePreview,
+  type ScoringRule,
   type Tournament,
   type TournamentSummary,
 } from "@pollavar/api-client";
@@ -62,7 +65,19 @@ type ResultMatchGroup = {
 type PredictionSettingsDraft = {
   predictionMode: PredictionMode;
   matchResultScoringMode: MatchResultScoringMode;
+  underdogBonusEnabled: boolean;
+  underdogBonusPoints: string;
 };
+type UnderdogBonusDrafts = Record<
+  string,
+  {
+    enabled: boolean;
+    outcome: MatchOutcome | "";
+    homeProbability: string;
+    drawProbability: string;
+    awayProbability: string;
+  }
+>;
 type ThemeDraft = {
   displayName: string;
   logoURL: string;
@@ -126,9 +141,11 @@ export default function AdminHome() {
   const [paymentCurrency, setPaymentCurrency] = useState("COP");
   const [prizePreview, setPrizePreview] = useState<PrizePreview | null>(null);
   const [prizeDrafts, setPrizeDrafts] = useState<PrizeRuleDraft[]>([]);
+  const [scoringRules, setScoringRules] = useState<ScoringRule[]>([]);
+  const [underdogBonusDrafts, setUnderdogBonusDrafts] = useState<UnderdogBonusDrafts>({});
   const [themeDraft, setThemeDraft] = useState<ThemeDraft>(defaultThemeDraft(null));
   const [predictionSettingsDraft, setPredictionSettingsDraft] =
-    useState<PredictionSettingsDraft>(defaultPredictionSettingsDraft(null));
+    useState<PredictionSettingsDraft>(defaultPredictionSettingsDraft(null, []));
   const [resultDrafts, setResultDrafts] = useState<ResultDrafts>({});
   const [resultAuditLogsByMatchID, setResultAuditLogsByMatchID] = useState<
     Record<string, MatchResultAuditLog[]>
@@ -137,6 +154,7 @@ export default function AdminHome() {
   const [savingResultMatchID, setSavingResultMatchID] = useState("");
   const [loadingAuditMatchID, setLoadingAuditMatchID] = useState("");
   const [savingUserID, setSavingUserID] = useState("");
+  const [savingBonusMatchID, setSavingBonusMatchID] = useState("");
   const [savingTheme, setSavingTheme] = useState(false);
   const [savingPredictionSettings, setSavingPredictionSettings] = useState(false);
   const [savingPrizes, setSavingPrizes] = useState(false);
@@ -180,14 +198,17 @@ export default function AdminHome() {
     setPaymentCurrency("COP");
     setPrizePreview(null);
     setPrizeDrafts([]);
+    setScoringRules([]);
+    setUnderdogBonusDrafts({});
     setThemeDraft(defaultThemeDraft(null));
-    setPredictionSettingsDraft(defaultPredictionSettingsDraft(null));
+    setPredictionSettingsDraft(defaultPredictionSettingsDraft(null, []));
     setResultDrafts({});
     setResultAuditLogsByMatchID({});
     setDrafts({});
     setSavingResultMatchID("");
     setLoadingAuditMatchID("");
     setSavingUserID("");
+    setSavingBonusMatchID("");
     setSavingTheme(false);
     setSavingPredictionSettings(false);
     setSavingPrizes(false);
@@ -207,6 +228,7 @@ export default function AdminHome() {
     setSavingResultMatchID("");
     setLoadingAuditMatchID("");
     setSavingUserID("");
+    setSavingBonusMatchID("");
     setSavingTheme(false);
     setSavingPredictionSettings(false);
 
@@ -237,8 +259,10 @@ export default function AdminHome() {
         setPaymentCurrency("COP");
         setPrizePreview(null);
         setPrizeDrafts([]);
+        setScoringRules([]);
+        setUnderdogBonusDrafts({});
         setThemeDraft(defaultThemeDraft(null));
-        setPredictionSettingsDraft(defaultPredictionSettingsDraft(null));
+        setPredictionSettingsDraft(defaultPredictionSettingsDraft(null, []));
         setResultDrafts({});
         setResultAuditLogsByMatchID({});
         setDrafts({});
@@ -267,11 +291,15 @@ export default function AdminHome() {
         nextPredictionStatuses,
         tournamentDetail,
         paymentCollection,
+        nextScoringRules,
+        nextUnderdogBonuses,
       ] = await Promise.all([
         client.getPrizePreview(token, poolDetail.id),
         client.listPredictionStatuses(token, poolDetail.id),
         tournamentRequest,
         paymentCollectionRequest,
+        client.listScoringRules(token, poolDetail.id),
+        client.listMatchUnderdogBonuses(token, poolDetail.id),
       ]);
       const nextPaymentCollection: PaymentCollection = paymentCollection ?? {
         pool_id: poolDetail.id,
@@ -291,8 +319,10 @@ export default function AdminHome() {
       setPaymentCurrency(nextPaymentCollection.currency || poolDetail.currency || "COP");
       setPrizePreview(nextPrizePreview);
       setPrizeDrafts(hydratePrizeDrafts(nextPrizePreview));
+      setScoringRules(nextScoringRules);
+      setUnderdogBonusDrafts(hydrateUnderdogBonusDrafts(nextUnderdogBonuses));
       setThemeDraft(defaultThemeDraft(poolDetail));
-      setPredictionSettingsDraft(defaultPredictionSettingsDraft(poolDetail));
+      setPredictionSettingsDraft(defaultPredictionSettingsDraft(poolDetail, nextScoringRules));
       setResultDrafts(
         hydrateResultDrafts(tournamentDetail?.matches ?? [], nextPredictionStatuses),
       );
@@ -364,6 +394,77 @@ export default function AdminHome() {
         [side]: value,
       },
     }));
+  }
+
+  function updateUnderdogBonusDraft(
+    matchID: string,
+    patch: Partial<UnderdogBonusDrafts[string]>,
+  ) {
+    setUnderdogBonusDrafts((current) => ({
+      ...current,
+      [matchID]: {
+        ...defaultUnderdogBonusDraft(),
+        ...current[matchID],
+        ...patch,
+      },
+    }));
+  }
+
+  async function saveUnderdogBonus(match: Match) {
+    if (!session || !pool || !canManageSelectedPoolResults) {
+      return;
+    }
+
+    const draft = {
+      ...defaultUnderdogBonusDraft(),
+      ...underdogBonusDrafts[match.id],
+    };
+    const parsedProbabilities = parseUnderdogProbabilities(draft);
+    if (!parsedProbabilities) {
+      setMessage("Revisa las probabilidades del bonus sorpresa.");
+      return;
+    }
+    if (draft.enabled && !draft.outcome) {
+      setMessage("Elige cual resultado es la sorpresa.");
+      return;
+    }
+
+    setSavingBonusMatchID(match.id);
+    setMessage("");
+
+    try {
+      const bonus = await createPollavarClient().saveMatchUnderdogBonus(
+        session.token,
+        pool.id,
+        match.id,
+        {
+          enabled: draft.enabled,
+          outcome: draft.enabled ? draft.outcome : "",
+          ...parsedProbabilities,
+        },
+      );
+      setUnderdogBonusDrafts((current) => ({
+        ...current,
+        [match.id]: underdogBonusDraft(bonus),
+      }));
+      setMessage("Bonus sorpresa actualizado.");
+    } catch (error) {
+      if (isUnauthorized(error)) {
+        signOutAdmin();
+        return;
+      }
+      if (isForbidden(error)) {
+        setMessage("No tienes permisos para configurar bonus sorpresa.");
+        return;
+      }
+      if (error instanceof PollavarAPIError && error.code === "prediction_closed") {
+        setMessage("No puedes cambiar el bonus de un partido cerrado.");
+        return;
+      }
+      setMessage("No pudimos actualizar el bonus sorpresa.");
+    } finally {
+      setSavingBonusMatchID("");
+    }
   }
 
   async function savePoolTheme() {
@@ -639,23 +740,39 @@ export default function AdminHome() {
       return;
     }
 
+    const underdogPoints = parseWholeNumber(predictionSettingsDraft.underdogBonusPoints);
+    if (underdogPoints === null || underdogPoints > 1000) {
+      setMessage("Revisa los puntos del bonus sorpresa.");
+      return;
+    }
+
     setSavingPredictionSettings(true);
     setMessage("");
 
     try {
-      const updatedPool = await createPollavarClient().updatePredictionSettings(
-        session.token,
-        pool.id,
-        {
+      const client = createPollavarClient();
+      let updatedPool = pool;
+      if (
+        predictionSettingsDraft.predictionMode !== pool.prediction_mode ||
+        predictionSettingsDraft.matchResultScoringMode !== pool.match_result_scoring_mode
+      ) {
+        updatedPool = await client.updatePredictionSettings(session.token, pool.id, {
           prediction_mode: predictionSettingsDraft.predictionMode,
           match_result_scoring_mode: predictionSettingsDraft.matchResultScoringMode,
-        },
-      );
-      setPool(updatedPool);
-      setPools((current) =>
-        current.map((item) => (item.id === updatedPool.id ? { ...item, ...updatedPool } : item)),
-      );
-      setPredictionSettingsDraft(defaultPredictionSettingsDraft(updatedPool));
+        });
+        setPool(updatedPool);
+        setPools((current) =>
+          current.map((item) => (item.id === updatedPool.id ? { ...item, ...updatedPool } : item)),
+        );
+      }
+      const nextScoringRules = await client.updateScoringRules(session.token, pool.id, {
+        rules: scoringRulesWithUnderdog(scoringRules, {
+          enabled: predictionSettingsDraft.underdogBonusEnabled,
+          points: underdogPoints,
+        }),
+      });
+      setScoringRules(nextScoringRules);
+      setPredictionSettingsDraft(defaultPredictionSettingsDraft(updatedPool, nextScoringRules));
       setMessage("Configuracion de pronosticos actualizada.");
     } catch (error) {
       if (isUnauthorized(error)) {
@@ -796,14 +913,18 @@ export default function AdminHome() {
             {pool ? (
               <ResultsPanel
                 auditLogsByMatchID={resultAuditLogsByMatchID}
+                bonusDrafts={underdogBonusDrafts}
                 canManage={canManageSelectedPoolResults}
                 groups={resultGroups}
                 loadingAuditMatchID={loadingAuditMatchID}
+                onSaveBonus={(match) => void saveUnderdogBonus(match)}
                 onLoadAudit={(matchID) => void loadMatchResultAudit(matchID)}
                 onSave={(match) => void saveMatchResult(match)}
+                onUpdateBonusDraft={updateUnderdogBonusDraft}
                 onUpdateDraft={updateResultDraft}
                 predictionCloseHoursBefore={pool.prediction_close_hours_before}
                 resultDrafts={resultDrafts}
+                savingBonusMatchID={savingBonusMatchID}
                 savingMatchID={savingResultMatchID}
                 statusesByMatch={predictionStatusesByMatch}
               />
@@ -1510,6 +1631,40 @@ function PredictionSettingsPanel({
           </select>
         </label>
 
+        <label className="flex min-h-10 items-center gap-2 text-sm font-medium text-zinc-700">
+          <input
+            checked={draft.underdogBonusEnabled}
+            className="h-4 w-4"
+            disabled={!canManage || saving}
+            onChange={(event) =>
+              onChange({
+                ...draft,
+                underdogBonusEnabled: event.target.checked,
+              })
+            }
+            type="checkbox"
+          />
+          <span>Bonus sorpresa</span>
+        </label>
+
+        <label className="grid gap-2 text-sm font-medium text-zinc-700">
+          <span>Puntos bonus</span>
+          <input
+            className="min-h-10 rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-950 disabled:bg-zinc-100"
+            disabled={!canManage || saving}
+            min={0}
+            onChange={(event) =>
+              onChange({
+                ...draft,
+                underdogBonusPoints: event.target.value,
+              })
+            }
+            step={1}
+            type="number"
+            value={draft.underdogBonusPoints}
+          />
+        </label>
+
         <button
           className="min-h-10 rounded-md bg-zinc-950 px-3 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
           disabled={!canManage || saving}
@@ -1525,26 +1680,34 @@ function PredictionSettingsPanel({
 
 function ResultsPanel({
   auditLogsByMatchID,
+  bonusDrafts,
   canManage,
   groups,
   loadingAuditMatchID,
+  onSaveBonus,
   onLoadAudit,
   onSave,
+  onUpdateBonusDraft,
   onUpdateDraft,
   predictionCloseHoursBefore,
   resultDrafts,
+  savingBonusMatchID,
   savingMatchID,
   statusesByMatch,
 }: {
   auditLogsByMatchID: Record<string, MatchResultAuditLog[]>;
+  bonusDrafts: UnderdogBonusDrafts;
   canManage: boolean;
   groups: ResultMatchGroup[];
   loadingAuditMatchID: string;
+  onSaveBonus: (match: Match) => void;
   onLoadAudit: (matchID: string) => void;
   onSave: (match: Match) => void;
+  onUpdateBonusDraft: (matchID: string, patch: Partial<UnderdogBonusDrafts[string]>) => void;
   onUpdateDraft: (matchID: string, side: "home" | "away", value: string) => void;
   predictionCloseHoursBefore: number;
   resultDrafts: ResultDrafts;
+  savingBonusMatchID: string;
   savingMatchID: string;
   statusesByMatch: Map<string, PredictionMatchStatus>;
 }) {
@@ -1592,11 +1755,12 @@ function ResultsPanel({
                 </p>
               </div>
               <div className="overflow-x-auto">
-                <table className="min-w-[980px] w-full border-collapse text-left text-sm">
+                <table className="min-w-[1220px] w-full border-collapse text-left text-sm">
                   <thead className="bg-white text-xs uppercase text-zinc-500">
                     <tr>
                       <th className="px-4 py-3 font-semibold">Partido</th>
                       <th className="px-4 py-3 font-semibold">Estado</th>
+                      <th className="px-4 py-3 font-semibold">Sorpresa</th>
                       <th className="px-4 py-3 font-semibold">Marcador</th>
                       <th className="px-4 py-3 font-semibold">Auditoria</th>
                       <th className="px-4 py-3 font-semibold">Acciones</th>
@@ -1619,7 +1783,12 @@ function ResultsPanel({
                       const homeName = matchTeamName(match, "home");
                       const awayName = matchTeamName(match, "away");
                       const isSaving = savingMatchID === match.id;
+                      const isSavingBonus = savingBonusMatchID === match.id;
                       const isLoadingAudit = loadingAuditMatchID === match.id;
+                      const bonusDraft = {
+                        ...defaultUnderdogBonusDraft(),
+                        ...bonusDrafts[match.id],
+                      };
 
                       return (
                         <tr key={match.id} className="align-top">
@@ -1649,6 +1818,89 @@ function ResultsPanel({
                                 {status.official_result.away_score}
                               </p>
                             ) : null}
+                          </td>
+                          <td className="px-4 py-4">
+                            <div className="grid gap-2">
+                              <label className="flex items-center gap-2 text-xs font-medium text-zinc-700">
+                                <input
+                                  checked={bonusDraft.enabled}
+                                  className="h-4 w-4"
+                                  disabled={!canManage || closed || isSavingBonus}
+                                  onChange={(event) =>
+                                    onUpdateBonusDraft(match.id, {
+                                      enabled: event.target.checked,
+                                    })
+                                  }
+                                  type="checkbox"
+                                />
+                                <span>Activo</span>
+                              </label>
+                              <select
+                                aria-label={`Sorpresa ${homeName} vs ${awayName}`}
+                                className="min-h-9 rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-950 disabled:bg-zinc-100"
+                                disabled={!canManage || closed || !bonusDraft.enabled || isSavingBonus}
+                                onChange={(event) =>
+                                  onUpdateBonusDraft(match.id, {
+                                    outcome: event.target.value as MatchOutcome | "",
+                                  })
+                                }
+                                value={bonusDraft.outcome}
+                              >
+                                <option value="">Elegir</option>
+                                <option value="home">Local</option>
+                                <option value="draw">Empate</option>
+                                <option value="away">Visitante</option>
+                              </select>
+                              <div className="grid grid-cols-3 gap-1">
+                                <input
+                                  aria-label={`Probabilidad local ${homeName}`}
+                                  className="min-h-8 rounded-md border border-zinc-300 px-2 text-xs"
+                                  disabled={!canManage || closed || isSavingBonus}
+                                  onChange={(event) =>
+                                    onUpdateBonusDraft(match.id, {
+                                      homeProbability: event.target.value,
+                                    })
+                                  }
+                                  placeholder="L %"
+                                  type="number"
+                                  value={bonusDraft.homeProbability}
+                                />
+                                <input
+                                  aria-label={`Probabilidad empate ${homeName} vs ${awayName}`}
+                                  className="min-h-8 rounded-md border border-zinc-300 px-2 text-xs"
+                                  disabled={!canManage || closed || isSavingBonus}
+                                  onChange={(event) =>
+                                    onUpdateBonusDraft(match.id, {
+                                      drawProbability: event.target.value,
+                                    })
+                                  }
+                                  placeholder="E %"
+                                  type="number"
+                                  value={bonusDraft.drawProbability}
+                                />
+                                <input
+                                  aria-label={`Probabilidad visitante ${awayName}`}
+                                  className="min-h-8 rounded-md border border-zinc-300 px-2 text-xs"
+                                  disabled={!canManage || closed || isSavingBonus}
+                                  onChange={(event) =>
+                                    onUpdateBonusDraft(match.id, {
+                                      awayProbability: event.target.value,
+                                    })
+                                  }
+                                  placeholder="V %"
+                                  type="number"
+                                  value={bonusDraft.awayProbability}
+                                />
+                              </div>
+                              <button
+                                className="rounded-md border border-zinc-300 px-2 py-1 text-xs font-medium text-zinc-700 hover:border-zinc-400 disabled:cursor-not-allowed disabled:text-zinc-400"
+                                disabled={!canManage || closed || isSavingBonus}
+                                onClick={() => onSaveBonus(match)}
+                                type="button"
+                              >
+                                {isSavingBonus ? "Guardando" : "Guardar bonus"}
+                              </button>
+                            </div>
                           </td>
                           <td className="px-4 py-4">
                             <div className="grid grid-cols-2 gap-2">
@@ -2004,11 +2256,120 @@ function hydratePrizeDrafts(preview: PrizePreview | null) {
   }));
 }
 
-function defaultPredictionSettingsDraft(pool: Pool | null): PredictionSettingsDraft {
+function defaultPredictionSettingsDraft(
+  pool: Pool | null,
+  rules: ScoringRule[],
+): PredictionSettingsDraft {
+  const underdogRule = scoringRuleByCode(rules, "underdog_bonus");
+
   return {
     predictionMode: pool?.prediction_mode ?? "score_with_outcome",
     matchResultScoringMode: pool?.match_result_scoring_mode ?? "exclusive",
+    underdogBonusEnabled: underdogRule?.enabled ?? false,
+    underdogBonusPoints: String(underdogRule?.points ?? 2),
   };
+}
+
+function defaultUnderdogBonusDraft(): UnderdogBonusDrafts[string] {
+  return {
+    enabled: false,
+    outcome: "",
+    homeProbability: "",
+    drawProbability: "",
+    awayProbability: "",
+  };
+}
+
+function hydrateUnderdogBonusDrafts(bonuses: MatchUnderdogBonus[]) {
+  const drafts: UnderdogBonusDrafts = {};
+  for (const bonus of bonuses) {
+    drafts[bonus.match_id] = underdogBonusDraft(bonus);
+  }
+  return drafts;
+}
+
+function underdogBonusDraft(bonus: MatchUnderdogBonus): UnderdogBonusDrafts[string] {
+  return {
+    enabled: bonus.enabled,
+    outcome: bonus.outcome,
+    homeProbability: probabilityDraftValue(bonus.home_probability),
+    drawProbability: probabilityDraftValue(bonus.draw_probability),
+    awayProbability: probabilityDraftValue(bonus.away_probability),
+  };
+}
+
+function probabilityDraftValue(value: number | null) {
+  if (typeof value !== "number") {
+    return "";
+  }
+  return Number.isInteger(value) ? String(value) : String(value);
+}
+
+function parseUnderdogProbabilities(draft: UnderdogBonusDrafts[string]) {
+  const homeProbability = parseOptionalProbability(draft.homeProbability);
+  const drawProbability = parseOptionalProbability(draft.drawProbability);
+  const awayProbability = parseOptionalProbability(draft.awayProbability);
+  if (homeProbability === undefined || drawProbability === undefined || awayProbability === undefined) {
+    return null;
+  }
+
+  return {
+    home_probability: homeProbability,
+    draw_probability: drawProbability,
+    away_probability: awayProbability,
+  };
+}
+
+function parseOptionalProbability(value: string) {
+  const normalized = value.trim().replace(",", ".");
+  if (normalized === "") {
+    return null;
+  }
+  const parsed = Number(normalized);
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 100) {
+    return undefined;
+  }
+  return parsed;
+}
+
+function scoringRulesWithUnderdog(
+  rules: ScoringRule[],
+  underdogRule: { enabled: boolean; points: number },
+) {
+  const rulesByCode = new Map(scoringRulesWithDefaults(rules).map((rule) => [rule.code, rule]));
+  rulesByCode.set("underdog_bonus", {
+    code: "underdog_bonus",
+    enabled: underdogRule.enabled,
+    points: underdogRule.points,
+  });
+  return scoringRulesInDefaultOrder(rulesByCode);
+}
+
+function scoringRulesWithDefaults(rules: ScoringRule[]) {
+  const defaults: ScoringRule[] = [
+    { code: "exact_score", points: 5, enabled: true },
+    { code: "match_result", points: 3, enabled: true },
+    { code: "group_position_exact", points: 2, enabled: true },
+    { code: "underdog_bonus", points: 2, enabled: false },
+  ];
+  const rulesByCode = new Map(defaults.map((rule) => [rule.code, rule]));
+  for (const rule of rules) {
+    rulesByCode.set(rule.code, rule);
+  }
+  return scoringRulesInDefaultOrder(rulesByCode);
+}
+
+function scoringRulesInDefaultOrder(rulesByCode: Map<ScoringRule["code"], ScoringRule>) {
+  return [
+    rulesByCode.get("exact_score"),
+    rulesByCode.get("match_result"),
+    rulesByCode.get("group_position_exact"),
+    rulesByCode.get("underdog_bonus"),
+  ].filter((rule): rule is ScoringRule => Boolean(rule));
+}
+
+function scoringRuleByCode(rules: ScoringRule[], code: ScoringRule["code"]) {
+  return scoringRulesWithDefaults(rules).find((rule) => rule.code === code) ?? null;
 }
 
 function defaultThemeDraft(pool: Pool | null): ThemeDraft {

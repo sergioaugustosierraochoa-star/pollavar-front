@@ -244,6 +244,30 @@ const prizePreview = {
   ],
 };
 
+const scoringRules = [
+  { code: "exact_score", points: 5, enabled: true },
+  { code: "match_result", points: 3, enabled: true },
+  { code: "group_position_exact", points: 2, enabled: true },
+  { code: "underdog_bonus", points: 2, enabled: false },
+];
+
+const underdogBonuses = [
+  {
+    id: "bonus-id",
+    pool_id: "pool-id",
+    match_id: "match-id",
+    enabled: true,
+    outcome: "away",
+    source: "manual",
+    home_probability: 70,
+    draw_probability: 20,
+    away_probability: 10,
+    locked_at: null,
+    created_at: "2026-06-01T12:00:00Z",
+    updated_at: "2026-06-01T12:30:00Z",
+  },
+];
+
 describe("Admin home", () => {
   afterEach(() => {
     window.localStorage.clear();
@@ -661,6 +685,12 @@ describe("Admin home", () => {
       if (value.endsWith("/api/v1/pools/pool-id/predictions/statuses")) {
         return jsonResponse({ data: predictionStatuses });
       }
+      if (value.endsWith("/api/v1/pools/pool-id/scoring-rules")) {
+        return jsonResponse({ data: scoringRules });
+      }
+      if (value.endsWith("/api/v1/pools/pool-id/underdog-bonuses")) {
+        return jsonResponse({ data: underdogBonuses });
+      }
       if (value.endsWith("/api/v1/pools/pool-id/prizes/preview")) {
         return jsonResponse({ data: prizePreview });
       }
@@ -815,6 +845,29 @@ async function adminFetch(url: RequestInfo | URL, init?: RequestInit) {
         created_at: "2026-05-27T01:00:00Z",
       })),
     });
+  }
+  if (value.endsWith("/api/v1/pools/pool-id/scoring-rules") && init?.method === "PUT") {
+    const body = JSON.parse(String(init.body)) as { rules: typeof scoringRules };
+    return jsonResponse({ data: body.rules });
+  }
+  if (value.endsWith("/api/v1/pools/pool-id/scoring-rules")) {
+    return jsonResponse({ data: scoringRules });
+  }
+  if (value.endsWith("/api/v1/pools/pool-id/underdog-bonuses/match-id") && init?.method === "PUT") {
+    const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+    return jsonResponse({
+      data: {
+        ...underdogBonuses[0],
+        enabled: body.enabled,
+        outcome: body.outcome,
+        home_probability: body.home_probability,
+        draw_probability: body.draw_probability,
+        away_probability: body.away_probability,
+      },
+    });
+  }
+  if (value.endsWith("/api/v1/pools/pool-id/underdog-bonuses")) {
+    return jsonResponse({ data: underdogBonuses });
   }
   if (value.endsWith("/api/v1/pools/pool-id/prediction-settings") && init?.method === "PUT") {
     const body = JSON.parse(String(init.body)) as Record<string, unknown>;

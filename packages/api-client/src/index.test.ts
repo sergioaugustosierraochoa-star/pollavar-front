@@ -5,6 +5,7 @@ import {
   serializeAuthSession,
   type AuthResult,
   type MatchResultAuditLog,
+  type MatchUnderdogBonus,
   type Payment,
   type PaymentCollection,
   type PointEventDetail,
@@ -196,7 +197,23 @@ const scoringRules: ScoringRule[] = [
   { code: "exact_score", points: 5, enabled: true },
   { code: "match_result", points: 3, enabled: true },
   { code: "group_position_exact", points: 2, enabled: true },
+  { code: "underdog_bonus", points: 2, enabled: false },
 ];
+
+const matchUnderdogBonus: MatchUnderdogBonus = {
+  id: "bonus-id",
+  pool_id: "pool-id",
+  match_id: "match-id",
+  enabled: true,
+  outcome: "away",
+  source: "manual",
+  home_probability: 70.5,
+  draw_probability: 20,
+  away_probability: 9.5,
+  locked_at: null,
+  created_at: "2026-06-11T12:00:00Z",
+  updated_at: "2026-06-11T12:30:00Z",
+};
 
 const rankingEntry: RankingEntry = {
   position: 1,
@@ -792,6 +809,66 @@ describe("createPollavarClient", () => {
       "http://api.local/api/v1/pools/pool%20id/match-results/match%20id/audit-logs",
       {
         method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer token",
+        },
+      },
+    );
+  });
+
+  it("loads and saves match underdog bonuses", async () => {
+    const fetcher = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      const value = String(url);
+      if (value.endsWith("/underdog-bonuses") && init?.method === "GET") {
+        return jsonResponse({ data: [matchUnderdogBonus] });
+      }
+      if (value.endsWith("/underdog-bonuses/match%20id") && init?.method === "PUT") {
+        return jsonResponse({ data: matchUnderdogBonus });
+      }
+      return jsonResponse({ code: "not_found" }, { status: 404 });
+    });
+    const client = createPollavarClient({
+      baseURL: "http://api.local",
+      fetcher,
+    });
+
+    await expect(client.listMatchUnderdogBonuses("token", "pool id")).resolves.toEqual([
+      matchUnderdogBonus,
+    ]);
+    await expect(
+      client.saveMatchUnderdogBonus("token", "pool id", "match id", {
+        enabled: true,
+        outcome: "away",
+        home_probability: 70.5,
+        draw_probability: 20,
+        away_probability: 9.5,
+      }),
+    ).resolves.toEqual(matchUnderdogBonus);
+
+    expect(fetcher).toHaveBeenNthCalledWith(
+      1,
+      "http://api.local/api/v1/pools/pool%20id/underdog-bonuses",
+      {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer token",
+        },
+      },
+    );
+    expect(fetcher).toHaveBeenNthCalledWith(
+      2,
+      "http://api.local/api/v1/pools/pool%20id/underdog-bonuses/match%20id",
+      {
+        method: "PUT",
+        body: JSON.stringify({
+          enabled: true,
+          outcome: "away",
+          home_probability: 70.5,
+          draw_probability: 20,
+          away_probability: 9.5,
+        }),
         headers: {
           "Content-Type": "application/json",
           Authorization: "Bearer token",

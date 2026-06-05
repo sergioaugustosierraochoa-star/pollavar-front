@@ -299,6 +299,24 @@ const scoringRules = [
   { code: "exact_score", points: 5, enabled: true },
   { code: "match_result", points: 3, enabled: true },
   { code: "group_position_exact", points: 2, enabled: true },
+  { code: "underdog_bonus", points: 2, enabled: true },
+];
+
+const matchUnderdogBonuses = [
+  {
+    id: "bonus-id",
+    pool_id: "pool-id",
+    match_id: "match-2",
+    enabled: true,
+    outcome: "away",
+    source: "manual",
+    home_probability: 60,
+    draw_probability: 25,
+    away_probability: 15,
+    locked_at: null,
+    created_at: "2026-06-11T12:00:00Z",
+    updated_at: "2026-06-11T12:30:00Z",
+  },
 ];
 
 const rankingEntries = [
@@ -491,6 +509,8 @@ describe("Participants home", () => {
     expect(screen.getByText("5 pts")).toBeInTheDocument();
     expect(screen.getByText("Resultado correcto")).toBeInTheDocument();
     expect(screen.getByText("3 pts")).toBeInTheDocument();
+    expect(screen.getByText("Bonus sorpresa")).toBeInTheDocument();
+    expect(screen.getByText("Sorpresa: Visitante +2 pts")).toBeInTheDocument();
     const prizeSection = screen.getByRole("heading", { name: "Premios" }).closest("section");
     expect(prizeSection).not.toBeNull();
     expect(within(prizeSection as HTMLElement).getByText(/Bolsa confirmada:/)).toHaveTextContent(
@@ -864,6 +884,9 @@ describe("Participants home", () => {
       if (value.endsWith("/scoring-rules")) {
         return jsonResponse({ data: scoringRules });
       }
+      if (value.endsWith("/underdog-bonuses")) {
+        return jsonResponse({ data: matchUnderdogBonuses });
+      }
       if (value.endsWith("/standing-predictions")) {
         return jsonResponse({ data: [] });
       }
@@ -1064,6 +1087,9 @@ describe("Participants home", () => {
       if (value.endsWith("/scoring-rules")) {
         return jsonResponse({ data: [] });
       }
+      if (value.endsWith("/underdog-bonuses")) {
+        return jsonResponse({ data: [] });
+      }
       if (value.endsWith("/standing-predictions")) {
         return jsonResponse({ data: [] });
       }
@@ -1140,6 +1166,9 @@ async function dashboardFetch(url: RequestInfo | URL, init?: RequestInit) {
   if (value.endsWith("/scoring-rules")) {
     return jsonResponse({ data: scoringRules });
   }
+  if (value.endsWith("/underdog-bonuses")) {
+    return jsonResponse({ data: matchUnderdogBonuses });
+  }
   if (value.endsWith("/standing-predictions")) {
     return jsonResponse({ data: [] });
   }
@@ -1202,6 +1231,9 @@ async function standingsFetch(url: RequestInfo | URL, init?: RequestInit) {
   }
   if (value.endsWith("/scoring-rules")) {
     return jsonResponse({ data: scoringRules });
+  }
+  if (value.endsWith("/underdog-bonuses")) {
+    return jsonResponse({ data: [] });
   }
   if (value.endsWith("/standing-predictions")) {
     return jsonResponse({ data: [] });
