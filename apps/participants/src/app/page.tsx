@@ -5,6 +5,8 @@ import {
   createPollavarClient,
   type GlobalPrediction,
   type GlobalPredictionDefinition,
+  type GlobalPredictionPrizePreview,
+  type GlobalPredictionPrizeType,
   type GlobalPredictionResult,
   type Match,
   type MatchOutcome,
@@ -68,6 +70,7 @@ type LoadedPoolData = {
   underdogBonuses: MatchUnderdogBonus[];
   ranking: RankingEntry[];
   prizePreview: PrizePreview;
+  globalPrizePreview: GlobalPredictionPrizePreview;
   tournamentDetail: Tournament | null;
 };
 type PredictionGroup = {
@@ -125,6 +128,8 @@ export default function ParticipantsHome() {
   const [snapshotMessages, setSnapshotMessages] = useState<Record<string, string>>({});
   const [ranking, setRanking] = useState<RankingEntry[]>([]);
   const [prizePreview, setPrizePreview] = useState<PrizePreview | null>(null);
+  const [globalPrizePreview, setGlobalPrizePreview] =
+    useState<GlobalPredictionPrizePreview | null>(null);
   const [scoringRules, setScoringRules] = useState<ScoringRule[]>([]);
   const [standingPredictions, setStandingPredictions] = useState<StandingPrediction[]>([]);
   const [globalPredictionDefinitions, setGlobalPredictionDefinitions] = useState<
@@ -186,6 +191,7 @@ export default function ParticipantsHome() {
     setSnapshotMessages({});
     setRanking([]);
     setPrizePreview(null);
+    setGlobalPrizePreview(null);
     setScoringRules([]);
     setStandingPredictions([]);
     setGlobalPredictionDefinitions([]);
@@ -232,6 +238,7 @@ export default function ParticipantsHome() {
       loadedUnderdogBonuses,
       ranking,
       prizePreview,
+      globalPrizePreview,
       tournamentDetail,
     ] = await Promise.all([
       client.getPool(token, activePool.id),
@@ -246,6 +253,7 @@ export default function ParticipantsHome() {
       listMatchUnderdogBonusesWithFallback(client, token, activePool.id),
       listRankingWithFallback(client, token, activePool.id),
       getPrizePreviewWithFallback(client, token, activePool.id),
+      getGlobalPrizePreviewWithFallback(client, token, activePool.id),
       tournamentRequest,
     ]);
 
@@ -262,6 +270,7 @@ export default function ParticipantsHome() {
       underdogBonuses: loadedUnderdogBonuses,
       ranking,
       prizePreview,
+      globalPrizePreview,
       tournamentDetail,
     };
   }, []);
@@ -308,6 +317,7 @@ export default function ParticipantsHome() {
         setSnapshotMessages({});
         setRanking([]);
         setPrizePreview(null);
+        setGlobalPrizePreview(null);
         setScoringRules([]);
         setStandingPredictions([]);
         setGlobalPredictionDefinitions([]);
@@ -340,6 +350,7 @@ export default function ParticipantsHome() {
       setSnapshotMessages({});
       setRanking(loadedPoolData.ranking);
       setPrizePreview(loadedPoolData.prizePreview);
+      setGlobalPrizePreview(loadedPoolData.globalPrizePreview);
       setScoringRules(loadedPoolData.scoringRules);
       setStandingPredictions(loadedPoolData.userStandingPredictions);
       setGlobalPredictionDefinitions(loadedPoolData.globalPredictionDefinitions);
@@ -854,6 +865,7 @@ export default function ParticipantsHome() {
           globalPredictionDefinitions={globalPredictionDefinitions}
           globalPredictionResults={globalPredictionResults}
           globalPredictions={globalPredictions}
+          globalPrizePreview={globalPrizePreview}
           globalSaveMessage={globalSaveMessage}
           saveMessage={saveMessage}
           savingGlobalDefinitionCode={savingGlobalDefinitionCode}
@@ -885,6 +897,7 @@ function Dashboard({
   globalPredictionDefinitions,
   globalPredictionResults,
   globalPredictions,
+  globalPrizePreview,
   globalSaveMessage,
   underdogBonusesByMatch,
   onDownloadSnapshot,
@@ -930,6 +943,7 @@ function Dashboard({
   globalPredictionDefinitions: GlobalPredictionDefinition[];
   globalPredictionResults: GlobalPredictionResult[];
   globalPredictions: GlobalPrediction[];
+  globalPrizePreview: GlobalPredictionPrizePreview | null;
   globalSaveMessage: string;
   underdogBonusesByMatch: Map<string, MatchUnderdogBonus>;
   onDownloadSnapshot: (matchID: string) => void;
@@ -1038,6 +1052,7 @@ function Dashboard({
         <DashboardNavigation
           globalPredictionDefinitions={globalPredictionDefinitions}
           globalPredictions={globalPredictions}
+          globalPrizePreview={globalPrizePreview}
           pool={pool}
           predictionGroups={predictionGroups}
           prizePreview={prizePreview}
@@ -1045,7 +1060,7 @@ function Dashboard({
           scoringRules={scoringRules}
           summary={summary}
         />
-        <PrizePanel preview={prizePreview} />
+        <PrizePanel globalPreview={globalPrizePreview} preview={prizePreview} />
         <GlobalPredictionsPanel
           definitions={globalPredictionDefinitions}
           drafts={globalDrafts}
@@ -1202,6 +1217,7 @@ function SummaryGrid({ summary }: { summary: PredictionSummary | null }) {
 function DashboardNavigation({
   globalPredictionDefinitions,
   globalPredictions,
+  globalPrizePreview,
   pool,
   predictionGroups,
   prizePreview,
@@ -1211,6 +1227,7 @@ function DashboardNavigation({
 }: {
   globalPredictionDefinitions: GlobalPredictionDefinition[];
   globalPredictions: GlobalPrediction[];
+  globalPrizePreview: GlobalPredictionPrizePreview | null;
   pool: Pool | null;
   predictionGroups: PredictionGroup[];
   prizePreview: PrizePreview | null;
@@ -1226,6 +1243,10 @@ function DashboardNavigation({
   const predictedGlobalCount = enabledGlobalDefinitions.filter((definition) =>
     globalPredictions.some((prediction) => prediction.code === definition.code),
   ).length;
+  const prizeCount = (prizePreview?.payouts.length ?? 0) + (globalPrizePreview?.prizes.length ?? 0);
+  const prizeCurrency = prizePreview?.currency ?? globalPrizePreview?.currency ?? "COP";
+  const prizeTotal =
+    prizePreview?.confirmed_total_cents ?? globalPrizePreview?.confirmed_total_cents ?? 0;
   const links = [
     {
       href: "#pronosticos",
@@ -1260,8 +1281,8 @@ function DashboardNavigation({
     {
       href: "#premios",
       label: "Premios",
-      value: `${prizePreview?.payouts.length ?? 0} puestos`,
-      detail: formatMoney(prizePreview?.confirmed_total_cents ?? 0, prizePreview?.currency ?? "COP"),
+      value: `${prizeCount} premios`,
+      detail: formatMoney(prizeTotal, prizeCurrency),
     },
     {
       href: "#reglas",
@@ -1301,8 +1322,20 @@ function DashboardNavigation({
   );
 }
 
-function PrizePanel({ preview }: { preview: PrizePreview | null }) {
-  if (!preview || preview.payouts.length === 0) {
+function PrizePanel({
+  globalPreview,
+  preview,
+}: {
+  globalPreview: GlobalPredictionPrizePreview | null;
+  preview: PrizePreview | null;
+}) {
+  const payouts = preview?.payouts ?? [];
+  const globalPrizes = globalPreview?.prizes ?? [];
+  const currency = preview?.currency ?? globalPreview?.currency ?? "COP";
+  const confirmedTotalCents =
+    preview?.confirmed_total_cents ?? globalPreview?.confirmed_total_cents ?? 0;
+
+  if (payouts.length === 0 && globalPrizes.length === 0) {
     return (
       <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm" id="premios">
         <div className="flex flex-col gap-1">
@@ -1319,28 +1352,93 @@ function PrizePanel({ preview }: { preview: PrizePreview | null }) {
         <div>
           <h2 className="text-lg font-semibold text-zinc-950">Premios</h2>
           <p className="text-sm text-zinc-600">
-            Bolsa confirmada: {formatMoney(preview.confirmed_total_cents, preview.currency)}
+            Bolsa confirmada: {formatMoney(confirmedTotalCents, currency)}
           </p>
         </div>
         <span className="w-fit rounded-md bg-sky-100 px-2 py-1 text-xs font-medium text-sky-800">
-          {preview.payouts.length} ganadores
+          {payouts.length} ranking · {globalPrizes.length} globales
         </span>
       </div>
-      <div className="grid divide-y divide-zinc-200 md:grid-cols-2 md:divide-x md:divide-y-0">
-        {preview.payouts.map((payout) => (
-          <div key={`${payout.position}-${payout.description}`} className="px-5 py-4">
-            <p className="text-sm font-semibold text-zinc-950">
-              {payout.description || `Posicion ${payout.position}`}
-            </p>
-            <p className="mt-1 text-xs text-zinc-500">{payout.percentage}% de la bolsa</p>
-            <p className="mt-3 text-xl font-semibold text-zinc-950">
-              {formatMoney(payout.estimated_amount_cents, preview.currency)}
-            </p>
+      {payouts.length > 0 ? (
+        <div className="grid divide-y divide-zinc-200 md:grid-cols-2 md:divide-x md:divide-y-0">
+          {payouts.map((payout) => (
+            <div key={`${payout.position}-${payout.description}`} className="px-5 py-4">
+              <p className="text-sm font-semibold text-zinc-950">
+                {payout.description || `Posicion ${payout.position}`}
+              </p>
+              <p className="mt-1 text-xs text-zinc-500">{payout.percentage}% de la bolsa</p>
+              <p className="mt-3 text-xl font-semibold text-zinc-950">
+                {formatMoney(payout.estimated_amount_cents, currency)}
+              </p>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {globalPrizes.length > 0 ? (
+        <div className="border-t border-zinc-200 px-5 py-4">
+          <h3 className="text-sm font-semibold text-zinc-950">Premios globales</h3>
+          <div className="mt-3 grid gap-3 lg:grid-cols-2">
+            {globalPrizes.map((prize) => (
+              <div key={prize.code} className="rounded-lg border border-zinc-200 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-zinc-950">{prize.label}</p>
+                    <p className="mt-1 text-xs text-zinc-500">
+                      {globalPrizeTypeLabel(prize.prize_type, prize.prize_percentage, currency)}
+                      {" · "}
+                      {prize.result_recorded
+                        ? `${prize.winners.length} ganador(es)`
+                        : "Sin resultado oficial"}
+                    </p>
+                  </div>
+                  <p className="shrink-0 text-sm font-semibold text-zinc-950">
+                    {formatMoney(prize.estimated_total_cents, currency)}
+                  </p>
+                </div>
+                {prize.result_recorded ? (
+                  prize.winners.length > 0 ? (
+                    <div className="mt-3 space-y-2">
+                      {prize.winners.map((winner) => (
+                        <div
+                          key={`${prize.code}-${winner.user_id}`}
+                          className="flex items-center justify-between gap-3 rounded-md bg-zinc-50 px-3 py-2 text-sm"
+                        >
+                          <span className="truncate text-zinc-700">
+                            {winner.user_name || winner.username || winner.user_id}
+                          </span>
+                          <span className="shrink-0 font-medium text-zinc-950">
+                            {formatMoney(winner.estimated_amount_cents, currency)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="mt-3 text-xs text-zinc-500">
+                      Resultado cargado, pero nadie elegible lo acerto.
+                    </p>
+                  )
+                ) : null}
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
+        </div>
+      ) : null}
     </section>
   );
+}
+
+function globalPrizeTypeLabel(
+  prizeType: GlobalPredictionPrizeType,
+  percentage: number,
+  currency: string,
+) {
+  if (prizeType === "percentage") {
+    return `${formatPercentage(percentage)}% de la bolsa`;
+  }
+  if (prizeType === "fixed") {
+    return `Monto fijo en ${currency}`;
+  }
+  return "Sin premio";
 }
 
 function GlobalPredictionsPanel({
@@ -2969,6 +3067,26 @@ async function getPrizePreviewWithFallback(
   }
 }
 
+async function getGlobalPrizePreviewWithFallback(
+  client: ReturnType<typeof createPollavarClient>,
+  token: string,
+  poolID: string,
+) {
+  try {
+    return await client.getGlobalPredictionPrizePreview(token, poolID);
+  } catch (error) {
+    if (isMissingEndpointError(error)) {
+      return {
+        pool_id: poolID,
+        currency: "COP",
+        confirmed_total_cents: 0,
+        prizes: [],
+      } satisfies GlobalPredictionPrizePreview;
+    }
+    throw error;
+  }
+}
+
 async function listPointDetailsWithFallback(
   client: ReturnType<typeof createPollavarClient>,
   token: string,
@@ -3719,6 +3837,10 @@ function formatMoney(amountCents: number, currency: string) {
     maximumFractionDigits: 2,
     minimumFractionDigits: Number.isInteger(amount) ? 0 : 2,
   }).format(amount)}`;
+}
+
+function formatPercentage(percentage: number) {
+  return Number.isInteger(percentage) ? String(percentage) : String(percentage);
 }
 
 function globalPredictionValueTypeLabel(valueType: GlobalPredictionDefinition["value_type"]) {

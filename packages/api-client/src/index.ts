@@ -177,6 +177,38 @@ export type PrizePreview = {
   payouts: PrizePayout[];
 };
 
+export type GlobalPredictionPrizeType = "none" | "fixed" | "percentage";
+export type GlobalPredictionPrizeSharePolicy = "split_equal";
+
+export type GlobalPredictionPrizeWinner = {
+  user_id: string;
+  user_name: string;
+  username: string;
+  prediction_id: string;
+  estimated_amount_cents: number;
+};
+
+export type GlobalPredictionPrize = {
+  definition_id: string;
+  code: ScoringRuleCode;
+  label: string;
+  prize_type: GlobalPredictionPrizeType;
+  prize_fixed_amount_cents: number;
+  prize_percentage: number;
+  prize_share_policy: GlobalPredictionPrizeSharePolicy;
+  estimated_total_cents: number;
+  result_recorded: boolean;
+  winner_count: number;
+  winners: GlobalPredictionPrizeWinner[];
+};
+
+export type GlobalPredictionPrizePreview = {
+  pool_id: string;
+  currency: string;
+  confirmed_total_cents: number;
+  prizes: GlobalPredictionPrize[];
+};
+
 export type SavePrizeRuleInput = {
   position: number;
   percentage: number;
@@ -375,6 +407,10 @@ export type GlobalPredictionDefinition = {
   enabled: boolean;
   points_enabled: boolean;
   prize_enabled: boolean;
+  prize_type: GlobalPredictionPrizeType;
+  prize_fixed_amount_cents: number;
+  prize_percentage: number;
+  prize_share_policy: GlobalPredictionPrizeSharePolicy;
   points: number;
   sort_order: number;
   closes_at: string | null;
@@ -475,6 +511,10 @@ export type GlobalPredictionDefinitionInput = {
   enabled?: boolean;
   points_enabled?: boolean;
   prize_enabled?: boolean;
+  prize_type?: GlobalPredictionPrizeType;
+  prize_fixed_amount_cents?: number;
+  prize_percentage?: number;
+  prize_share_policy?: GlobalPredictionPrizeSharePolicy;
   points: number;
   sort_order?: number;
   closes_at?: string | null;
@@ -631,6 +671,16 @@ export function createPollavarClient(options: PollavarClientOptions = {}) {
       return request<PrizePreview>(
         fetcher,
         `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/prizes/preview`,
+        {
+          method: "GET",
+          headers: authHeaders(token),
+        },
+      );
+    },
+    getGlobalPredictionPrizePreview(token: string, poolID: string) {
+      return request<GlobalPredictionPrizePreview>(
+        fetcher,
+        `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/global-prizes/preview`,
         {
           method: "GET",
           headers: authHeaders(token),

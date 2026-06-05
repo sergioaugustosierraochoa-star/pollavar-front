@@ -6,6 +6,7 @@ import {
   type AuthResult,
   type GlobalPrediction,
   type GlobalPredictionDefinition,
+  type GlobalPredictionPrizePreview,
   type GlobalPredictionResult,
   type GlobalPredictionTemplate,
   type MatchResultAuditLog,
@@ -274,6 +275,10 @@ const globalPredictionDefinition: GlobalPredictionDefinition = {
   enabled: true,
   points_enabled: true,
   prize_enabled: false,
+  prize_type: "none",
+  prize_fixed_amount_cents: 0,
+  prize_percentage: 0,
+  prize_share_policy: "split_equal",
   points: 10,
   sort_order: 10,
   closes_at: null,
@@ -394,6 +399,35 @@ const prizePreview: PrizePreview = {
       percentage: 30,
       estimated_amount_cents: 3000000,
       description: "Segundo",
+    },
+  ],
+};
+
+const globalPrizePreview: GlobalPredictionPrizePreview = {
+  pool_id: "pool-id",
+  currency: "COP",
+  confirmed_total_cents: 10000000,
+  prizes: [
+    {
+      definition_id: "definition-id",
+      code: "global_champion",
+      label: "Campeon",
+      prize_type: "percentage",
+      prize_fixed_amount_cents: 0,
+      prize_percentage: 10,
+      prize_share_policy: "split_equal",
+      estimated_total_cents: 1000000,
+      result_recorded: true,
+      winner_count: 1,
+      winners: [
+        {
+          user_id: "user-id",
+          user_name: "Admin",
+          username: "admin",
+          prediction_id: "global-prediction-id",
+          estimated_amount_cents: 1000000,
+        },
+      ],
     },
   ],
 };
@@ -861,6 +895,9 @@ describe("createPollavarClient", () => {
       if (value.endsWith("/global-results/global_champion") && init?.method === "PUT") {
         return jsonResponse({ data: globalPredictionResult });
       }
+      if (value.endsWith("/global-prizes/preview") && init?.method === "GET") {
+        return jsonResponse({ data: globalPrizePreview });
+      }
       return jsonResponse({ code: "not_found" }, { status: 404 });
     });
     const client = createPollavarClient({
@@ -898,7 +935,11 @@ describe("createPollavarClient", () => {
             value_type: "team",
             enabled: true,
             points_enabled: true,
-            prize_enabled: false,
+            prize_enabled: true,
+            prize_type: "fixed",
+            prize_fixed_amount_cents: 50000,
+            prize_percentage: 0,
+            prize_share_policy: "split_equal",
             points: 10,
             sort_order: 10,
             closes_at: null,
@@ -922,6 +963,9 @@ describe("createPollavarClient", () => {
         value_text: "Colombia",
       }),
     ).resolves.toEqual(globalPredictionResult);
+    await expect(client.getGlobalPredictionPrizePreview("token", "pool id")).resolves.toEqual(
+      globalPrizePreview,
+    );
 
     expect(fetcher).toHaveBeenNthCalledWith(
       1,
@@ -982,7 +1026,11 @@ describe("createPollavarClient", () => {
               value_type: "team",
               enabled: true,
               points_enabled: true,
-              prize_enabled: false,
+              prize_enabled: true,
+              prize_type: "fixed",
+              prize_fixed_amount_cents: 50000,
+              prize_percentage: 0,
+              prize_share_policy: "split_equal",
               points: 10,
               sort_order: 10,
               closes_at: null,
@@ -1035,6 +1083,17 @@ describe("createPollavarClient", () => {
       {
         method: "PUT",
         body: JSON.stringify({ value_text: "Colombia" }),
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer token",
+        },
+      },
+    );
+    expect(fetcher).toHaveBeenNthCalledWith(
+      9,
+      "http://api.local/api/v1/pools/pool%20id/global-prizes/preview",
+      {
+        method: "GET",
         headers: {
           "Content-Type": "application/json",
           Authorization: "Bearer token",

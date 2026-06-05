@@ -6,6 +6,8 @@ import {
   type AuthUser,
   type GlobalPredictionDefinition,
   type GlobalPredictionDefinitionInput,
+  type GlobalPredictionPrizePreview,
+  type GlobalPredictionPrizeType,
   type GlobalPredictionResult,
   type GlobalPredictionTemplate,
   type GlobalPredictionTemplateInput,
@@ -76,6 +78,9 @@ type GlobalPredictionDefinitionDrafts = Record<
     enabled: boolean;
     pointsEnabled: boolean;
     prizeEnabled: boolean;
+    prizeType: GlobalPredictionPrizeType;
+    prizeFixedAmount: string;
+    prizePercentage: string;
     points: string;
     sortOrder: string;
     closesAt: string;
@@ -195,6 +200,8 @@ export default function AdminHome() {
   const [payments, setPayments] = useState<Payment[]>([]);
   const [paymentCurrency, setPaymentCurrency] = useState("COP");
   const [prizePreview, setPrizePreview] = useState<PrizePreview | null>(null);
+  const [globalPrizePreview, setGlobalPrizePreview] =
+    useState<GlobalPredictionPrizePreview | null>(null);
   const [prizeDrafts, setPrizeDrafts] = useState<PrizeRuleDraft[]>([]);
   const [scoringRules, setScoringRules] = useState<ScoringRule[]>([]);
   const [globalPredictionDefinitions, setGlobalPredictionDefinitions] = useState<
@@ -272,6 +279,7 @@ export default function AdminHome() {
     setPayments([]);
     setPaymentCurrency("COP");
     setPrizePreview(null);
+    setGlobalPrizePreview(null);
     setPrizeDrafts([]);
     setScoringRules([]);
     setGlobalPredictionDefinitions([]);
@@ -345,6 +353,7 @@ export default function AdminHome() {
         setPayments([]);
         setPaymentCurrency("COP");
         setPrizePreview(null);
+        setGlobalPrizePreview(null);
         setPrizeDrafts([]);
         setScoringRules([]);
         setGlobalPredictionDefinitions([]);
@@ -381,6 +390,7 @@ export default function AdminHome() {
           });
       const [
         nextPrizePreview,
+        nextGlobalPrizePreview,
         nextPredictionStatuses,
         tournamentDetail,
         paymentCollection,
@@ -391,6 +401,7 @@ export default function AdminHome() {
         nextGlobalResults,
       ] = await Promise.all([
         client.getPrizePreview(token, poolDetail.id),
+        client.getGlobalPredictionPrizePreview(token, poolDetail.id),
         client.listPredictionStatuses(token, poolDetail.id),
         tournamentRequest,
         paymentCollectionRequest,
@@ -419,6 +430,7 @@ export default function AdminHome() {
       setPayments(nextPaymentCollection.payments);
       setPaymentCurrency(nextPaymentCollection.currency || poolDetail.currency || "COP");
       setPrizePreview(nextPrizePreview);
+      setGlobalPrizePreview(nextGlobalPrizePreview);
       setPrizeDrafts(hydratePrizeDrafts(nextPrizePreview));
       setScoringRules(nextScoringRules);
       setGlobalPredictionTemplates(nextGlobalTemplates);
@@ -694,17 +706,17 @@ export default function AdminHome() {
     setMessage("");
 
     try {
-      const nextDefinitions = await createPollavarClient().updateGlobalPredictionDefinitions(
-        session.token,
-        pool.id,
-        { definitions },
-      );
+      const client = createPollavarClient();
+      const nextDefinitions = await client.updateGlobalPredictionDefinitions(session.token, pool.id, {
+        definitions,
+      });
       setGlobalPredictionDefinitions(nextDefinitions);
       setGlobalDefinitionDrafts(hydrateGlobalDefinitionDrafts(nextDefinitions));
       setGlobalResultDrafts((current) => ({
         ...hydrateGlobalResultDrafts(nextDefinitions, globalPredictionResults),
         ...current,
       }));
+      void refreshGlobalPrizePreview(session.token, pool.id);
       setMessage("Predicciones globales actualizadas.");
     } catch (error) {
       if (isUnauthorized(error)) {
@@ -750,7 +762,8 @@ export default function AdminHome() {
     setMessage("");
 
     try {
-      const result = await createPollavarClient().saveGlobalPredictionResult(
+      const client = createPollavarClient();
+      const result = await client.saveGlobalPredictionResult(
         session.token,
         pool.id,
         definition.code,
@@ -761,6 +774,7 @@ export default function AdminHome() {
         ...current,
         [definition.code]: globalPredictionDraft(result),
       }));
+      void refreshGlobalPrizePreview(session.token, pool.id);
       setMessage("Resultado global actualizado.");
     } catch (error) {
       if (isUnauthorized(error)) {
@@ -995,6 +1009,22 @@ export default function AdminHome() {
     }
   }
 
+  async function refreshGlobalPrizePreview(token: string, poolID: string) {
+    try {
+      const nextGlobalPrizePreview =
+        await createPollavarClient().getGlobalPredictionPrizePreview(token, poolID);
+      setGlobalPrizePreview(nextGlobalPrizePreview);
+    } catch (error) {
+      if (isUnauthorized(error)) {
+        signOutAdmin();
+        return;
+      }
+      if (isForbidden(error)) {
+        setMessage("No tienes permisos para ver premios globales de esta polla.");
+      }
+    }
+  }
+
   async function savePayment(userID: string, statusOverride?: PaymentStatus) {
     if (!session || !pool || !canManageSelectedPool) {
       return;
@@ -1031,6 +1061,7 @@ export default function AdminHome() {
         [userID]: draftFromPayment(savedPayment),
       }));
       void refreshPrizePreview(session.token, pool.id);
+      void refreshGlobalPrizePreview(session.token, pool.id);
       setMessage("Pago actualizado.");
     } catch (error) {
       if (isUnauthorized(error)) {
@@ -1490,6 +1521,12 @@ export default function AdminHome() {
                         Guardar premios
                       </button>
                     </div>
+                    <GlobalPrizePreviewBlock
+                      currency={
+                        globalPrizePreview?.currency ?? prizePreview?.currency ?? paymentCurrency
+                      }
+                      preview={globalPrizePreview}
+                    />
                   </div>
                 </div>
               </section>
@@ -2239,7 +2276,7 @@ function GlobalPredictionAdminPanel({
       ) : (
         <div className="space-y-5 p-5">
           <div className="overflow-x-auto">
-            <table className="min-w-[1120px] w-full border-collapse text-left text-sm">
+            <table className="min-w-[1300px] w-full border-collapse text-left text-sm">
               <thead className="bg-zinc-50 text-xs uppercase text-zinc-500">
                 <tr>
                   <th className="px-4 py-3 font-semibold">Activa</th>
@@ -2353,21 +2390,77 @@ function GlobalPredictionAdminPanel({
                         </div>
                       </td>
                       <td className="px-4 py-4">
-                        <label className="flex items-center gap-2 text-xs font-medium text-zinc-700">
-                          <input
-                            aria-label={`Premio especial ${definition.label}`}
-                            checked={draft.prizeEnabled}
-                            className="h-4 w-4"
-                            disabled={!canManage || savingDefinitions}
-                            onChange={(event) =>
-                              onUpdateDefinitionDraft(definition.code, {
-                                prizeEnabled: event.target.checked,
-                              })
-                            }
-                            type="checkbox"
-                          />
-                          <span>Especial</span>
-                        </label>
+                        <div className="grid gap-2">
+                          <label className="flex items-center gap-2 text-xs font-medium text-zinc-700">
+                            <input
+                              aria-label={`Premio especial ${definition.label}`}
+                              checked={draft.prizeEnabled}
+                              className="h-4 w-4"
+                              disabled={!canManage || savingDefinitions}
+                              onChange={(event) =>
+                                onUpdateDefinitionDraft(definition.code, {
+                                  prizeEnabled: event.target.checked,
+                                  prizeType: event.target.checked
+                                    ? draft.prizeType === "none"
+                                      ? "fixed"
+                                      : draft.prizeType
+                                    : "none",
+                                })
+                              }
+                              type="checkbox"
+                            />
+                            <span>Especial</span>
+                          </label>
+                          <div className="grid gap-2 sm:grid-cols-[112px_120px]">
+                            <label
+                              className="sr-only"
+                              htmlFor={`global-prize-type-${definition.code}`}
+                            >
+                              Tipo de premio de {definition.label}
+                            </label>
+                            <select
+                              id={`global-prize-type-${definition.code}`}
+                              className="min-h-10 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950 disabled:bg-zinc-100"
+                              disabled={!canManage || savingDefinitions || !draft.prizeEnabled}
+                              onChange={(event) =>
+                                onUpdateDefinitionDraft(definition.code, {
+                                  prizeType: event.target.value as GlobalPredictionPrizeType,
+                                })
+                              }
+                              value={draft.prizeType === "none" ? "fixed" : draft.prizeType}
+                            >
+                              <option value="fixed">Monto</option>
+                              <option value="percentage">%</option>
+                            </select>
+                            <label
+                              className="sr-only"
+                              htmlFor={`global-prize-amount-${definition.code}`}
+                            >
+                              Valor de premio de {definition.label}
+                            </label>
+                            <input
+                              id={`global-prize-amount-${definition.code}`}
+                              className="min-h-10 rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-950 disabled:bg-zinc-100"
+                              disabled={!canManage || savingDefinitions || !draft.prizeEnabled}
+                              inputMode="decimal"
+                              onChange={(event) =>
+                                onUpdateDefinitionDraft(definition.code, {
+                                  [draft.prizeType === "percentage"
+                                    ? "prizePercentage"
+                                    : "prizeFixedAmount"]: event.target.value,
+                                })
+                              }
+                              placeholder={
+                                draft.prizeType === "percentage" ? "Porcentaje" : "Monto"
+                              }
+                              value={
+                                draft.prizeType === "percentage"
+                                  ? draft.prizePercentage
+                                  : draft.prizeFixedAmount
+                              }
+                            />
+                          </div>
+                        </div>
                       </td>
                       <td className="px-4 py-4">
                         <label className="sr-only" htmlFor={`global-order-${definition.code}`}>
@@ -3126,6 +3219,91 @@ function ResultsPanel({
   );
 }
 
+function GlobalPrizePreviewBlock({
+  currency,
+  preview,
+}: {
+  currency: string;
+  preview: GlobalPredictionPrizePreview | null;
+}) {
+  const prizes = preview?.prizes ?? [];
+
+  return (
+    <div className="rounded-lg border border-zinc-200">
+      <div className="border-b border-zinc-200 px-4 py-3">
+        <p className="text-sm font-semibold text-zinc-950">Premios globales</p>
+        <p className="text-xs text-zinc-500">
+          Bolsa base: {formatMoney(preview?.confirmed_total_cents ?? 0, currency)}
+        </p>
+      </div>
+      <div className="divide-y divide-zinc-200">
+        {prizes.length === 0 ? (
+          <p className="px-4 py-3 text-sm text-zinc-600">
+            Sin premios especiales configurados.
+          </p>
+        ) : (
+          prizes.map((prize) => (
+            <div key={prize.code} className="px-4 py-3 text-sm">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="font-medium text-zinc-950">{prize.label}</p>
+                  <p className="mt-1 text-xs text-zinc-500">
+                    {globalPrizeTypeLabel(prize.prize_type, prize.prize_percentage, currency)}
+                    {" · "}
+                    {prize.result_recorded
+                      ? `${prize.winners.length} ganador(es)`
+                      : "Sin resultado oficial"}
+                  </p>
+                </div>
+                <p className="shrink-0 font-semibold text-zinc-950">
+                  {formatMoney(prize.estimated_total_cents, currency)}
+                </p>
+              </div>
+              {prize.result_recorded ? (
+                prize.winners.length > 0 ? (
+                  <div className="mt-3 space-y-2">
+                    {prize.winners.map((winner) => (
+                      <div
+                        key={`${prize.code}-${winner.user_id}`}
+                        className="flex items-center justify-between gap-3 rounded-md bg-zinc-50 px-3 py-2"
+                      >
+                        <span className="truncate text-zinc-700">
+                          {winner.user_name || winner.username || winner.user_id}
+                        </span>
+                        <span className="shrink-0 font-medium text-zinc-950">
+                          {formatMoney(winner.estimated_amount_cents, currency)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-3 text-xs text-zinc-500">
+                    Resultado cargado, pero nadie elegible lo acerto.
+                  </p>
+                )
+              ) : null}
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+function globalPrizeTypeLabel(
+  prizeType: GlobalPredictionPrizeType,
+  percentage: number,
+  currency: string,
+) {
+  if (prizeType === "percentage") {
+    return `${formatPercentageInput(percentage)}% de la bolsa`;
+  }
+  if (prizeType === "fixed") {
+    return `Monto fijo en ${currency}`;
+  }
+  return "Sin premio";
+}
+
 function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-lg border border-zinc-200 px-4 py-3">
@@ -3627,6 +3805,14 @@ function globalDefinitionDraft(
     enabled: definition?.enabled ?? false,
     pointsEnabled: definition?.points_enabled ?? true,
     prizeEnabled: definition?.prize_enabled ?? false,
+    prizeType:
+      definition?.prize_type && definition.prize_type !== "none"
+        ? definition.prize_type
+        : definition?.prize_enabled
+          ? "fixed"
+          : "none",
+    prizeFixedAmount: centsToInput(definition?.prize_fixed_amount_cents ?? 0),
+    prizePercentage: formatPercentageInput(definition?.prize_percentage ?? 0),
     points: String(definition?.points ?? 0),
     sortOrder: String(definition?.sort_order ?? 0),
     closesAt: toDatetimeLocalInput(definition?.closes_at ?? null),
@@ -3646,7 +3832,11 @@ function globalDefinitionFromTemplate(
     value_type: template.value_type,
     enabled: true,
     points_enabled: template.points_enabled,
-    prize_enabled: template.prize_enabled,
+    prize_enabled: false,
+    prize_type: "none",
+    prize_fixed_amount_cents: 0,
+    prize_percentage: 0,
+    prize_share_policy: "split_equal",
     points: template.points,
     sort_order: template.sort_order,
     closes_at: null,
@@ -3670,6 +3860,10 @@ function globalCustomDefinition(
     enabled: true,
     points_enabled: true,
     prize_enabled: false,
+    prize_type: "none",
+    prize_fixed_amount_cents: 0,
+    prize_percentage: 0,
+    prize_share_policy: "split_equal",
     points: 0,
     sort_order: sortOrder,
     closes_at: null,
@@ -3773,6 +3967,7 @@ function parseGlobalDefinitionDrafts(
     const points = parseWholeNumber(draft.points);
     const sortOrder = parseWholeNumber(draft.sortOrder);
     const closesAt = datetimeLocalToISO(draft.closesAt);
+    const prizeConfig = parseGlobalPrizeDraft(draft);
 
     if (
       !code ||
@@ -3781,7 +3976,8 @@ function parseGlobalDefinitionDrafts(
       points === null ||
       points > 1000 ||
       sortOrder === null ||
-      closesAt === undefined
+      closesAt === undefined ||
+      !prizeConfig
     ) {
       return null;
     }
@@ -3794,6 +3990,7 @@ function parseGlobalDefinitionDrafts(
       enabled: draft.enabled,
       points_enabled: draft.pointsEnabled,
       prize_enabled: draft.prizeEnabled,
+      ...prizeConfig,
       points,
       sort_order: sortOrder,
       closes_at: closesAt,
@@ -3801,6 +3998,45 @@ function parseGlobalDefinitionDrafts(
   }
 
   return definitions.sort((left, right) => (left.sort_order ?? 0) - (right.sort_order ?? 0));
+}
+
+function parseGlobalPrizeDraft(draft: GlobalPredictionDefinitionDrafts[string]) {
+  if (!draft.prizeEnabled) {
+    return {
+      prize_type: "none" as const,
+      prize_fixed_amount_cents: 0,
+      prize_percentage: 0,
+      prize_share_policy: "split_equal" as const,
+    };
+  }
+
+  if (draft.prizeType === "fixed") {
+    const fixedAmountCents = parseMoneyToCents(draft.prizeFixedAmount);
+    if (fixedAmountCents === null || fixedAmountCents <= 0) {
+      return null;
+    }
+    return {
+      prize_type: "fixed" as const,
+      prize_fixed_amount_cents: fixedAmountCents,
+      prize_percentage: 0,
+      prize_share_policy: "split_equal" as const,
+    };
+  }
+
+  if (draft.prizeType === "percentage") {
+    const percentage = parsePercentage(draft.prizePercentage);
+    if (percentage === null) {
+      return null;
+    }
+    return {
+      prize_type: "percentage" as const,
+      prize_fixed_amount_cents: 0,
+      prize_percentage: percentage,
+      prize_share_policy: "split_equal" as const,
+    };
+  }
+
+  return null;
 }
 
 function emptyGlobalPredictionDraft(): GlobalPredictionDrafts[string] {

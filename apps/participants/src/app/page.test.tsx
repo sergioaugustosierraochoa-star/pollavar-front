@@ -356,6 +356,10 @@ const globalPredictionDefinitions = [
     enabled: true,
     points_enabled: true,
     prize_enabled: true,
+    prize_type: "percentage",
+    prize_fixed_amount_cents: 0,
+    prize_percentage: 10,
+    prize_share_policy: "split_equal",
     points: 10,
     sort_order: 1,
     closes_at: "2020-06-11T00:00:00Z",
@@ -371,6 +375,10 @@ const globalPredictionDefinitions = [
     enabled: true,
     points_enabled: true,
     prize_enabled: false,
+    prize_type: "none",
+    prize_fixed_amount_cents: 0,
+    prize_percentage: 0,
+    prize_share_policy: "split_equal",
     points: 5,
     sort_order: 2,
     closes_at: null,
@@ -484,6 +492,35 @@ const prizePreview = {
       percentage: 30,
       estimated_amount_cents: 1500000,
       description: "Segundo",
+    },
+  ],
+};
+
+const globalPrizePreview = {
+  pool_id: "pool-id",
+  currency: "COP",
+  confirmed_total_cents: 5000000,
+  prizes: [
+    {
+      definition_id: "global-definition-champion",
+      code: "global_champion",
+      label: "Campeon",
+      prize_type: "percentage",
+      prize_fixed_amount_cents: 0,
+      prize_percentage: 10,
+      prize_share_policy: "split_equal",
+      estimated_total_cents: 500000,
+      result_recorded: true,
+      winner_count: 1,
+      winners: [
+        {
+          user_id: "user-id",
+          user_name: "Participante",
+          username: "participante",
+          prediction_id: "global-prediction-champion",
+          estimated_amount_cents: 500000,
+        },
+      ],
     },
   ],
 };
@@ -614,8 +651,10 @@ describe("Participants home", () => {
     expect(within(prizeSection as HTMLElement).getByText(/Bolsa confirmada:/)).toHaveTextContent(
       "COP 50.000",
     );
-    expect(within(prizeSection as HTMLElement).getByText("2 ganadores")).toBeInTheDocument();
+    expect(within(prizeSection as HTMLElement).getByText("2 ranking · 1 globales")).toBeInTheDocument();
     expect(within(prizeSection as HTMLElement).getByText("COP 35.000")).toBeInTheDocument();
+    expect(within(prizeSection as HTMLElement).getByText("Premios globales")).toBeInTheDocument();
+    expect(within(prizeSection as HTMLElement).getByText(/1 ganador/)).toBeInTheDocument();
     const globalSection = screen
       .getByRole("heading", { name: "Predicciones globales" })
       .closest("section");
@@ -988,6 +1027,9 @@ describe("Participants home", () => {
       if (value.endsWith("/prizes/preview")) {
         return jsonResponse({ data: prizePreview });
       }
+      if (value.endsWith("/global-prizes/preview")) {
+        return jsonResponse({ data: globalPrizePreview });
+      }
       if (value.endsWith("/scoring-rules")) {
         return jsonResponse({ data: scoringRules });
       }
@@ -1234,6 +1276,9 @@ describe("Participants home", () => {
       if (value.endsWith("/prizes/preview")) {
         return jsonResponse({ data: prizePreview });
       }
+      if (value.endsWith("/global-prizes/preview")) {
+        return jsonResponse({ data: globalPrizePreview });
+      }
       if (value.endsWith("/scoring-rules")) {
         return jsonResponse({ data: [] });
       }
@@ -1322,6 +1367,9 @@ async function dashboardFetch(url: RequestInfo | URL, init?: RequestInit) {
   if (value.endsWith("/prizes/preview")) {
     return jsonResponse({ data: prizePreview });
   }
+  if (value.endsWith("/global-prizes/preview")) {
+    return jsonResponse({ data: globalPrizePreview });
+  }
   if (value.endsWith("/scoring-rules")) {
     return jsonResponse({ data: scoringRules });
   }
@@ -1409,6 +1457,9 @@ async function standingsFetch(url: RequestInfo | URL, init?: RequestInit) {
   }
   if (value.endsWith("/prizes/preview")) {
     return jsonResponse({ data: prizePreview });
+  }
+  if (value.endsWith("/global-prizes/preview")) {
+    return jsonResponse({ data: globalPrizePreview });
   }
   if (value.endsWith("/scoring-rules")) {
     return jsonResponse({ data: scoringRules });

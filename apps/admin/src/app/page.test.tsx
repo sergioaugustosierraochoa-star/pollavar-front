@@ -244,6 +244,35 @@ const prizePreview = {
   ],
 };
 
+const globalPrizePreview = {
+  pool_id: "pool-id",
+  currency: "COP",
+  confirmed_total_cents: 5000000,
+  prizes: [
+    {
+      definition_id: "global-definition-champion",
+      code: "global_champion",
+      label: "Campeon",
+      prize_type: "percentage",
+      prize_fixed_amount_cents: 0,
+      prize_percentage: 10,
+      prize_share_policy: "split_equal",
+      estimated_total_cents: 500000,
+      result_recorded: true,
+      winner_count: 1,
+      winners: [
+        {
+          user_id: "user-id",
+          user_name: "Admin",
+          username: "admin",
+          prediction_id: "global-prediction-champion",
+          estimated_amount_cents: 500000,
+        },
+      ],
+    },
+  ],
+};
+
 const scoringRules = [
   { code: "exact_score", points: 5, enabled: true },
   { code: "match_result", points: 3, enabled: true },
@@ -278,6 +307,10 @@ const globalPredictionDefinitions = [
     enabled: true,
     points_enabled: true,
     prize_enabled: true,
+    prize_type: "percentage",
+    prize_fixed_amount_cents: 0,
+    prize_percentage: 10,
+    prize_share_policy: "split_equal",
     points: 10,
     sort_order: 1,
     closes_at: "2020-06-11T00:00:00Z",
@@ -293,6 +326,10 @@ const globalPredictionDefinitions = [
     enabled: true,
     points_enabled: true,
     prize_enabled: false,
+    prize_type: "none",
+    prize_fixed_amount_cents: 0,
+    prize_percentage: 0,
+    prize_share_policy: "split_equal",
     points: 5,
     sort_order: 2,
     closes_at: null,
@@ -639,6 +676,9 @@ describe("Admin home", () => {
       target: { value: "12" },
     });
     fireEvent.click(screen.getByLabelText("Premio especial Total amarillas por rango"));
+    fireEvent.change(screen.getByLabelText("Valor de premio de Total amarillas por rango"), {
+      target: { value: "25000" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Guardar predicciones globales" }));
 
     await waitFor(() => {
@@ -669,6 +709,10 @@ describe("Admin home", () => {
               enabled: true,
               points_enabled: true,
               prize_enabled: true,
+              prize_type: "percentage",
+              prize_fixed_amount_cents: 0,
+              prize_percentage: 10,
+              prize_share_policy: "split_equal",
               points: 12,
               sort_order: 1,
               closes_at: "2020-06-11T00:00:00.000Z",
@@ -680,6 +724,10 @@ describe("Admin home", () => {
               enabled: true,
               points_enabled: true,
               prize_enabled: true,
+              prize_type: "fixed",
+              prize_fixed_amount_cents: 2500000,
+              prize_percentage: 0,
+              prize_share_policy: "split_equal",
               points: 5,
               sort_order: 2,
               closes_at: null,
@@ -691,6 +739,10 @@ describe("Admin home", () => {
               enabled: true,
               points_enabled: true,
               prize_enabled: false,
+              prize_type: "none",
+              prize_fixed_amount_cents: 0,
+              prize_percentage: 0,
+              prize_share_policy: "split_equal",
               points: 6,
               sort_order: 65,
               closes_at: null,
@@ -702,6 +754,10 @@ describe("Admin home", () => {
               enabled: true,
               points_enabled: true,
               prize_enabled: false,
+              prize_type: "none",
+              prize_fixed_amount_cents: 0,
+              prize_percentage: 0,
+              prize_share_policy: "split_equal",
               points: 0,
               sort_order: 75,
               closes_at: null,
@@ -750,6 +806,38 @@ describe("Admin home", () => {
         },
       }),
     );
+  });
+
+  it("keeps saved global definition state when refreshing global prize preview fails", async () => {
+    storeSession();
+    let globalPrizePreviewRequests = 0;
+    const fetcher = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      const value = String(url);
+      if (value.endsWith("/api/v1/pools/pool-id/global-prizes/preview")) {
+        globalPrizePreviewRequests += 1;
+        if (globalPrizePreviewRequests === 1) {
+          return jsonResponse({ data: globalPrizePreview });
+        }
+        return jsonResponse({ code: "internal_error" }, { status: 500 });
+      }
+      return adminFetch(url, init);
+    });
+    vi.stubGlobal("fetch", fetcher);
+
+    render(<AdminHome />);
+
+    expect(await screen.findByRole("heading", { name: "Predicciones globales" })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Puntos de Campeon"), {
+      target: { value: "12" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar predicciones globales" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("status")).toHaveTextContent(
+        "Predicciones globales actualizadas.",
+      );
+    });
+    expect(screen.getByDisplayValue("12")).toBeInTheDocument();
   });
 
   it("updates pool visual identity from the admin panel", async () => {
@@ -920,6 +1008,9 @@ describe("Admin home", () => {
       }
       if (value.endsWith("/api/v1/pools/pool-id/prizes/preview")) {
         return jsonResponse({ data: prizePreview });
+      }
+      if (value.endsWith("/api/v1/pools/pool-id/global-prizes/preview")) {
+        return jsonResponse({ data: globalPrizePreview });
       }
       return jsonResponse({ code: "unauthorized" }, { status: 401 });
     });
@@ -1219,6 +1310,9 @@ async function adminFetch(url: RequestInfo | URL, init?: RequestInit) {
   }
   if (value.endsWith("/api/v1/pools/pool-id/prizes/preview") && init?.method === "GET") {
     return jsonResponse({ data: prizePreview });
+  }
+  if (value.endsWith("/api/v1/pools/pool-id/global-prizes/preview") && init?.method === "GET") {
+    return jsonResponse({ data: globalPrizePreview });
   }
   if (value.endsWith("/api/v1/pools/pool-id")) {
     return jsonResponse({ data: pool });
