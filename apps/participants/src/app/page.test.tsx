@@ -25,6 +25,8 @@ const pool = {
   currency: "COP",
   collection_responsible_user_id: "collector-id",
   prediction_close_hours_before: 6,
+  prediction_mode: "score_with_outcome",
+  match_result_scoring_mode: "exclusive",
   created_by: "user-id",
   created_at: "2026-05-27T01:00:00Z",
   updated_at: "2026-05-27T01:00:00Z",
@@ -197,8 +199,10 @@ const prediction = {
   pool_id: "pool-id",
   user_id: "user-id",
   match_id: "match-1",
+  has_score: true,
   home_score: 2,
   away_score: 1,
+  outcome: "home",
   created_at: "2026-06-11T12:00:00Z",
   updated_at: "2026-06-11T12:30:00Z",
 };
@@ -250,11 +254,25 @@ const predictionSnapshot = {
       has_prediction: true,
       home_score: 2,
       away_score: 1,
+      outcome: "home",
       predicted_at: "2026-06-11T12:00:00Z",
       updated_at: "2026-06-11T12:30:00Z",
     },
     {
       id: "entry-2",
+      snapshot_id: "snapshot-id",
+      prediction_id: "prediction-outcome-id",
+      user_id: "outcome-user-id",
+      participant_name: "Solo resultado",
+      has_prediction: true,
+      home_score: null,
+      away_score: null,
+      outcome: "away",
+      predicted_at: "2026-06-11T12:00:00Z",
+      updated_at: "2026-06-11T12:30:00Z",
+    },
+    {
+      id: "entry-3",
       snapshot_id: "snapshot-id",
       prediction_id: "",
       user_id: "missing-user-id",
@@ -262,6 +280,7 @@ const predictionSnapshot = {
       has_prediction: false,
       home_score: null,
       away_score: null,
+      outcome: "",
       predicted_at: null,
       updated_at: null,
     },
@@ -554,9 +573,11 @@ describe("Participants home", () => {
     await waitFor(() => {
       expect(screen.getByText("Sin marcador")).toBeInTheDocument();
     });
-    expect(screen.getByText("Pronosticado")).toBeInTheDocument();
+    expect(screen.getAllByText("Pronosticado")).toHaveLength(2);
     expect(screen.getByText("Sin pronostico")).toBeInTheDocument();
     expect(screen.getByText("2-1")).toBeInTheDocument();
+    expect(screen.getByText("Solo resultado")).toBeInTheDocument();
+    expect(screen.getByText("Visitante")).toBeInTheDocument();
     expect(fetcher).toHaveBeenCalledWith(
       "http://localhost:8080/api/v1/pools/pool-id/matches/match-1/prediction-snapshot",
       expect.objectContaining({
@@ -567,6 +588,34 @@ describe("Participants home", () => {
         },
       }),
     );
+  });
+
+  it("does not hydrate score inputs from outcome-only predictions", async () => {
+    storeSession();
+    const outcomeOnlyPrediction = {
+      ...prediction,
+      id: "prediction-outcome-id",
+      match_id: "match-2",
+      has_score: false,
+      home_score: 0,
+      away_score: 0,
+      outcome: "away",
+    };
+    const fetcher = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      const value = String(url);
+      if (value.endsWith("/predictions") && init?.method !== "PUT") {
+        return jsonResponse({ data: [prediction, outcomeOnlyPrediction] });
+      }
+      return dashboardFetch(url, init);
+    });
+    vi.stubGlobal("fetch", fetcher);
+
+    render(<ParticipantsHome />);
+
+    const homeInput = await screen.findByLabelText("Marcador Canada");
+    const awayInput = screen.getByLabelText("Marcador Bosnia and Herzegovina");
+    expect((homeInput as HTMLInputElement).value).toBe("");
+    expect((awayInput as HTMLInputElement).value).toBe("");
   });
 
   it("downloads closed prediction snapshots as CSV", async () => {

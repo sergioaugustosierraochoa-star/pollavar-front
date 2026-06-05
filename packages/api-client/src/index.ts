@@ -105,6 +105,8 @@ export type Pool = {
   currency: string;
   collection_responsible_user_id: string;
   prediction_close_hours_before: number;
+  prediction_mode: PredictionMode;
+  match_result_scoring_mode: MatchResultScoringMode;
   created_by: string;
   created_at: string;
   updated_at: string;
@@ -188,8 +190,10 @@ export type Prediction = {
   pool_id: string;
   user_id: string;
   match_id: string;
+  has_score: boolean;
   home_score: number;
   away_score: number;
+  outcome: MatchOutcome;
   created_at: string;
   updated_at: string;
 };
@@ -281,6 +285,7 @@ export type PredictionSnapshotEntry = {
   has_prediction: boolean;
   home_score: number | null;
   away_score: number | null;
+  outcome: MatchOutcome | "";
   predicted_at: string | null;
   updated_at: string | null;
 };
@@ -330,10 +335,19 @@ export type StandingPrediction = {
   updated_at: string;
 };
 
-export type SavePredictionInput = {
-  home_score: number;
-  away_score: number;
-};
+export type MatchOutcome = "home" | "draw" | "away";
+export type PredictionMode = "score" | "outcome" | "score_with_outcome";
+export type MatchResultScoringMode = "exclusive" | "cumulative";
+
+export type SavePredictionInput =
+  | {
+      home_score: number;
+      away_score: number;
+      outcome?: MatchOutcome;
+    }
+  | {
+      outcome: MatchOutcome;
+    };
 
 export type SaveStandingPredictionInput = {
   team_ids: string[];

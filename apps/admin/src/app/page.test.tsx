@@ -25,6 +25,8 @@ const pool = {
   currency: "COP",
   collection_responsible_user_id: "collector-id",
   prediction_close_hours_before: 6,
+  prediction_mode: "score_with_outcome",
+  match_result_scoring_mode: "exclusive",
   created_by: "admin-id",
   created_at: "2026-05-27T01:00:00Z",
   updated_at: "2026-05-27T01:00:00Z",

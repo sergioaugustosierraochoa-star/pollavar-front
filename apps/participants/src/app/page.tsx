@@ -1936,7 +1936,7 @@ function PredictionSnapshotTable({ snapshot }: { snapshot: PredictionSnapshot })
           <tr className="border-y border-zinc-200 text-xs uppercase text-zinc-500">
             <th className="py-2 pr-3 font-medium">Participante</th>
             <th className="py-2 pr-3 font-medium">Estado</th>
-            <th className="py-2 pr-3 text-right font-medium">Marcador</th>
+            <th className="py-2 pr-3 text-right font-medium">Pronostico</th>
             <th className="py-2 text-right font-medium">Actualizado</th>
           </tr>
         </thead>
@@ -2121,10 +2121,40 @@ function snapshotErrorMessage(error: unknown) {
 }
 
 function predictionSnapshotScore(entry: PredictionSnapshot["entries"][number]) {
-  if (!entry.has_prediction || entry.home_score === null || entry.away_score === null) {
+  if (!entry.has_prediction) {
     return "-";
   }
+  if (entry.home_score === null || entry.away_score === null) {
+    return matchOutcomeLabel(entry.outcome);
+  }
   return `${entry.home_score}-${entry.away_score}`;
+}
+
+function matchOutcomeLabel(outcome: string) {
+  switch (outcome) {
+    case "home":
+      return "Local";
+    case "draw":
+      return "Empate";
+    case "away":
+      return "Visitante";
+    default:
+      return "-";
+  }
+}
+
+function predictionHasScore(prediction: Prediction) {
+  return prediction.has_score !== false;
+}
+
+function predictionScoreDraft(prediction: Prediction | undefined) {
+  if (!prediction || !predictionHasScore(prediction)) {
+    return { home: "", away: "" };
+  }
+  return {
+    home: String(prediction.home_score),
+    away: String(prediction.away_score),
+  };
 }
 
 function downloadTextFile(content: string, filename: string, type: string) {
@@ -2299,7 +2329,7 @@ function buildSuggestedStandings(matches: Match[], predictionsByMatch: Map<strin
     ensureStandingRow(rowsByTeam, match.away_team, match.away_slot).expectedMatches += 1;
 
     const prediction = predictionsByMatch.get(match.id);
-    if (!prediction) {
+    if (!prediction || !predictionHasScore(prediction)) {
       continue;
     }
 
@@ -2571,11 +2601,7 @@ function hydrateDrafts(matches: Match[], predictions: Prediction[]) {
   const indexed = indexPredictions(predictions);
   const nextDrafts: ScoreDrafts = {};
   for (const match of matches) {
-    const prediction = indexed.get(match.id);
-    nextDrafts[match.id] = {
-      home: prediction ? String(prediction.home_score) : "",
-      away: prediction ? String(prediction.away_score) : "",
-    };
+    nextDrafts[match.id] = predictionScoreDraft(indexed.get(match.id));
   }
   return nextDrafts;
 }
