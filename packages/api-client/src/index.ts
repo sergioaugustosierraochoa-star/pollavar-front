@@ -229,11 +229,35 @@ export type PredictionMatchStatusCode =
   | "scored";
 
 export type MatchResult = {
+  pool_id?: string;
   match_id: string;
   home_score: number;
   away_score: number;
   result_status: string;
   recorded_at: string;
+};
+
+export type MatchResultSnapshot = {
+  home_score: number;
+  away_score: number;
+  result_status: string;
+};
+
+export type MatchResultAuditLog = {
+  id: string;
+  pool_id: string;
+  match_id: string;
+  actor_user_id: string;
+  action: "match_result_created" | "match_result_updated";
+  previous?: MatchResultSnapshot | null;
+  current: MatchResultSnapshot;
+  created_at: string;
+};
+
+export type SaveMatchResultInput = {
+  home_score: number;
+  away_score: number;
+  result_status?: string;
 };
 
 export type PredictionMatchStatus = {
@@ -470,6 +494,32 @@ export function createPollavarClient(options: PollavarClientOptions = {}) {
       return request<PredictionMatchStatus[]>(
         fetcher,
         `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/predictions/statuses`,
+        {
+          method: "GET",
+          headers: authHeaders(token),
+        },
+      );
+    },
+    saveMatchResult(
+      token: string,
+      poolID: string,
+      matchID: string,
+      input: SaveMatchResultInput,
+    ) {
+      return request<MatchResult>(
+        fetcher,
+        `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/match-results/${encodeURIComponent(matchID)}`,
+        {
+          method: "PUT",
+          body: JSON.stringify(input),
+          headers: authHeaders(token),
+        },
+      );
+    },
+    listMatchResultAuditLogs(token: string, poolID: string, matchID: string) {
+      return request<MatchResultAuditLog[]>(
+        fetcher,
+        `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/match-results/${encodeURIComponent(matchID)}/audit-logs`,
         {
           method: "GET",
           headers: authHeaders(token),

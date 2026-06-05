@@ -4,13 +4,18 @@ import {
   PollavarAPIError,
   createPollavarClient,
   type AuthUser,
+  type Match,
+  type MatchResultAuditLog,
   type Payment,
   type PaymentCollection,
   type PaymentMethod,
   type PaymentStatus,
   type Pool,
   type PoolParticipant,
+  type PredictionMatchStatus,
   type PrizePreview,
+  type Tournament,
+  type TournamentSummary,
 } from "@pollavar/api-client";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -38,6 +43,19 @@ type PrizeRuleDraft = {
   percentage: string;
   description: string;
 };
+type ResultDrafts = Record<
+  string,
+  {
+    home: string;
+    away: string;
+  }
+>;
+type ResultMatchGroup = {
+  id: string;
+  title: string;
+  subtitle: string;
+  matches: Match[];
+};
 type RefreshPrizePreviewOptions = {
   syncDrafts?: boolean;
 };
@@ -64,20 +82,37 @@ export default function AdminHome() {
   const [pools, setPools] = useState<Pool[]>([]);
   const [selectedPoolID, setSelectedPoolID] = useState("");
   const [pool, setPool] = useState<Pool | null>(null);
+  const [tournament, setTournament] = useState<Tournament | null>(null);
+  const [predictionStatuses, setPredictionStatuses] = useState<PredictionMatchStatus[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [paymentCurrency, setPaymentCurrency] = useState("COP");
   const [prizePreview, setPrizePreview] = useState<PrizePreview | null>(null);
   const [prizeDrafts, setPrizeDrafts] = useState<PrizeRuleDraft[]>([]);
+  const [resultDrafts, setResultDrafts] = useState<ResultDrafts>({});
+  const [resultAuditLogsByMatchID, setResultAuditLogsByMatchID] = useState<
+    Record<string, MatchResultAuditLog[]>
+  >({});
   const [drafts, setDrafts] = useState<PaymentDrafts>({});
+  const [savingResultMatchID, setSavingResultMatchID] = useState("");
+  const [loadingAuditMatchID, setLoadingAuditMatchID] = useState("");
   const [savingUserID, setSavingUserID] = useState("");
   const [savingPrizes, setSavingPrizes] = useState(false);
   const requestID = useRef(0);
 
+  const predictionStatusesByMatch = useMemo(
+    () => indexPredictionStatuses(predictionStatuses),
+    [predictionStatuses],
+  );
+  const resultGroups = useMemo(
+    () => groupMatchesForResults(tournament?.matches ?? []),
+    [tournament?.matches],
+  );
   const paymentsByUserID = useMemo(() => indexPayments(payments), [payments]);
   const canManageSelectedPool = Boolean(
     session && pool && canManagePayments(pool, session.user.id),
   );
   const canManageSelectedPoolPrizes = Boolean(pool && canManagePrizeRules(pool));
+  const canManageSelectedPoolResults = Boolean(pool && canManageResults(pool));
   const totals = useMemo(
     () => paymentTotals(pool?.participants ?? [], paymentsByUserID),
     [pool?.participants, paymentsByUserID],
@@ -92,11 +127,17 @@ export default function AdminHome() {
     setPools([]);
     setSelectedPoolID("");
     setPool(null);
+    setTournament(null);
+    setPredictionStatuses([]);
     setPayments([]);
     setPaymentCurrency("COP");
     setPrizePreview(null);
     setPrizeDrafts([]);
+    setResultDrafts({});
+    setResultAuditLogsByMatchID({});
     setDrafts({});
+    setSavingResultMatchID("");
+    setLoadingAuditMatchID("");
     setSavingUserID("");
     setSavingPrizes(false);
   }, []);
@@ -112,11 +153,16 @@ export default function AdminHome() {
 
     setStatus("loading");
     setMessage("");
+    setSavingResultMatchID("");
+    setLoadingAuditMatchID("");
     setSavingUserID("");
 
     try {
       const client = createPollavarClient();
-      const poolList = await client.listPools(token);
+      const [poolList, tournamentList] = await Promise.all([
+        client.listPools(token),
+        client.listTournaments(),
+      ]);
       const activePool =
         poolList.find((item) => item.id === preferredPoolID) ??
         poolList.find((item) => canManagePayments(item, userID)) ??
@@ -127,43 +173,74 @@ export default function AdminHome() {
         return;
       }
 
-      setPools(poolList);
-      setSelectedPoolID(activePool?.id ?? "");
+        setPools(poolList);
+        setSelectedPoolID(activePool?.id ?? "");
 
       if (!activePool) {
         setPool(null);
+        setTournament(null);
+        setPredictionStatuses([]);
         setPayments([]);
         setPaymentCurrency("COP");
         setPrizePreview(null);
         setPrizeDrafts([]);
+        setResultDrafts({});
+        setResultAuditLogsByMatchID({});
         setDrafts({});
         setStatus("ready");
         return;
       }
 
       const poolDetail = await client.getPool(token, activePool.id);
-      const nextPrizePreview = await client.getPrizePreview(token, poolDetail.id);
-      let paymentCollection: PaymentCollection = {
+      const tournamentSummary = findTournamentSummary(tournamentList, poolDetail);
+      const tournamentRequest = tournamentSummary
+        ? client.getTournament(tournamentSummary.slug)
+        : Promise.resolve(null);
+      const paymentCollectionRequest: Promise<PaymentCollection> = canManagePayments(
+        poolDetail,
+        userID,
+      )
+        ? client.listPayments(token, poolDetail.id)
+        : Promise.resolve({
+            pool_id: poolDetail.id,
+            currency: poolDetail.currency || "COP",
+            confirmed_total_cents: 0,
+            payments: [],
+          });
+      const [
+        nextPrizePreview,
+        nextPredictionStatuses,
+        tournamentDetail,
+        paymentCollection,
+      ] = await Promise.all([
+        client.getPrizePreview(token, poolDetail.id),
+        client.listPredictionStatuses(token, poolDetail.id),
+        tournamentRequest,
+        paymentCollectionRequest,
+      ]);
+      const nextPaymentCollection: PaymentCollection = paymentCollection ?? {
         pool_id: poolDetail.id,
         currency: poolDetail.currency || "COP",
         confirmed_total_cents: 0,
         payments: [],
       };
 
-      if (canManagePayments(poolDetail, userID)) {
-        paymentCollection = await client.listPayments(token, poolDetail.id);
-      }
-
       if (!isLatestRequest()) {
         return;
       }
 
       setPool(poolDetail);
-      setPayments(paymentCollection.payments);
-      setPaymentCurrency(paymentCollection.currency || poolDetail.currency || "COP");
+      setTournament(tournamentDetail);
+      setPredictionStatuses(nextPredictionStatuses);
+      setPayments(nextPaymentCollection.payments);
+      setPaymentCurrency(nextPaymentCollection.currency || poolDetail.currency || "COP");
       setPrizePreview(nextPrizePreview);
       setPrizeDrafts(hydratePrizeDrafts(nextPrizePreview));
-      setDrafts(hydratePaymentDrafts(poolDetail, paymentCollection.payments));
+      setResultDrafts(
+        hydrateResultDrafts(tournamentDetail?.matches ?? [], nextPredictionStatuses),
+      );
+      setResultAuditLogsByMatchID({});
+      setDrafts(hydratePaymentDrafts(poolDetail, nextPaymentCollection.payments));
       setStatus("ready");
       setMessage(
         canManagePayments(poolDetail, userID)
@@ -179,7 +256,7 @@ export default function AdminHome() {
         return;
       }
       setStatus("error");
-      setMessage("No pudimos cargar el panel de recaudo.");
+      setMessage("No pudimos cargar el panel admin.");
     }
   }, [signOutAdmin]);
 
@@ -214,6 +291,101 @@ export default function AdminHome() {
         ...patch,
       },
     }));
+  }
+
+  function updateResultDraft(matchID: string, side: "home" | "away", value: string) {
+    setResultDrafts((current) => ({
+      ...current,
+      [matchID]: {
+        ...defaultResultDraft(predictionStatusesByMatch.get(matchID)),
+        ...current[matchID],
+        [side]: value,
+      },
+    }));
+  }
+
+  async function saveMatchResult(match: Match) {
+    if (!session || !pool || !canManageSelectedPoolResults) {
+      return;
+    }
+
+    const draft = {
+      ...defaultResultDraft(predictionStatusesByMatch.get(match.id)),
+      ...resultDrafts[match.id],
+    };
+    const homeScore = parseWholeNumber(draft.home);
+    const awayScore = parseWholeNumber(draft.away);
+    if (homeScore === null || awayScore === null) {
+      setMessage("Revisa el marcador oficial.");
+      return;
+    }
+
+    setSavingResultMatchID(match.id);
+    setMessage("");
+
+    try {
+      const client = createPollavarClient();
+      await client.saveMatchResult(session.token, pool.id, match.id, {
+        home_score: homeScore,
+        away_score: awayScore,
+        result_status: "final",
+      });
+      const [nextStatuses, auditLogs] = await Promise.all([
+        client.listPredictionStatuses(session.token, pool.id),
+        client.listMatchResultAuditLogs(session.token, pool.id, match.id),
+      ]);
+      setPredictionStatuses(nextStatuses);
+      setResultDrafts((current) => ({
+        ...current,
+        [match.id]: defaultResultDraft(indexPredictionStatuses(nextStatuses).get(match.id)),
+      }));
+      setResultAuditLogsByMatchID((current) => ({
+        ...current,
+        [match.id]: auditLogs,
+      }));
+      setMessage("Resultado oficial actualizado.");
+    } catch (error) {
+      if (isUnauthorized(error)) {
+        signOutAdmin();
+        return;
+      }
+      if (error instanceof PollavarAPIError && error.code === "prediction_open") {
+        setMessage("El partido todavia no cerro para pronosticos.");
+        return;
+      }
+      setMessage("No pudimos actualizar el resultado oficial.");
+    } finally {
+      setSavingResultMatchID("");
+    }
+  }
+
+  async function loadMatchResultAudit(matchID: string) {
+    if (!session || !pool || !canManageSelectedPoolResults) {
+      return;
+    }
+
+    setLoadingAuditMatchID(matchID);
+    setMessage("");
+
+    try {
+      const auditLogs = await createPollavarClient().listMatchResultAuditLogs(
+        session.token,
+        pool.id,
+        matchID,
+      );
+      setResultAuditLogsByMatchID((current) => ({
+        ...current,
+        [matchID]: auditLogs,
+      }));
+    } catch (error) {
+      if (isUnauthorized(error)) {
+        signOutAdmin();
+        return;
+      }
+      setMessage("No pudimos cargar la auditoria del resultado.");
+    } finally {
+      setLoadingAuditMatchID("");
+    }
   }
 
   async function refreshPrizePreview(
@@ -344,7 +516,7 @@ export default function AdminHome() {
           <div>
             <p className="text-sm font-medium text-emerald-700">PollaVAR Admin</p>
             <h1 className="text-2xl font-semibold tracking-normal text-zinc-950">
-              Recaudo manual
+              Administracion de polla
             </h1>
           </div>
           <nav aria-label="Sesion admin" className="flex flex-wrap items-center gap-2">
@@ -381,7 +553,7 @@ export default function AdminHome() {
 
       <section className="mx-auto max-w-7xl px-5 py-6">
         {status === "checking" || status === "loading" ? (
-          <StatusPanel text="Cargando panel de recaudo" />
+          <StatusPanel text="Cargando panel admin" />
         ) : null}
 
         {status === "signed-out" ? <SignedOutPanel /> : null}
@@ -449,6 +621,22 @@ export default function AdminHome() {
               >
                 {message}
               </p>
+            ) : null}
+
+            {pool ? (
+              <ResultsPanel
+                auditLogsByMatchID={resultAuditLogsByMatchID}
+                canManage={canManageSelectedPoolResults}
+                groups={resultGroups}
+                loadingAuditMatchID={loadingAuditMatchID}
+                onLoadAudit={(matchID) => void loadMatchResultAudit(matchID)}
+                onSave={(match) => void saveMatchResult(match)}
+                onUpdateDraft={updateResultDraft}
+                predictionCloseHoursBefore={pool.prediction_close_hours_before}
+                resultDrafts={resultDrafts}
+                savingMatchID={savingResultMatchID}
+                statusesByMatch={predictionStatusesByMatch}
+              />
             ) : null}
 
             {pool ? (
@@ -845,6 +1033,219 @@ function SignedOutPanel() {
   );
 }
 
+function ResultsPanel({
+  auditLogsByMatchID,
+  canManage,
+  groups,
+  loadingAuditMatchID,
+  onLoadAudit,
+  onSave,
+  onUpdateDraft,
+  predictionCloseHoursBefore,
+  resultDrafts,
+  savingMatchID,
+  statusesByMatch,
+}: {
+  auditLogsByMatchID: Record<string, MatchResultAuditLog[]>;
+  canManage: boolean;
+  groups: ResultMatchGroup[];
+  loadingAuditMatchID: string;
+  onLoadAudit: (matchID: string) => void;
+  onSave: (match: Match) => void;
+  onUpdateDraft: (matchID: string, side: "home" | "away", value: string) => void;
+  predictionCloseHoursBefore: number;
+  resultDrafts: ResultDrafts;
+  savingMatchID: string;
+  statusesByMatch: Map<string, PredictionMatchStatus>;
+}) {
+  const matches = groups.flatMap((group) => group.matches);
+  const resultCount = matches.filter(
+    (match) => statusesByMatch.get(match.id)?.has_official_result,
+  ).length;
+  const closedCount = matches.filter((match) =>
+    isMatchClosedForResults(match, predictionCloseHoursBefore, statusesByMatch.get(match.id)),
+  ).length;
+
+  return (
+    <section className="rounded-lg border border-zinc-200 bg-white shadow-sm">
+      <div className="flex flex-col gap-3 border-b border-zinc-200 px-5 py-4 md:flex-row md:items-center md:justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-zinc-950">Resultados oficiales</h2>
+          <p className="text-sm text-zinc-600">
+            {resultCount} de {matches.length} partidos con marcador final.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <span className="rounded-md bg-zinc-100 px-2 py-1 text-xs font-medium text-zinc-700">
+            {closedCount} cerrados
+          </span>
+          <span
+            className={`rounded-md px-2 py-1 text-xs font-medium ${
+              canManage ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"
+            }`}
+          >
+            {canManage ? "Carga habilitada" : "Solo lectura"}
+          </span>
+        </div>
+      </div>
+
+      {matches.length === 0 ? (
+        <div className="p-5 text-sm text-zinc-600">Sin fixture disponible para esta polla.</div>
+      ) : (
+        <div className="divide-y divide-zinc-200">
+          {groups.map((group) => (
+            <div key={group.id}>
+              <div className="bg-zinc-50 px-5 py-3">
+                <h3 className="text-sm font-semibold text-zinc-950">{group.title}</h3>
+                <p className="mt-1 text-xs text-zinc-500">
+                  {group.matches.length} partidos - {group.subtitle}
+                </p>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="min-w-[980px] w-full border-collapse text-left text-sm">
+                  <thead className="bg-white text-xs uppercase text-zinc-500">
+                    <tr>
+                      <th className="px-4 py-3 font-semibold">Partido</th>
+                      <th className="px-4 py-3 font-semibold">Estado</th>
+                      <th className="px-4 py-3 font-semibold">Marcador</th>
+                      <th className="px-4 py-3 font-semibold">Auditoria</th>
+                      <th className="px-4 py-3 font-semibold">Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-200">
+                    {group.matches.map((match) => {
+                      const status = statusesByMatch.get(match.id);
+                      const draft = {
+                        ...defaultResultDraft(status),
+                        ...resultDrafts[match.id],
+                      };
+                      const closed = isMatchClosedForResults(
+                        match,
+                        predictionCloseHoursBefore,
+                        status,
+                      );
+                      const auditLogs = auditLogsByMatchID[match.id] ?? [];
+                      const latestAuditLog = auditLogs[0] ?? null;
+                      const homeName = matchTeamName(match, "home");
+                      const awayName = matchTeamName(match, "away");
+                      const isSaving = savingMatchID === match.id;
+                      const isLoadingAudit = loadingAuditMatchID === match.id;
+
+                      return (
+                        <tr key={match.id} className="align-top">
+                          <td className="px-4 py-4">
+                            <p className="text-xs font-medium text-zinc-500">
+                              Partido {match.match_number}
+                            </p>
+                            <p className="mt-1 font-semibold text-zinc-950">
+                              {homeName} vs {awayName}
+                            </p>
+                            <p className="mt-1 text-xs text-zinc-500">
+                              {formatMatchDate(match.starts_at)} - {match.venue}
+                            </p>
+                          </td>
+                          <td className="px-4 py-4">
+                            <span
+                              className={`rounded-md px-2 py-1 text-xs font-medium ${resultStatusClass(
+                                status,
+                                closed,
+                              )}`}
+                            >
+                              {resultStatusLabel(status, closed)}
+                            </span>
+                            {status?.official_result ? (
+                              <p className="mt-2 text-xs font-medium text-zinc-700">
+                                Resultado {status.official_result.home_score}-
+                                {status.official_result.away_score}
+                              </p>
+                            ) : null}
+                          </td>
+                          <td className="px-4 py-4">
+                            <div className="grid grid-cols-2 gap-2">
+                              <label className="grid gap-1 text-xs font-medium text-zinc-600">
+                                <span>{matchTeamShortName(match, "home")}</span>
+                                <input
+                                  aria-label={`Goles ${homeName}`}
+                                  className="min-h-10 w-20 rounded-md border border-zinc-300 px-3 py-2 text-sm font-semibold"
+                                  disabled={!canManage || !closed || isSaving}
+                                  min={0}
+                                  onChange={(event) =>
+                                    onUpdateDraft(match.id, "home", event.target.value)
+                                  }
+                                  step={1}
+                                  type="number"
+                                  value={draft.home}
+                                />
+                              </label>
+                              <label className="grid gap-1 text-xs font-medium text-zinc-600">
+                                <span>{matchTeamShortName(match, "away")}</span>
+                                <input
+                                  aria-label={`Goles ${awayName}`}
+                                  className="min-h-10 w-20 rounded-md border border-zinc-300 px-3 py-2 text-sm font-semibold"
+                                  disabled={!canManage || !closed || isSaving}
+                                  min={0}
+                                  onChange={(event) =>
+                                    onUpdateDraft(match.id, "away", event.target.value)
+                                  }
+                                  step={1}
+                                  type="number"
+                                  value={draft.away}
+                                />
+                              </label>
+                            </div>
+                          </td>
+                          <td className="px-4 py-4">
+                            {latestAuditLog ? (
+                              <div>
+                                <p className="text-xs font-semibold text-zinc-950">
+                                  {matchResultAuditActionLabel(latestAuditLog.action)}
+                                </p>
+                                <p className="mt-1 text-xs text-zinc-500">
+                                  {formatAuditSummary(latestAuditLog)}
+                                </p>
+                              </div>
+                            ) : (
+                              <p className="text-xs text-zinc-500">
+                                {status?.has_official_result
+                                  ? "Auditoria pendiente de cargar."
+                                  : "Sin resultado guardado."}
+                              </p>
+                            )}
+                          </td>
+                          <td className="px-4 py-4">
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                className="rounded-md bg-zinc-950 px-3 py-2 text-xs font-medium text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
+                                disabled={!canManage || !closed || isSaving}
+                                onClick={() => onSave(match)}
+                                type="button"
+                              >
+                                {isSaving ? "Guardando" : "Guardar resultado"}
+                              </button>
+                              <button
+                                className="rounded-md border border-zinc-300 px-3 py-2 text-xs font-medium text-zinc-700 hover:border-zinc-400 disabled:cursor-not-allowed disabled:text-zinc-400"
+                                disabled={!canManage || isLoadingAudit}
+                                onClick={() => onLoadAudit(match.id)}
+                                type="button"
+                              >
+                                {isLoadingAudit ? "Cargando" : "Ver auditoria"}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-lg border border-zinc-200 px-4 py-3">
@@ -895,6 +1296,10 @@ function canManagePrizeRules(pool: Pool) {
   return pool.current_user_role === "pool_admin";
 }
 
+function canManageResults(pool: Pool) {
+  return pool.current_user_role === "pool_admin";
+}
+
 function poolDisplayName(pool: Pool) {
   return pool.theme?.display_name || pool.name;
 }
@@ -909,6 +1314,153 @@ function indexPayments(payments: Payment[]) {
     indexed.set(payment.user_id, payment);
   }
   return indexed;
+}
+
+function indexPredictionStatuses(statuses: PredictionMatchStatus[]) {
+  const indexed = new Map<string, PredictionMatchStatus>();
+  for (const status of statuses) {
+    indexed.set(status.match_id, status);
+  }
+  return indexed;
+}
+
+function findTournamentSummary(tournaments: TournamentSummary[], pool: Pool) {
+  return (
+    tournaments.find(
+      (tournament) =>
+        tournament.id === pool.tournament_id || tournament.slug === pool.tournament_id,
+    ) ?? null
+  );
+}
+
+function groupMatchesForResults(matches: Match[]) {
+  const groupsByID = new Map<string, ResultMatchGroup>();
+  const sortedMatches = [...matches].sort((left, right) => left.match_number - right.match_number);
+
+  for (const match of sortedMatches) {
+    const groupID = match.group_id || match.stage_id || "matches";
+    const groupName = match.group_name ? `Grupo ${match.group_name}` : stageLabel(match.stage_id);
+    const existingGroup = groupsByID.get(groupID);
+    if (existingGroup) {
+      existingGroup.matches.push(match);
+      continue;
+    }
+
+    groupsByID.set(groupID, {
+      id: groupID,
+      title: groupName,
+      subtitle: stageLabel(match.stage_id),
+      matches: [match],
+    });
+  }
+
+  return Array.from(groupsByID.values());
+}
+
+function stageLabel(stageID: string) {
+  const normalized = stageID.replace(/[-_]+/g, " ").trim();
+  if (!normalized) {
+    return "Partidos";
+  }
+  if (normalized.toLowerCase() === "group stage") {
+    return "Fase de grupos";
+  }
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+}
+
+function hydrateResultDrafts(
+  matches: Match[],
+  statuses: PredictionMatchStatus[],
+) {
+  const statusesByMatch = indexPredictionStatuses(statuses);
+  const drafts: ResultDrafts = {};
+  for (const match of matches) {
+    drafts[match.id] = defaultResultDraft(statusesByMatch.get(match.id));
+  }
+  return drafts;
+}
+
+function defaultResultDraft(status?: PredictionMatchStatus) {
+  const result = status?.official_result;
+  return {
+    home: result ? String(result.home_score) : "",
+    away: result ? String(result.away_score) : "",
+  } satisfies ResultDrafts[string];
+}
+
+function parseWholeNumber(value: string) {
+  const normalized = value.trim();
+  if (normalized === "") {
+    return null;
+  }
+  const parsed = Number(normalized);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    return null;
+  }
+  return parsed;
+}
+
+function isMatchClosedForResults(
+  match: Match,
+  predictionCloseHoursBefore: number,
+  status?: PredictionMatchStatus,
+) {
+  if (status?.closed) {
+    return true;
+  }
+  const startsAt = Date.parse(match.starts_at);
+  if (!Number.isFinite(startsAt)) {
+    return false;
+  }
+  const closeAt = startsAt - predictionCloseHoursBefore * 60 * 60 * 1000;
+  return Date.now() >= closeAt;
+}
+
+function matchTeamName(match: Match, side: "home" | "away") {
+  if (side === "home") {
+    return match.home_team?.name ?? match.home_slot;
+  }
+  return match.away_team?.name ?? match.away_slot;
+}
+
+function matchTeamShortName(match: Match, side: "home" | "away") {
+  if (side === "home") {
+    return match.home_team?.short_name ?? match.home_slot;
+  }
+  return match.away_team?.short_name ?? match.away_slot;
+}
+
+function resultStatusLabel(status: PredictionMatchStatus | undefined, closed: boolean) {
+  if (status?.has_official_result) {
+    return "Con resultado";
+  }
+  return closed ? "Cerrado" : "Abierto";
+}
+
+function resultStatusClass(status: PredictionMatchStatus | undefined, closed: boolean) {
+  if (status?.has_official_result) {
+    return "bg-sky-100 text-sky-800";
+  }
+  return closed ? "bg-zinc-100 text-zinc-700" : "bg-amber-100 text-amber-800";
+}
+
+function matchResultAuditActionLabel(action: MatchResultAuditLog["action"]) {
+  switch (action) {
+    case "match_result_created":
+      return "Resultado creado";
+    case "match_result_updated":
+      return "Resultado editado";
+    default:
+      return action;
+  }
+}
+
+function formatAuditSummary(log: MatchResultAuditLog) {
+  const current = `${log.current.home_score}-${log.current.away_score}`;
+  const previous = log.previous
+    ? `${log.previous.home_score}-${log.previous.away_score} -> `
+    : "";
+  return `${previous}${current} por ${log.actor_user_id} - ${formatMatchDate(log.created_at)}`;
 }
 
 function paymentTotals(participants: PoolParticipant[], paymentsByUserID: Map<string, Payment>) {
@@ -1087,6 +1639,17 @@ function formatMoney(amountCents: number, currency: string) {
     maximumFractionDigits: 2,
     minimumFractionDigits: Number.isInteger(amount) ? 0 : 2,
   }).format(amount)}`;
+}
+
+function formatMatchDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "Fecha por definir";
+  }
+  return new Intl.DateTimeFormat("es-CO", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date);
 }
 
 function paymentStatusLabel(status: PaymentStatus) {

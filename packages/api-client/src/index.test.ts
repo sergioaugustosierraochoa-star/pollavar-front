@@ -4,6 +4,7 @@ import {
   createPollavarClient,
   serializeAuthSession,
   type AuthResult,
+  type MatchResultAuditLog,
   type Payment,
   type PaymentCollection,
   type PointEventDetail,
@@ -127,6 +128,34 @@ const predictionStatus: PredictionMatchStatus = {
     result_status: "final",
     recorded_at: "2026-06-11T22:00:00Z",
   },
+};
+
+const matchResult = {
+  pool_id: "pool-id",
+  match_id: "match-id",
+  home_score: 2,
+  away_score: 1,
+  result_status: "final",
+  recorded_at: "2026-06-11T22:00:00Z",
+};
+
+const matchResultAuditLog: MatchResultAuditLog = {
+  id: "audit-id",
+  pool_id: "pool-id",
+  match_id: "match-id",
+  actor_user_id: "admin-id",
+  action: "match_result_updated",
+  previous: {
+    home_score: 1,
+    away_score: 1,
+    result_status: "final",
+  },
+  current: {
+    home_score: 2,
+    away_score: 1,
+    result_status: "final",
+  },
+  created_at: "2026-06-11T22:30:00Z",
 };
 
 const predictionSnapshot: PredictionSnapshot = {
@@ -624,6 +653,62 @@ describe("createPollavarClient", () => {
       {
         method: "PUT",
         body: JSON.stringify({ team_ids: ["MEX", "RSA"] }),
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer token",
+        },
+      },
+    );
+  });
+
+  it("saves match results and loads audit logs", async () => {
+    const fetcher = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      const value = String(url);
+      if (value.endsWith("/match-results/match%20id") && init?.method === "PUT") {
+        return jsonResponse({ data: matchResult });
+      }
+      if (value.endsWith("/match-results/match%20id/audit-logs") && init?.method === "GET") {
+        return jsonResponse({ data: [matchResultAuditLog] });
+      }
+      return jsonResponse({ code: "not_found" }, { status: 404 });
+    });
+    const client = createPollavarClient({
+      baseURL: "http://api.local",
+      fetcher,
+    });
+
+    await expect(
+      client.saveMatchResult("token", "pool id", "match id", {
+        home_score: 2,
+        away_score: 1,
+        result_status: "final",
+      }),
+    ).resolves.toEqual(matchResult);
+    await expect(
+      client.listMatchResultAuditLogs("token", "pool id", "match id"),
+    ).resolves.toEqual([matchResultAuditLog]);
+
+    expect(fetcher).toHaveBeenNthCalledWith(
+      1,
+      "http://api.local/api/v1/pools/pool%20id/match-results/match%20id",
+      {
+        method: "PUT",
+        body: JSON.stringify({
+          home_score: 2,
+          away_score: 1,
+          result_status: "final",
+        }),
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer token",
+        },
+      },
+    );
+    expect(fetcher).toHaveBeenNthCalledWith(
+      2,
+      "http://api.local/api/v1/pools/pool%20id/match-results/match%20id/audit-logs",
+      {
+        method: "GET",
         headers: {
           "Content-Type": "application/json",
           Authorization: "Bearer token",

@@ -68,6 +68,111 @@ const pool = {
   ],
 };
 
+const tournamentSummary = {
+  id: "fifa-world-cup-2026",
+  name: "FIFA World Cup 2026",
+  slug: "fifa-world-cup-2026",
+  sport: "football",
+  format_code: "groups_plus_knockout_48_12x4_best8_thirds",
+  starts_at: "2026-06-11T00:00:00Z",
+  ends_at: "2026-07-19T23:59:59Z",
+  group_count: 12,
+  team_count: 48,
+};
+
+const tournament = {
+  ...tournamentSummary,
+  groups: [
+    {
+      id: "group-a",
+      name: "A",
+      teams: [
+        { id: "team-mexico", name: "Mexico", short_name: "MEX", country_code: "MEX" },
+        { id: "team-canada", name: "Canada", short_name: "CAN", country_code: "CAN" },
+      ],
+    },
+  ],
+  matches: [
+    {
+      id: "match-id",
+      tournament_id: "fifa-world-cup-2026",
+      stage_id: "group-stage",
+      group_id: "group-a",
+      group_name: "A",
+      match_number: 1,
+      home_team: { id: "team-mexico", name: "Mexico", short_name: "MEX", country_code: "MEX" },
+      away_team: { id: "team-canada", name: "Canada", short_name: "CAN", country_code: "CAN" },
+      home_slot: "MEX",
+      away_slot: "CAN",
+      starts_at: "2026-06-01T19:00:00Z",
+      venue: "Estadio demo",
+      status: "scheduled",
+    },
+    {
+      id: "match-result-id",
+      tournament_id: "fifa-world-cup-2026",
+      stage_id: "group-stage",
+      group_id: "group-a",
+      group_name: "A",
+      match_number: 2,
+      home_team: { id: "team-usa", name: "Estados Unidos", short_name: "USA", country_code: "USA" },
+      away_team: { id: "team-panama", name: "Panama", short_name: "PAN", country_code: "PAN" },
+      home_slot: "USA",
+      away_slot: "PAN",
+      starts_at: "2026-06-02T19:00:00Z",
+      venue: "Estadio demo",
+      status: "scheduled",
+    },
+  ],
+};
+
+const predictionStatuses = [
+  {
+    match_id: "match-id",
+    prediction_id: "",
+    status: "closed",
+    has_prediction: false,
+    closed: true,
+    has_official_result: false,
+    scored: false,
+    points: 0,
+    official_result: null,
+  },
+  {
+    match_id: "match-result-id",
+    prediction_id: "",
+    status: "scored",
+    has_prediction: false,
+    closed: true,
+    has_official_result: true,
+    scored: true,
+    points: 5,
+    official_result: {
+      pool_id: "pool-id",
+      match_id: "match-result-id",
+      home_score: 1,
+      away_score: 0,
+      result_status: "final",
+      recorded_at: "2026-06-02T22:00:00Z",
+    },
+  },
+];
+
+const matchResultAuditLog = {
+  id: "audit-id",
+  pool_id: "pool-id",
+  match_id: "match-id",
+  actor_user_id: "admin-id",
+  action: "match_result_created",
+  previous: null,
+  current: {
+    home_score: 2,
+    away_score: 1,
+    result_status: "final",
+  },
+  created_at: "2026-06-01T22:00:00Z",
+};
+
 const confirmedPayment = {
   id: "payment-admin",
   pool_id: "pool-id",
@@ -166,8 +271,12 @@ describe("Admin home", () => {
     render(<AdminHome />);
 
     expect(await screen.findByRole("heading", { name: "Oficina FC" })).toBeInTheDocument();
-    expect(screen.getByText("Recaudo manual")).toBeInTheDocument();
+    expect(screen.getByText("Administracion de polla")).toBeInTheDocument();
     expect(screen.getByLabelText("Polla")).toHaveValue("pool-id");
+    expect(screen.getByRole("heading", { name: "Resultados oficiales" })).toBeInTheDocument();
+    expect(screen.getByText("1 de 2 partidos con marcador final.")).toBeInTheDocument();
+    expect(screen.getByText("Con resultado")).toBeInTheDocument();
+    expect(screen.queryByText("Puntuado")).not.toBeInTheDocument();
     expect(screen.getByText("Recaudo habilitado")).toBeInTheDocument();
     expect(screen.getByText("COP 50.000 por entrada")).toBeInTheDocument();
     expect(metricValue("Participantes")).toHaveTextContent("2");
@@ -213,6 +322,65 @@ describe("Admin home", () => {
           reference: "TRX-999",
           status: "confirmed",
         }),
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer token",
+        },
+      }),
+    );
+  });
+
+  it("updates official match results from the admin panel", async () => {
+    storeSession();
+    const fetcher = vi.fn(adminFetch);
+    vi.stubGlobal("fetch", fetcher);
+
+    render(<AdminHome />);
+
+    expect(await screen.findByRole("heading", { name: "Resultados oficiales" })).toBeInTheDocument();
+    const existingResultRow = rowWithText("Estados Unidos vs Panama");
+    fireEvent.change(within(existingResultRow).getByLabelText("Goles Estados Unidos"), {
+      target: { value: "3" },
+    });
+    fireEvent.change(within(existingResultRow).getByLabelText("Goles Panama"), {
+      target: { value: "0" },
+    });
+
+    const matchRow = rowWithText("Mexico vs Canada");
+    fireEvent.change(within(matchRow).getByLabelText("Goles Mexico"), {
+      target: { value: "2" },
+    });
+    fireEvent.change(within(matchRow).getByLabelText("Goles Canada"), {
+      target: { value: "1" },
+    });
+    fireEvent.click(within(matchRow).getByRole("button", { name: "Guardar resultado" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("status")).toHaveTextContent("Resultado oficial actualizado.");
+    });
+    expect(screen.getByText("Resultado creado")).toBeInTheDocument();
+    expect(within(existingResultRow).getByLabelText("Goles Estados Unidos")).toHaveValue(3);
+    expect(within(existingResultRow).getByLabelText("Goles Panama")).toHaveValue(0);
+
+    expect(fetcher).toHaveBeenCalledWith(
+      "http://localhost:8080/api/v1/pools/pool-id/match-results/match-id",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({
+          home_score: 2,
+          away_score: 1,
+          result_status: "final",
+        }),
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer token",
+        },
+      }),
+    );
+    expect(fetcher).toHaveBeenCalledWith(
+      "http://localhost:8080/api/v1/pools/pool-id/match-results/match-id/audit-logs",
+      expect.objectContaining({
+        method: "GET",
         headers: {
           "Content-Type": "application/json",
           Authorization: "Bearer token",
@@ -316,6 +484,12 @@ describe("Admin home", () => {
     storeSession({ user: { ...session.user, id: "participant-id" } });
     const fetcher = vi.fn(async (url: RequestInfo | URL) => {
       const value = String(url);
+      if (value.endsWith("/api/v1/tournaments")) {
+        return jsonResponse({ data: [tournamentSummary] });
+      }
+      if (value.endsWith("/api/v1/tournaments/fifa-world-cup-2026")) {
+        return jsonResponse({ data: tournament });
+      }
       if (value.endsWith("/api/v1/pools")) {
         return jsonResponse({ data: [{ ...pool, current_user_role: "participant" }] });
       }
@@ -323,6 +497,9 @@ describe("Admin home", () => {
         return jsonResponse({
           data: { ...pool, current_user_role: "participant" },
         });
+      }
+      if (value.endsWith("/api/v1/pools/pool-id/predictions/statuses")) {
+        return jsonResponse({ data: predictionStatuses });
       }
       if (value.endsWith("/api/v1/pools/pool-id/prizes/preview")) {
         return jsonResponse({ data: prizePreview });
@@ -342,6 +519,9 @@ describe("Admin home", () => {
     for (const button of screen.getAllByRole("button", { name: "Confirmar" })) {
       expect(button).toBeDisabled();
     }
+    for (const button of screen.getAllByRole("button", { name: "Ver auditoria" })) {
+      expect(button).toBeDisabled();
+    }
     expect(fetcher).not.toHaveBeenCalledWith(
       "http://localhost:8080/api/v1/pools/pool-id/payments",
       expect.anything(),
@@ -358,7 +538,7 @@ describe("Admin home", () => {
     render(<AdminHome />);
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "No pudimos cargar el panel de recaudo.",
+      "No pudimos cargar el panel admin.",
     );
     expect(screen.getByRole("button", { name: "Reintentar" })).toBeInTheDocument();
   });
@@ -398,8 +578,36 @@ function rowWithText(text: string) {
 
 async function adminFetch(url: RequestInfo | URL, init?: RequestInit) {
   const value = String(url);
+  if (value.endsWith("/api/v1/tournaments")) {
+    return jsonResponse({ data: [tournamentSummary] });
+  }
+  if (value.endsWith("/api/v1/tournaments/fifa-world-cup-2026")) {
+    return jsonResponse({ data: tournament });
+  }
   if (value.endsWith("/api/v1/pools")) {
     return jsonResponse({ data: [pool] });
+  }
+  if (value.endsWith("/api/v1/pools/pool-id/predictions/statuses")) {
+    return jsonResponse({ data: predictionStatuses });
+  }
+  if (value.endsWith("/api/v1/pools/pool-id/match-results/match-id") && init?.method === "PUT") {
+    const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+    return jsonResponse({
+      data: {
+        pool_id: "pool-id",
+        match_id: "match-id",
+        home_score: body.home_score,
+        away_score: body.away_score,
+        result_status: body.result_status,
+        recorded_at: "2026-06-01T22:00:00Z",
+      },
+    });
+  }
+  if (
+    value.endsWith("/api/v1/pools/pool-id/match-results/match-id/audit-logs") &&
+    init?.method === "GET"
+  ) {
+    return jsonResponse({ data: [matchResultAuditLog] });
   }
   if (value.endsWith("/api/v1/pools/pool-id/payments") && init?.method === "GET") {
     return jsonResponse({
