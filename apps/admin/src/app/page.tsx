@@ -4,6 +4,7 @@ import {
   PollavarAPIError,
   createPollavarClient,
   type AuthUser,
+  type EffectiveMatchPredictionSettings,
   type GlobalPredictionDefinition,
   type GlobalPredictionDefinitionInput,
   type GlobalPredictionPrizePreview,
@@ -24,7 +25,11 @@ import {
   type Pool,
   type PoolParticipant,
   type PoolTheme,
+  type PredictionSettingsOverride,
+  type PredictionSettingsOverrideInput,
+  type PredictionSettingsOverrideScope,
   type PredictionMode,
+  type PredictionSettingsSource,
   type PredictionMatchStatus,
   type PrizePreview,
   type SaveGlobalPredictionInput,
@@ -115,6 +120,27 @@ type PredictionSettingsDraft = {
   matchResultScoringMode: MatchResultScoringMode;
   underdogBonusEnabled: boolean;
   underdogBonusPoints: string;
+};
+type PredictionSettingsOverrideDrafts = Record<
+  string,
+  {
+    scopeType: PredictionSettingsOverrideScope;
+    stageID: string;
+    matchID: string;
+    predictionMode: PredictionMode | "";
+    matchResultScoringMode: MatchResultScoringMode | "";
+    underdogBonusEnabled: "inherit" | "enabled" | "disabled";
+    underdogBonusPoints: string;
+  }
+>;
+type PredictionSettingsScopeRow = {
+  key: string;
+  scopeType: PredictionSettingsOverrideScope;
+  stageID: string;
+  matchID: string;
+  title: string;
+  subtitle: string;
+  matchIDs: string[];
 };
 type UnderdogBonusDrafts = Record<
   string,
@@ -222,6 +248,11 @@ export default function AdminHome() {
   const [themeDraft, setThemeDraft] = useState<ThemeDraft>(defaultThemeDraft(null));
   const [predictionSettingsDraft, setPredictionSettingsDraft] =
     useState<PredictionSettingsDraft>(defaultPredictionSettingsDraft(null, []));
+  const [predictionSettingsOverrideDrafts, setPredictionSettingsOverrideDrafts] =
+    useState<PredictionSettingsOverrideDrafts>({});
+  const [effectiveMatchSettings, setEffectiveMatchSettings] = useState<
+    EffectiveMatchPredictionSettings[]
+  >([]);
   const [resultDrafts, setResultDrafts] = useState<ResultDrafts>({});
   const [resultAuditLogsByMatchID, setResultAuditLogsByMatchID] = useState<
     Record<string, MatchResultAuditLog[]>
@@ -236,6 +267,7 @@ export default function AdminHome() {
   const [savingGlobalResultCode, setSavingGlobalResultCode] = useState("");
   const [savingTheme, setSavingTheme] = useState(false);
   const [savingPredictionSettings, setSavingPredictionSettings] = useState(false);
+  const [savingPredictionOverrides, setSavingPredictionOverrides] = useState(false);
   const [savingPrizes, setSavingPrizes] = useState(false);
   const requestID = useRef(0);
 
@@ -246,6 +278,14 @@ export default function AdminHome() {
   const resultGroups = useMemo(
     () => groupMatchesForResults(tournament?.matches ?? []),
     [tournament?.matches],
+  );
+  const predictionSettingsScopeRows = useMemo(
+    () => predictionSettingsScopeRowsForMatches(tournament?.matches ?? []),
+    [tournament?.matches],
+  );
+  const effectiveMatchSettingsByMatch = useMemo(
+    () => indexEffectiveMatchSettings(effectiveMatchSettings),
+    [effectiveMatchSettings],
   );
   const paymentsByUserID = useMemo(() => indexPayments(payments), [payments]);
   const canManageSelectedPool = Boolean(
@@ -291,6 +331,8 @@ export default function AdminHome() {
     setUnderdogBonusDrafts({});
     setThemeDraft(defaultThemeDraft(null));
     setPredictionSettingsDraft(defaultPredictionSettingsDraft(null, []));
+    setPredictionSettingsOverrideDrafts({});
+    setEffectiveMatchSettings([]);
     setResultDrafts({});
     setResultAuditLogsByMatchID({});
     setDrafts({});
@@ -303,6 +345,7 @@ export default function AdminHome() {
     setSavingGlobalResultCode("");
     setSavingTheme(false);
     setSavingPredictionSettings(false);
+    setSavingPredictionOverrides(false);
     setSavingPrizes(false);
   }, []);
 
@@ -325,6 +368,7 @@ export default function AdminHome() {
     setSavingGlobalResultCode("");
     setSavingTheme(false);
     setSavingPredictionSettings(false);
+    setSavingPredictionOverrides(false);
     setSavingPrizes(false);
 
     try {
@@ -365,6 +409,8 @@ export default function AdminHome() {
         setUnderdogBonusDrafts({});
         setThemeDraft(defaultThemeDraft(null));
         setPredictionSettingsDraft(defaultPredictionSettingsDraft(null, []));
+        setPredictionSettingsOverrideDrafts({});
+        setEffectiveMatchSettings([]);
         setResultDrafts({});
         setResultAuditLogsByMatchID({});
         setDrafts({});
@@ -388,6 +434,7 @@ export default function AdminHome() {
             confirmed_total_cents: 0,
             payments: [],
           });
+      const canManagePredictionConfig = canManagePredictionSettings(poolDetail);
       const [
         nextPrizePreview,
         nextGlobalPrizePreview,
@@ -396,6 +443,8 @@ export default function AdminHome() {
         paymentCollection,
         nextScoringRules,
         nextUnderdogBonuses,
+        nextPredictionSettingsOverrides,
+        nextEffectiveMatchSettings,
         nextGlobalTemplates,
         nextGlobalDefinitions,
         nextGlobalResults,
@@ -407,7 +456,13 @@ export default function AdminHome() {
         paymentCollectionRequest,
         client.listScoringRules(token, poolDetail.id),
         client.listMatchUnderdogBonuses(token, poolDetail.id),
-        canManagePredictionSettings(poolDetail)
+        canManagePredictionConfig
+          ? client.listPredictionSettingsOverrides(token, poolDetail.id)
+          : Promise.resolve([]),
+        canManagePredictionConfig
+          ? client.listEffectiveMatchPredictionSettings(token, poolDetail.id)
+          : Promise.resolve([]),
+        canManagePredictionConfig
           ? client.listGlobalPredictionTemplates(token, poolDetail.id)
           : Promise.resolve([]),
         client.listGlobalPredictionDefinitions(token, poolDetail.id),
@@ -444,6 +499,10 @@ export default function AdminHome() {
       setUnderdogBonusDrafts(hydrateUnderdogBonusDrafts(nextUnderdogBonuses));
       setThemeDraft(defaultThemeDraft(poolDetail));
       setPredictionSettingsDraft(defaultPredictionSettingsDraft(poolDetail, nextScoringRules));
+      setPredictionSettingsOverrideDrafts(
+        hydratePredictionSettingsOverrideDrafts(nextPredictionSettingsOverrides),
+      );
+      setEffectiveMatchSettings(nextEffectiveMatchSettings);
       setResultDrafts(
         hydrateResultDrafts(tournamentDetail?.matches ?? [], nextPredictionStatuses),
       );
@@ -528,6 +587,27 @@ export default function AdminHome() {
         ...current[matchID],
         ...patch,
       },
+    }));
+  }
+
+  function updatePredictionSettingsOverrideDraft(
+    row: PredictionSettingsScopeRow,
+    patch: Partial<PredictionSettingsOverrideDrafts[string]>,
+  ) {
+    setPredictionSettingsOverrideDrafts((current) => ({
+      ...current,
+      [row.key]: {
+        ...defaultPredictionSettingsOverrideDraft(row),
+        ...current[row.key],
+        ...patch,
+      },
+    }));
+  }
+
+  function clearPredictionSettingsOverrideDraft(row: PredictionSettingsScopeRow) {
+    setPredictionSettingsOverrideDrafts((current) => ({
+      ...current,
+      [row.key]: defaultPredictionSettingsOverrideDraft(row),
     }));
   }
 
@@ -1173,7 +1253,12 @@ export default function AdminHome() {
           points: underdogPoints,
         }),
       });
+      const nextEffectiveMatchSettings = await client.listEffectiveMatchPredictionSettings(
+        session.token,
+        pool.id,
+      );
       setScoringRules(nextScoringRules);
+      setEffectiveMatchSettings(nextEffectiveMatchSettings);
       setPredictionSettingsDraft(defaultPredictionSettingsDraft(updatedPool, nextScoringRules));
       setMessage("Configuracion de pronosticos actualizada.");
     } catch (error) {
@@ -1194,6 +1279,59 @@ export default function AdminHome() {
       setMessage("No pudimos actualizar la configuracion de pronosticos.");
     } finally {
       setSavingPredictionSettings(false);
+    }
+  }
+
+  async function savePredictionSettingsOverrides() {
+    if (!session || !pool || !canManageSelectedPoolPredictionSettings) {
+      return;
+    }
+
+    const overrides = parsePredictionSettingsOverrideDrafts(predictionSettingsOverrideDrafts);
+    if (!overrides) {
+      setMessage("Revisa los overrides de pronosticos.");
+      return;
+    }
+
+    setSavingPredictionOverrides(true);
+    setMessage("");
+
+    try {
+      const client = createPollavarClient();
+      const nextOverrides = await client.updatePredictionSettingsOverrides(session.token, pool.id, {
+        overrides,
+      });
+      const nextEffectiveMatchSettings = await client.listEffectiveMatchPredictionSettings(
+        session.token,
+        pool.id,
+      );
+      setPredictionSettingsOverrideDrafts(
+        hydratePredictionSettingsOverrideDrafts(nextOverrides),
+      );
+      setEffectiveMatchSettings(nextEffectiveMatchSettings);
+      setMessage("Overrides de pronosticos actualizados.");
+    } catch (error) {
+      if (isUnauthorized(error)) {
+        signOutAdmin();
+        return;
+      }
+      if (isForbidden(error)) {
+        setMessage("No tienes permisos para configurar overrides de pronosticos.");
+        return;
+      }
+      if (error instanceof PollavarAPIError && error.code === "prediction_settings_locked") {
+        setMessage(
+          "No pudimos cambiar overrides de modo porque la polla ya tiene pronosticos o resultados.",
+        );
+        return;
+      }
+      if (error instanceof PollavarAPIError && error.code === "prediction_closed") {
+        setMessage("No puedes cambiar overrides de bonus en rondas o partidos cerrados.");
+        return;
+      }
+      setMessage("No pudimos actualizar los overrides de pronosticos.");
+    } finally {
+      setSavingPredictionOverrides(false);
     }
   }
 
@@ -1282,6 +1420,7 @@ export default function AdminHome() {
                 role={
                   message.includes("No pudimos") ||
                   message.includes("No tienes permisos") ||
+                  message.includes("No puedes") ||
                   message.includes("Revisa")
                     ? "alert"
                     : "status"
@@ -1309,6 +1448,20 @@ export default function AdminHome() {
                 onChange={setPredictionSettingsDraft}
                 onSave={() => void savePredictionSettings()}
                 saving={savingPredictionSettings}
+              />
+            ) : null}
+
+            {pool ? (
+              <PredictionSettingsOverridesPanel
+                canManage={canManageSelectedPoolPredictionSettings}
+                drafts={predictionSettingsOverrideDrafts}
+                effectiveSettingsByMatch={effectiveMatchSettingsByMatch}
+                onChange={updatePredictionSettingsOverrideDraft}
+                onClear={clearPredictionSettingsOverrideDraft}
+                onSave={() => void savePredictionSettingsOverrides()}
+                pool={pool}
+                rows={predictionSettingsScopeRows}
+                saving={savingPredictionOverrides}
               />
             ) : null}
 
@@ -2108,6 +2261,255 @@ function PredictionSettingsPanel({
         </button>
       </div>
     </section>
+  );
+}
+
+function PredictionSettingsOverridesPanel({
+  canManage,
+  drafts,
+  effectiveSettingsByMatch,
+  onChange,
+  onClear,
+  onSave,
+  pool,
+  rows,
+  saving,
+}: {
+  canManage: boolean;
+  drafts: PredictionSettingsOverrideDrafts;
+  effectiveSettingsByMatch: Map<string, EffectiveMatchPredictionSettings>;
+  onChange: (
+    row: PredictionSettingsScopeRow,
+    patch: Partial<PredictionSettingsOverrideDrafts[string]>,
+  ) => void;
+  onClear: (row: PredictionSettingsScopeRow) => void;
+  onSave: () => void;
+  pool: Pool;
+  rows: PredictionSettingsScopeRow[];
+  saving: boolean;
+}) {
+  const stageRows = rows.filter((row) => row.scopeType === "stage");
+  const matchRows = rows.filter((row) => row.scopeType === "match");
+  const activeOverrides = Object.values(drafts).filter(predictionSettingsOverrideDraftHasValue);
+
+  return (
+    <section className="rounded-lg border border-zinc-200 bg-white shadow-sm">
+      <div className="flex flex-col gap-3 border-b border-zinc-200 px-5 py-4 md:flex-row md:items-center md:justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-zinc-950">Overrides de pronostico</h2>
+          <p className="text-sm text-zinc-600">
+            Base: {predictionModeLabel(pool.prediction_mode)} -{" "}
+            {matchResultScoringModeLabel(pool.match_result_scoring_mode)}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <span className="rounded-md bg-zinc-100 px-2 py-1 text-xs font-medium text-zinc-700">
+            {activeOverrides.length} activos
+          </span>
+          <span
+            className={`rounded-md px-2 py-1 text-xs font-medium ${
+              canManage ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"
+            }`}
+          >
+            {canManage ? "Configurable" : "Solo lectura"}
+          </span>
+        </div>
+      </div>
+
+      {rows.length === 0 ? (
+        <div className="p-5 text-sm text-zinc-600">Sin fixture disponible para esta polla.</div>
+      ) : (
+        <div className="grid gap-5 p-5">
+          <PredictionSettingsOverrideTable
+            canManage={canManage}
+            drafts={drafts}
+            effectiveSettingsByMatch={effectiveSettingsByMatch}
+            onChange={onChange}
+            onClear={onClear}
+            rows={stageRows}
+            saving={saving}
+            title="Rondas"
+          />
+          <PredictionSettingsOverrideTable
+            canManage={canManage}
+            drafts={drafts}
+            effectiveSettingsByMatch={effectiveSettingsByMatch}
+            onChange={onChange}
+            onClear={onClear}
+            rows={matchRows}
+            saving={saving}
+            title="Partidos"
+          />
+          <div className="flex justify-end">
+            <button
+              className="min-h-10 rounded-md bg-zinc-950 px-3 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
+              disabled={!canManage || saving}
+              onClick={onSave}
+              type="button"
+            >
+              {saving ? "Guardando" : "Guardar overrides"}
+            </button>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function PredictionSettingsOverrideTable({
+  canManage,
+  drafts,
+  effectiveSettingsByMatch,
+  onChange,
+  onClear,
+  rows,
+  saving,
+  title,
+}: {
+  canManage: boolean;
+  drafts: PredictionSettingsOverrideDrafts;
+  effectiveSettingsByMatch: Map<string, EffectiveMatchPredictionSettings>;
+  onChange: (
+    row: PredictionSettingsScopeRow,
+    patch: Partial<PredictionSettingsOverrideDrafts[string]>,
+  ) => void;
+  onClear: (row: PredictionSettingsScopeRow) => void;
+  rows: PredictionSettingsScopeRow[];
+  saving: boolean;
+  title: string;
+}) {
+  if (rows.length === 0) {
+    return null;
+  }
+
+  return (
+    <div>
+      <h3 className="mb-3 text-sm font-semibold text-zinc-950">{title}</h3>
+      <div className="overflow-x-auto rounded-md border border-zinc-200">
+        <table className="min-w-[1120px] w-full border-collapse text-left text-sm">
+          <thead className="bg-zinc-50 text-xs uppercase text-zinc-500">
+            <tr>
+              <th className="px-4 py-3 font-semibold">Alcance</th>
+              <th className="px-4 py-3 font-semibold">Modo</th>
+              <th className="px-4 py-3 font-semibold">Puntaje</th>
+              <th className="px-4 py-3 font-semibold">Bonus</th>
+              <th className="px-4 py-3 font-semibold">Puntos</th>
+              <th className="px-4 py-3 font-semibold">Efectivo</th>
+              <th className="px-4 py-3 font-semibold">Acciones</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-zinc-200">
+            {rows.map((row) => {
+              const draft = {
+                ...defaultPredictionSettingsOverrideDraft(row),
+                ...drafts[row.key],
+              };
+              const disabled = !canManage || saving;
+
+              return (
+                <tr className="align-top" key={row.key}>
+                  <td className="px-4 py-4">
+                    <p className="font-semibold text-zinc-950">{row.title}</p>
+                    <p className="mt-1 text-xs text-zinc-500">{row.subtitle}</p>
+                  </td>
+                  <td className="px-4 py-4">
+                    <select
+                      aria-label={`Modo ${row.title}`}
+                      className="min-h-9 w-full rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-950 disabled:bg-zinc-100"
+                      disabled={disabled}
+                      onChange={(event) =>
+                        onChange(row, {
+                          predictionMode: event.target.value as PredictionMode | "",
+                        })
+                      }
+                      value={draft.predictionMode}
+                    >
+                      <option value="">Heredar</option>
+                      {predictionModeOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td className="px-4 py-4">
+                    <select
+                      aria-label={`Puntaje ${row.title}`}
+                      className="min-h-9 w-full rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-950 disabled:bg-zinc-100"
+                      disabled={disabled}
+                      onChange={(event) =>
+                        onChange(row, {
+                          matchResultScoringMode: event.target.value as
+                            | MatchResultScoringMode
+                            | "",
+                        })
+                      }
+                      value={draft.matchResultScoringMode}
+                    >
+                      <option value="">Heredar</option>
+                      {matchResultScoringModeOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td className="px-4 py-4">
+                    <select
+                      aria-label={`Bonus ${row.title}`}
+                      className="min-h-9 w-full rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-950 disabled:bg-zinc-100"
+                      disabled={disabled}
+                      onChange={(event) =>
+                        onChange(row, {
+                          underdogBonusEnabled: event.target
+                            .value as PredictionSettingsOverrideDrafts[string]["underdogBonusEnabled"],
+                        })
+                      }
+                      value={draft.underdogBonusEnabled}
+                    >
+                      <option value="inherit">Heredar</option>
+                      <option value="enabled">Activo</option>
+                      <option value="disabled">Inactivo</option>
+                    </select>
+                  </td>
+                  <td className="px-4 py-4">
+                    <input
+                      aria-label={`Puntos bonus ${row.title}`}
+                      className="min-h-9 w-24 rounded-md border border-zinc-300 px-2 py-1 text-xs text-zinc-950 disabled:bg-zinc-100"
+                      disabled={disabled}
+                      min={0}
+                      onChange={(event) =>
+                        onChange(row, {
+                          underdogBonusPoints: event.target.value,
+                        })
+                      }
+                      step={1}
+                      type="number"
+                      value={draft.underdogBonusPoints}
+                    />
+                  </td>
+                  <td className="px-4 py-4">
+                    <p className="text-xs text-zinc-600">
+                      {predictionSettingsEffectiveSummary(row, effectiveSettingsByMatch)}
+                    </p>
+                  </td>
+                  <td className="px-4 py-4">
+                    <button
+                      className="rounded-md border border-zinc-300 px-2 py-1 text-xs font-medium text-zinc-700 hover:border-zinc-400 disabled:cursor-not-allowed disabled:text-zinc-400"
+                      disabled={disabled || !predictionSettingsOverrideDraftHasValue(draft)}
+                      onClick={() => onClear(row)}
+                      type="button"
+                    >
+                      Limpiar
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 }
 
@@ -3584,6 +3986,216 @@ function defaultPredictionSettingsDraft(
     underdogBonusEnabled: underdogRule?.enabled ?? false,
     underdogBonusPoints: String(underdogRule?.points ?? 2),
   };
+}
+
+function predictionSettingsScopeRowsForMatches(matches: Match[]) {
+  const sortedMatches = [...matches].sort((left, right) => left.match_number - right.match_number);
+  const stagesByID = new Map<string, PredictionSettingsScopeRow>();
+  const matchRows: PredictionSettingsScopeRow[] = [];
+
+  for (const match of sortedMatches) {
+    const stageID = match.stage_id.trim();
+    if (stageID) {
+      const existingStage = stagesByID.get(stageID);
+      if (existingStage) {
+        existingStage.matchIDs.push(match.id);
+      } else {
+        stagesByID.set(stageID, {
+          key: predictionSettingsScopeKey("stage", stageID),
+          scopeType: "stage",
+          stageID,
+          matchID: "",
+          title: stageLabel(stageID),
+          subtitle: "",
+          matchIDs: [match.id],
+        });
+      }
+    }
+
+    const homeName = matchTeamName(match, "home");
+    const awayName = matchTeamName(match, "away");
+    matchRows.push({
+      key: predictionSettingsScopeKey("match", match.id),
+      scopeType: "match",
+      stageID,
+      matchID: match.id,
+      title: `${homeName} vs ${awayName}`,
+      subtitle: `Partido ${match.match_number} - ${stageLabel(stageID)}`,
+      matchIDs: [match.id],
+    });
+  }
+
+  const stageRows = [...stagesByID.values()].map((row) => ({
+    ...row,
+    subtitle: `${row.matchIDs.length} partidos`,
+  }));
+
+  return [...stageRows, ...matchRows];
+}
+
+function predictionSettingsScopeKey(
+  scopeType: PredictionSettingsOverrideScope,
+  id: string,
+) {
+  return `${scopeType}:${id}`;
+}
+
+function defaultPredictionSettingsOverrideDraft(
+  row: PredictionSettingsScopeRow,
+): PredictionSettingsOverrideDrafts[string] {
+  return {
+    scopeType: row.scopeType,
+    stageID: row.stageID,
+    matchID: row.matchID,
+    predictionMode: "",
+    matchResultScoringMode: "",
+    underdogBonusEnabled: "inherit",
+    underdogBonusPoints: "",
+  };
+}
+
+function hydratePredictionSettingsOverrideDrafts(
+  overrides: PredictionSettingsOverride[],
+) {
+  const drafts: PredictionSettingsOverrideDrafts = {};
+  for (const override of overrides) {
+    const id = override.scope_type === "stage" ? override.stage_id : override.match_id;
+    if (!id) {
+      continue;
+    }
+    const key = predictionSettingsScopeKey(override.scope_type, id);
+    drafts[key] = predictionSettingsOverrideDraft(override);
+  }
+  return drafts;
+}
+
+function predictionSettingsOverrideDraft(
+  override: PredictionSettingsOverride,
+): PredictionSettingsOverrideDrafts[string] {
+  return {
+    scopeType: override.scope_type,
+    stageID: override.stage_id,
+    matchID: override.match_id,
+    predictionMode: override.prediction_mode ?? "",
+    matchResultScoringMode: override.match_result_scoring_mode ?? "",
+    underdogBonusEnabled:
+      typeof override.underdog_bonus_enabled === "boolean"
+        ? override.underdog_bonus_enabled
+          ? "enabled"
+          : "disabled"
+        : "inherit",
+    underdogBonusPoints:
+      typeof override.underdog_bonus_points === "number"
+        ? String(override.underdog_bonus_points)
+        : "",
+  };
+}
+
+function parsePredictionSettingsOverrideDrafts(
+  drafts: PredictionSettingsOverrideDrafts,
+): PredictionSettingsOverrideInput[] | null {
+  const overrides: PredictionSettingsOverrideInput[] = [];
+  const sortedDrafts = Object.entries(drafts).sort(([left], [right]) =>
+    left.localeCompare(right),
+  );
+
+  for (const [, draft] of sortedDrafts) {
+    if (!predictionSettingsOverrideDraftHasValue(draft)) {
+      continue;
+    }
+
+    const input: PredictionSettingsOverrideInput = {
+      scope_type: draft.scopeType,
+    };
+    if (draft.scopeType === "stage") {
+      input.stage_id = draft.stageID;
+    } else {
+      input.match_id = draft.matchID;
+    }
+    if (draft.predictionMode) {
+      input.prediction_mode = draft.predictionMode;
+    }
+    if (draft.matchResultScoringMode) {
+      input.match_result_scoring_mode = draft.matchResultScoringMode;
+    }
+    if (draft.underdogBonusEnabled !== "inherit") {
+      input.underdog_bonus_enabled = draft.underdogBonusEnabled === "enabled";
+    }
+    if (draft.underdogBonusPoints.trim() !== "") {
+      const underdogBonusPoints = parseWholeNumber(draft.underdogBonusPoints);
+      if (underdogBonusPoints === null || underdogBonusPoints > 1000) {
+        return null;
+      }
+      input.underdog_bonus_points = underdogBonusPoints;
+    }
+
+    overrides.push(input);
+  }
+
+  return overrides;
+}
+
+function predictionSettingsOverrideDraftHasValue(
+  draft: PredictionSettingsOverrideDrafts[string],
+) {
+  return (
+    draft.predictionMode !== "" ||
+    draft.matchResultScoringMode !== "" ||
+    draft.underdogBonusEnabled !== "inherit" ||
+    draft.underdogBonusPoints.trim() !== ""
+  );
+}
+
+function indexEffectiveMatchSettings(settings: EffectiveMatchPredictionSettings[]) {
+  const indexed = new Map<string, EffectiveMatchPredictionSettings>();
+  for (const setting of settings) {
+    indexed.set(setting.match_id, setting);
+  }
+  return indexed;
+}
+
+function predictionSettingsEffectiveSummary(
+  row: PredictionSettingsScopeRow,
+  effectiveSettingsByMatch: Map<string, EffectiveMatchPredictionSettings>,
+) {
+  if (row.scopeType === "stage") {
+    const matchOverrides = row.matchIDs.filter((matchID) => {
+      const settings = effectiveSettingsByMatch.get(matchID);
+      return (
+        settings?.prediction_mode_source === "match" ||
+        settings?.match_result_scoring_mode_source === "match" ||
+        settings?.underdog_bonus_enabled_source === "match" ||
+        settings?.underdog_bonus_points_source === "match"
+      );
+    }).length;
+    return matchOverrides > 0
+      ? `${row.matchIDs.length} partidos, ${matchOverrides} con override de partido`
+      : `${row.matchIDs.length} partidos`;
+  }
+
+  const settings = effectiveSettingsByMatch.get(row.matchID);
+  if (!settings) {
+    return "Pendiente";
+  }
+
+  const bonusLabel = settings.underdog_bonus_enabled
+    ? `Bonus +${settings.underdog_bonus_points}`
+    : "Bonus inactivo";
+  return `${predictionModeLabel(settings.prediction_mode)} (${predictionSettingsSourceLabel(
+    settings.prediction_mode_source,
+  )}) - ${matchResultScoringModeLabel(settings.match_result_scoring_mode)} - ${bonusLabel}`;
+}
+
+function predictionSettingsSourceLabel(source: PredictionSettingsSource) {
+  switch (source) {
+    case "match":
+      return "Partido";
+    case "stage":
+      return "Ronda";
+    case "pool":
+    default:
+      return "Polla";
+  }
 }
 
 function defaultUnderdogBonusDraft(): UnderdogBonusDrafts[string] {

@@ -297,6 +297,51 @@ const underdogBonuses = [
   },
 ];
 
+const predictionSettingsOverrides = [
+  {
+    id: "override-match",
+    pool_id: "pool-id",
+    scope_type: "match",
+    stage_id: "",
+    match_id: "match-result-id",
+    prediction_mode: "outcome",
+    match_result_scoring_mode: null,
+    underdog_bonus_enabled: true,
+    underdog_bonus_points: 4,
+    created_at: "2026-06-01T12:00:00Z",
+    updated_at: "2026-06-01T12:30:00Z",
+  },
+];
+
+const effectiveMatchPredictionSettings = [
+  {
+    pool_id: "pool-id",
+    match_id: "match-id",
+    stage_id: "group-stage",
+    prediction_mode: "score_with_outcome",
+    match_result_scoring_mode: "exclusive",
+    underdog_bonus_enabled: false,
+    underdog_bonus_points: 2,
+    prediction_mode_source: "pool",
+    match_result_scoring_mode_source: "pool",
+    underdog_bonus_enabled_source: "pool",
+    underdog_bonus_points_source: "pool",
+  },
+  {
+    pool_id: "pool-id",
+    match_id: "match-result-id",
+    stage_id: "group-stage",
+    prediction_mode: "outcome",
+    match_result_scoring_mode: "exclusive",
+    underdog_bonus_enabled: true,
+    underdog_bonus_points: 4,
+    prediction_mode_source: "match",
+    match_result_scoring_mode_source: "pool",
+    underdog_bonus_enabled_source: "match",
+    underdog_bonus_points_source: "match",
+  },
+];
+
 const globalPredictionDefinitions = [
   {
     id: "global-definition-champion",
@@ -516,7 +561,14 @@ describe("Admin home", () => {
     render(<AdminHome />);
 
     expect(await screen.findByRole("heading", { name: "Resultados oficiales" })).toBeInTheDocument();
-    const existingResultRow = rowWithText("Estados Unidos vs Panama");
+    const resultsSection = screen
+      .getByRole("heading", { name: "Resultados oficiales" })
+      .closest("section");
+    expect(resultsSection).not.toBeNull();
+    const existingResultRow = rowWithTextIn(
+      resultsSection as HTMLElement,
+      "Estados Unidos vs Panama",
+    );
     fireEvent.change(within(existingResultRow).getByLabelText("Goles Estados Unidos"), {
       target: { value: "3" },
     });
@@ -524,7 +576,7 @@ describe("Admin home", () => {
       target: { value: "0" },
     });
 
-    const matchRow = rowWithText("Mexico vs Canada");
+    const matchRow = rowWithTextIn(resultsSection as HTMLElement, "Mexico vs Canada");
     fireEvent.change(within(matchRow).getByLabelText("Goles Mexico"), {
       target: { value: "2" },
     });
@@ -638,6 +690,82 @@ describe("Admin home", () => {
         body: JSON.stringify({
           prediction_mode: "outcome",
           match_result_scoring_mode: "cumulative",
+        }),
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer token",
+        },
+      }),
+    );
+  });
+
+  it("updates prediction settings overrides by stage", async () => {
+    storeSession();
+    const fetcher = vi.fn(adminFetch);
+    vi.stubGlobal("fetch", fetcher);
+
+    render(<AdminHome />);
+
+    expect(
+      await screen.findByRole("heading", { name: "Overrides de pronostico" }),
+    ).toBeInTheDocument();
+    const overridesSection = screen
+      .getByRole("heading", { name: "Overrides de pronostico" })
+      .closest("section");
+    expect(overridesSection).not.toBeNull();
+    const stageRow = within(overridesSection as HTMLElement)
+      .getAllByRole("row")
+      .find((row) => within(row).queryByText("Fase de grupos"));
+    expect(stageRow).toBeTruthy();
+
+    fireEvent.change(within(stageRow as HTMLElement).getByLabelText("Modo Fase de grupos"), {
+      target: { value: "outcome" },
+    });
+    fireEvent.change(within(stageRow as HTMLElement).getByLabelText("Puntaje Fase de grupos"), {
+      target: { value: "cumulative" },
+    });
+    fireEvent.change(within(stageRow as HTMLElement).getByLabelText("Bonus Fase de grupos"), {
+      target: { value: "enabled" },
+    });
+    fireEvent.change(
+      within(stageRow as HTMLElement).getByLabelText("Puntos bonus Fase de grupos"),
+      {
+        target: { value: "7" },
+      },
+    );
+    fireEvent.click(
+      within(overridesSection as HTMLElement).getByRole("button", {
+        name: "Guardar overrides",
+      }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("status")).toHaveTextContent(
+        "Overrides de pronosticos actualizados.",
+      );
+    });
+    expect(fetcher).toHaveBeenCalledWith(
+      "http://localhost:8080/api/v1/pools/pool-id/prediction-settings-overrides",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({
+          overrides: [
+            {
+              scope_type: "match",
+              match_id: "match-result-id",
+              prediction_mode: "outcome",
+              underdog_bonus_enabled: true,
+              underdog_bonus_points: 4,
+            },
+            {
+              scope_type: "stage",
+              stage_id: "group-stage",
+              prediction_mode: "outcome",
+              match_result_scoring_mode: "cumulative",
+              underdog_bonus_enabled: true,
+              underdog_bonus_points: 7,
+            },
+          ],
         }),
         headers: {
           "Content-Type": "application/json",
@@ -1084,6 +1212,16 @@ function rowWithText(text: string) {
   return row;
 }
 
+function rowWithTextIn(container: HTMLElement, text: string) {
+  const row = within(container)
+    .getAllByRole("row")
+    .find((item) => within(item).queryByText(text));
+  if (!row) {
+    throw new Error(`Row with ${text} not found`);
+  }
+  return row;
+}
+
 async function adminFetch(url: RequestInfo | URL, init?: RequestInit) {
   const value = String(url);
   if (value.endsWith("/api/v1/tournaments")) {
@@ -1170,6 +1308,43 @@ async function adminFetch(url: RequestInfo | URL, init?: RequestInit) {
   }
   if (value.endsWith("/api/v1/pools/pool-id/scoring-rules")) {
     return jsonResponse({ data: scoringRules });
+  }
+  if (
+    value.endsWith("/api/v1/pools/pool-id/prediction-settings-overrides") &&
+    init?.method === "PUT"
+  ) {
+    const body = JSON.parse(String(init.body)) as {
+      overrides: Array<{
+        scope_type: "stage" | "match";
+        stage_id?: string;
+        match_id?: string;
+        prediction_mode?: string;
+        match_result_scoring_mode?: string;
+        underdog_bonus_enabled?: boolean;
+        underdog_bonus_points?: number;
+      }>;
+    };
+    return jsonResponse({
+      data: body.overrides.map((override, index) => ({
+        id: `override-${index + 1}`,
+        pool_id: "pool-id",
+        scope_type: override.scope_type,
+        stage_id: override.stage_id ?? "",
+        match_id: override.match_id ?? "",
+        prediction_mode: override.prediction_mode ?? null,
+        match_result_scoring_mode: override.match_result_scoring_mode ?? null,
+        underdog_bonus_enabled: override.underdog_bonus_enabled ?? null,
+        underdog_bonus_points: override.underdog_bonus_points ?? null,
+        created_at: "2026-06-01T12:00:00Z",
+        updated_at: "2026-06-01T13:00:00Z",
+      })),
+    });
+  }
+  if (value.endsWith("/api/v1/pools/pool-id/prediction-settings-overrides")) {
+    return jsonResponse({ data: predictionSettingsOverrides });
+  }
+  if (value.endsWith("/api/v1/pools/pool-id/match-prediction-settings")) {
+    return jsonResponse({ data: effectiveMatchPredictionSettings });
   }
   if (
     value.endsWith("/api/v1/pools/pool-id/global-prediction-templates/global_best_defense") &&
