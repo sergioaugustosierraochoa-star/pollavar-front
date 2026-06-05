@@ -11,6 +11,7 @@ import {
   type PredictionMatchStatus,
   type PredictionSnapshot,
   type PredictionSummary,
+  type PoolTheme,
   type PrizePreview,
   type RankingEntry,
   type ScoringRule,
@@ -81,6 +82,14 @@ type SuggestedStandingRow = {
   goalsAgainst: number;
   goalDifference: number;
   complete: boolean;
+};
+type NormalizedTheme = {
+  logoURL: string;
+  bannerURL: string;
+  mascotURL: string;
+  primaryColor: string;
+  secondaryColor: string;
+  accentColor: string;
 };
 
 export default function ParticipantsHome() {
@@ -813,29 +822,46 @@ function Dashboard({
         clockTick,
       )
     : [];
+  const activeTheme = normalizedPoolTheme(pool?.theme);
 
   return (
     <section className="mx-auto grid max-w-7xl gap-5 px-5 py-6 lg:grid-cols-[280px_1fr]">
-      <aside className="h-fit rounded-lg border border-zinc-200 bg-white shadow-sm">
+      <aside
+        className="h-fit rounded-lg border bg-white shadow-sm"
+        style={{ borderColor: activeTheme.accentColor }}
+      >
         <div className="border-b border-zinc-200 px-4 py-3">
           <h2 className="text-sm font-semibold text-zinc-950">Mis pollas</h2>
         </div>
         <div className="grid gap-2 p-3">
-          {pools.map((item) => (
-            <button
-              className={`rounded-md border px-3 py-3 text-left text-sm transition ${
-                item.id === selectedPoolID
-                  ? "border-emerald-600 bg-emerald-50 text-emerald-950"
-                  : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-300"
-              }`}
-              key={item.id}
-              onClick={() => onSelectPool(item.id)}
-              type="button"
-            >
-              <span className="block font-semibold">{item.name}</span>
-              <span className="mt-1 block text-xs text-zinc-500">{item.currency}</span>
-            </button>
-          ))}
+          {pools.map((item) => {
+            const itemTheme = normalizedPoolTheme(item.theme);
+            const selected = item.id === selectedPoolID;
+
+            return (
+              <button
+                className={`rounded-md border px-3 py-3 text-left text-sm transition ${
+                  selected
+                    ? "text-zinc-950"
+                    : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-300"
+                }`}
+                key={item.id}
+                onClick={() => onSelectPool(item.id)}
+                style={
+                  selected
+                    ? {
+                        borderColor: itemTheme.primaryColor,
+                        backgroundColor: colorWithAlpha(itemTheme.primaryColor, 0.1),
+                      }
+                    : undefined
+                }
+                type="button"
+              >
+                <span className="block font-semibold">{poolDisplayName(item)}</span>
+                <span className="mt-1 block text-xs text-zinc-500">{item.currency}</span>
+              </button>
+            );
+          })}
         </div>
       </aside>
 
@@ -904,36 +930,63 @@ function PoolHeader({
   pool: Pool | null;
   tournament: Tournament | null;
 }) {
+  const theme = normalizedPoolTheme(pool?.theme);
+
   return (
-    <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
-      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-        <div>
-          <p className="text-sm font-medium text-sky-700">
-            {tournament?.name ?? "Torneo pendiente"}
-          </p>
-          <h2 className="mt-1 text-2xl font-semibold tracking-normal text-zinc-950">
-            {pool?.theme.display_name || pool?.name || "Polla"}
-          </h2>
-          <p className="mt-2 text-sm leading-6 text-zinc-600">{pool?.description}</p>
+    <section
+      className="overflow-hidden rounded-lg border bg-white shadow-sm"
+      style={{ borderColor: theme.accentColor }}
+    >
+      {theme.bannerURL ? (
+        <div
+          aria-hidden="true"
+          className="h-24 bg-cover bg-center"
+          style={{ backgroundImage: `url(${JSON.stringify(theme.bannerURL)})` }}
+        />
+      ) : (
+        <div aria-hidden="true" className="h-2" style={{ backgroundColor: theme.primaryColor }} />
+      )}
+      <div className="flex flex-col gap-4 p-5 md:flex-row md:items-start md:justify-between">
+        <div className="flex min-w-0 flex-col gap-4 sm:flex-row">
+          <ThemeLogo theme={theme} />
+          <div className="min-w-0">
+            <p className="text-sm font-medium" style={{ color: theme.primaryColor }}>
+              {tournament?.name ?? "Torneo pendiente"}
+            </p>
+            <h2 className="mt-1 text-2xl font-semibold tracking-normal text-zinc-950">
+              {poolDisplayName(pool)}
+            </h2>
+            <p className="mt-2 text-sm leading-6 text-zinc-600">{pool?.description}</p>
+          </div>
         </div>
-        <dl className="grid min-w-56 gap-2 text-sm text-zinc-600">
-          <div className="flex justify-between gap-4">
-            <dt>Invitacion</dt>
-            <dd className="font-semibold text-zinc-950">{pool?.invite_code ?? "-"}</dd>
-          </div>
-          <div className="flex justify-between gap-4">
-            <dt>Cierre</dt>
-            <dd className="font-semibold text-zinc-950">
-              {pool ? `${pool.prediction_close_hours_before}h antes` : "-"}
-            </dd>
-          </div>
-          <div className="flex justify-between gap-4">
-            <dt>Participantes</dt>
-            <dd className="font-semibold text-zinc-950">
-              {pool?.participants.length ?? 0}
-            </dd>
-          </div>
-        </dl>
+        <div className="flex flex-col gap-3 md:items-end">
+          {theme.mascotURL ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              alt=""
+              className="hidden h-14 max-w-24 rounded-md object-contain md:block"
+              src={theme.mascotURL}
+            />
+          ) : null}
+          <dl className="grid min-w-56 gap-2 text-sm text-zinc-600">
+            <div className="flex justify-between gap-4">
+              <dt>Invitacion</dt>
+              <dd className="font-semibold text-zinc-950">{pool?.invite_code ?? "-"}</dd>
+            </div>
+            <div className="flex justify-between gap-4">
+              <dt>Cierre</dt>
+              <dd className="font-semibold text-zinc-950">
+                {pool ? `${pool.prediction_close_hours_before}h antes` : "-"}
+              </dd>
+            </div>
+            <div className="flex justify-between gap-4">
+              <dt>Participantes</dt>
+              <dd className="font-semibold text-zinc-950">
+                {pool?.participants.length ?? 0}
+              </dd>
+            </div>
+          </dl>
+        </div>
       </div>
     </section>
   );
@@ -2822,6 +2875,10 @@ function rankingDisplayName(entry: RankingEntry) {
   return entry.user_name || entry.username || entry.user_id;
 }
 
+function poolDisplayName(pool: Pool | null) {
+  return pool?.theme?.display_name || pool?.name || "Polla";
+}
+
 function participantHandle(entry: RankingEntry) {
   return entry.username ? `@${entry.username}` : entry.user_id;
 }
@@ -2832,6 +2889,65 @@ function poolParticipantDisplayName(participant: Pool["participants"][number]) {
 
 function poolParticipantHandle(participant: Pool["participants"][number]) {
   return participant.username ? `@${participant.username}` : participant.user_id;
+}
+
+function ThemeLogo({ theme }: { theme: NormalizedTheme }) {
+  if (theme.logoURL) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        alt=""
+        className="h-16 w-16 rounded-md border border-zinc-200 bg-white object-contain p-2"
+        src={theme.logoURL}
+      />
+    );
+  }
+
+  return (
+    <div
+      aria-hidden="true"
+      className="grid h-16 w-16 place-items-center rounded-md text-lg font-semibold text-white"
+      style={{ backgroundColor: theme.primaryColor }}
+    >
+      PV
+    </div>
+  );
+}
+
+function normalizedPoolTheme(theme?: PoolTheme): NormalizedTheme {
+  const primaryColor = theme?.primary_color;
+  const secondaryColor = theme?.secondary_color;
+  const accentColor = theme?.accent_color;
+
+  return {
+    logoURL: theme?.logo_url ?? "",
+    bannerURL: theme?.banner_url ?? "",
+    mascotURL: theme?.mascot_url ?? "",
+    primaryColor: validThemeColor(primaryColor) ? primaryColor : "#0F766E",
+    secondaryColor: validThemeColor(secondaryColor) ? secondaryColor : "#111827",
+    accentColor: validThemeColor(accentColor) ? accentColor : "#F59E0B",
+  };
+}
+
+function colorWithAlpha(color: string, alpha: number) {
+  const normalized = expandShortHex(color);
+  const red = Number.parseInt(normalized.slice(1, 3), 16);
+  const green = Number.parseInt(normalized.slice(3, 5), 16);
+  const blue = Number.parseInt(normalized.slice(5, 7), 16);
+
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
+}
+
+function expandShortHex(color: string) {
+  if (color.length !== 4) {
+    return color;
+  }
+
+  return `#${color[1]}${color[1]}${color[2]}${color[2]}${color[3]}${color[3]}`;
+}
+
+function validThemeColor(value: string | undefined): value is string {
+  return Boolean(value?.match(/^#[0-9A-Fa-f]{3}([0-9A-Fa-f]{3})?$/));
 }
 
 function participantRoleLabel(role: string) {

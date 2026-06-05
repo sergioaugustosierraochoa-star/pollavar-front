@@ -33,8 +33,18 @@ export type TournamentSummary = {
   format_code: string;
   starts_at: string;
   ends_at: string;
+  theme_template: TournamentThemeTemplate;
   group_count: number;
   team_count: number;
+};
+
+export type TournamentThemeTemplate = {
+  logo_url: string;
+  banner_url: string;
+  mascot_url: string;
+  primary_color: string;
+  secondary_color: string;
+  accent_color: string;
 };
 
 export type Team = {
@@ -344,6 +354,16 @@ export type UpdatePredictionSettingsInput = {
   match_result_scoring_mode: MatchResultScoringMode;
 };
 
+export type UpdatePoolThemeInput = {
+  display_name: string;
+  logo_url: string;
+  banner_url: string;
+  mascot_url: string;
+  primary_color: string;
+  secondary_color: string;
+  accent_color: string;
+};
+
 export type SavePredictionInput =
   | {
       home_score: number;
@@ -615,6 +635,17 @@ export function createPollavarClient(options: PollavarClientOptions = {}) {
       return request<Pool>(
         fetcher,
         `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/prediction-settings`,
+        {
+          method: "PUT",
+          body: JSON.stringify(input),
+          headers: authHeaders(token),
+        },
+      );
+    },
+    updatePoolTheme(token: string, poolID: string, input: UpdatePoolThemeInput) {
+      return request<Pool>(
+        fetcher,
+        `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/theme`,
         {
           method: "PUT",
           body: JSON.stringify(input),

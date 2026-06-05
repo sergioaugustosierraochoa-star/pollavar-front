@@ -67,6 +67,14 @@ const tournamentSummary = {
   format_code: "groups",
   starts_at: "2026-06-11T00:00:00Z",
   ends_at: "2026-07-19T23:59:59Z",
+  theme_template: {
+    logo_url: "",
+    banner_url: "",
+    mascot_url: "",
+    primary_color: "#007A3D",
+    secondary_color: "#111827",
+    accent_color: "#C8A45D",
+  },
   group_count: 12,
   team_count: 48,
 };
@@ -458,6 +466,9 @@ describe("Participants home", () => {
     render(<ParticipantsHome />);
 
     expect(await screen.findByRole("heading", { name: "Oficina FC" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Oficina FC" }).closest("section"),
+    ).toHaveStyle({ borderColor: "#F59E0B" });
     expect(screen.getByText("FIFA World Cup 2026")).toBeInTheDocument();
     expect(screen.getByText("ABC123")).toBeInTheDocument();
     expect(screen.getAllByText("6h antes").length).toBeGreaterThan(0);

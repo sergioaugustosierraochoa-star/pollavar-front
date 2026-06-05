@@ -13,6 +13,7 @@ import {
   type PaymentStatus,
   type Pool,
   type PoolParticipant,
+  type PoolTheme,
   type PredictionMode,
   type PredictionMatchStatus,
   type PrizePreview,
@@ -62,6 +63,23 @@ type PredictionSettingsDraft = {
   predictionMode: PredictionMode;
   matchResultScoringMode: MatchResultScoringMode;
 };
+type ThemeDraft = {
+  displayName: string;
+  logoURL: string;
+  bannerURL: string;
+  mascotURL: string;
+  primaryColor: string;
+  secondaryColor: string;
+  accentColor: string;
+};
+type NormalizedTheme = {
+  logoURL: string;
+  bannerURL: string;
+  mascotURL: string;
+  primaryColor: string;
+  secondaryColor: string;
+  accentColor: string;
+};
 type RefreshPrizePreviewOptions = {
   syncDrafts?: boolean;
 };
@@ -108,6 +126,7 @@ export default function AdminHome() {
   const [paymentCurrency, setPaymentCurrency] = useState("COP");
   const [prizePreview, setPrizePreview] = useState<PrizePreview | null>(null);
   const [prizeDrafts, setPrizeDrafts] = useState<PrizeRuleDraft[]>([]);
+  const [themeDraft, setThemeDraft] = useState<ThemeDraft>(defaultThemeDraft(null));
   const [predictionSettingsDraft, setPredictionSettingsDraft] =
     useState<PredictionSettingsDraft>(defaultPredictionSettingsDraft(null));
   const [resultDrafts, setResultDrafts] = useState<ResultDrafts>({});
@@ -118,6 +137,7 @@ export default function AdminHome() {
   const [savingResultMatchID, setSavingResultMatchID] = useState("");
   const [loadingAuditMatchID, setLoadingAuditMatchID] = useState("");
   const [savingUserID, setSavingUserID] = useState("");
+  const [savingTheme, setSavingTheme] = useState(false);
   const [savingPredictionSettings, setSavingPredictionSettings] = useState(false);
   const [savingPrizes, setSavingPrizes] = useState(false);
   const requestID = useRef(0);
@@ -138,6 +158,7 @@ export default function AdminHome() {
   const canManageSelectedPoolPredictionSettings = Boolean(
     pool && canManagePredictionSettings(pool),
   );
+  const canManageSelectedPoolTheme = Boolean(pool && canManageTheme(pool));
   const canManageSelectedPoolResults = Boolean(pool && canManageResults(pool));
   const totals = useMemo(
     () => paymentTotals(pool?.participants ?? [], paymentsByUserID),
@@ -159,6 +180,7 @@ export default function AdminHome() {
     setPaymentCurrency("COP");
     setPrizePreview(null);
     setPrizeDrafts([]);
+    setThemeDraft(defaultThemeDraft(null));
     setPredictionSettingsDraft(defaultPredictionSettingsDraft(null));
     setResultDrafts({});
     setResultAuditLogsByMatchID({});
@@ -166,6 +188,7 @@ export default function AdminHome() {
     setSavingResultMatchID("");
     setLoadingAuditMatchID("");
     setSavingUserID("");
+    setSavingTheme(false);
     setSavingPredictionSettings(false);
     setSavingPrizes(false);
   }, []);
@@ -184,6 +207,7 @@ export default function AdminHome() {
     setSavingResultMatchID("");
     setLoadingAuditMatchID("");
     setSavingUserID("");
+    setSavingTheme(false);
     setSavingPredictionSettings(false);
 
     try {
@@ -213,6 +237,7 @@ export default function AdminHome() {
         setPaymentCurrency("COP");
         setPrizePreview(null);
         setPrizeDrafts([]);
+        setThemeDraft(defaultThemeDraft(null));
         setPredictionSettingsDraft(defaultPredictionSettingsDraft(null));
         setResultDrafts({});
         setResultAuditLogsByMatchID({});
@@ -266,6 +291,7 @@ export default function AdminHome() {
       setPaymentCurrency(nextPaymentCollection.currency || poolDetail.currency || "COP");
       setPrizePreview(nextPrizePreview);
       setPrizeDrafts(hydratePrizeDrafts(nextPrizePreview));
+      setThemeDraft(defaultThemeDraft(poolDetail));
       setPredictionSettingsDraft(defaultPredictionSettingsDraft(poolDetail));
       setResultDrafts(
         hydrateResultDrafts(tournamentDetail?.matches ?? [], nextPredictionStatuses),
@@ -338,6 +364,49 @@ export default function AdminHome() {
         [side]: value,
       },
     }));
+  }
+
+  async function savePoolTheme() {
+    if (!session || !pool || !canManageSelectedPoolTheme) {
+      return;
+    }
+
+    setSavingTheme(true);
+    setMessage("");
+
+    try {
+      const updatedPool = await createPollavarClient().updatePoolTheme(session.token, pool.id, {
+        display_name: themeDraft.displayName,
+        logo_url: themeDraft.logoURL,
+        banner_url: themeDraft.bannerURL,
+        mascot_url: themeDraft.mascotURL,
+        primary_color: themeDraft.primaryColor,
+        secondary_color: themeDraft.secondaryColor,
+        accent_color: themeDraft.accentColor,
+      });
+      setPool(updatedPool);
+      setPools((current) =>
+        current.map((item) => (item.id === updatedPool.id ? { ...item, ...updatedPool } : item)),
+      );
+      setThemeDraft(defaultThemeDraft(updatedPool));
+      setMessage("Identidad visual actualizada.");
+    } catch (error) {
+      if (isUnauthorized(error)) {
+        signOutAdmin();
+        return;
+      }
+      if (isForbidden(error)) {
+        setMessage("No tienes permisos para configurar la identidad visual.");
+        return;
+      }
+      if (error instanceof PollavarAPIError && error.status === 400) {
+        setMessage("Revisa los colores y URLs de la identidad visual.");
+        return;
+      }
+      setMessage("No pudimos actualizar la identidad visual.");
+    } finally {
+      setSavingTheme(false);
+    }
   }
 
   async function saveMatchResult(match: Match) {
@@ -677,42 +746,17 @@ export default function AdminHome() {
 
         {status === "ready" && session ? (
           <div className="space-y-6">
-            <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-                <div>
-                  <label className="text-sm font-medium text-zinc-600" htmlFor="pool-select">
-                    Polla
-                  </label>
-                  <select
-                    id="pool-select"
-                    className="mt-2 min-h-10 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950 lg:min-w-80"
-                    value={selectedPoolID}
-                    onChange={(event) => {
-                      const nextPoolID = event.target.value;
-                      setSelectedPoolID(nextPoolID);
-                      void loadDashboard(session.token, session.user.id, nextPoolID);
-                    }}
-                  >
-                    {pools.map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {poolDisplayName(item)}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                {pool ? (
-                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                    <Metric label="Participantes" value={String(pool.participants.length)} />
-                    <Metric label="Confirmados" value={String(totals.confirmedCount)} />
-                    <Metric label="Pendientes" value={String(totals.pendingCount)} />
-                    <Metric
-                      label="Recaudo confirmado"
-                      value={formatMoney(totals.confirmedAmountCents, paymentCurrency)}
-                    />
-                  </div>
-                ) : null}
-              </div>
-            </section>
+            <PoolThemeOverview
+              onSelectPool={(nextPoolID) => {
+                setSelectedPoolID(nextPoolID);
+                void loadDashboard(session.token, session.user.id, nextPoolID);
+              }}
+              paymentCurrency={paymentCurrency}
+              pool={pool}
+              pools={pools}
+              selectedPoolID={selectedPoolID}
+              totals={totals}
+            />
 
             {message ? (
               <p
@@ -727,6 +771,16 @@ export default function AdminHome() {
               >
                 {message}
               </p>
+            ) : null}
+
+            {pool ? (
+              <PoolThemePanel
+                canManage={canManageSelectedPoolTheme}
+                draft={themeDraft}
+                onChange={setThemeDraft}
+                onSave={() => void savePoolTheme()}
+                saving={savingTheme}
+              />
             ) : null}
 
             {pool ? (
@@ -1117,6 +1171,238 @@ export default function AdminHome() {
   );
 }
 
+function PoolThemeOverview({
+  onSelectPool,
+  paymentCurrency,
+  pool,
+  pools,
+  selectedPoolID,
+  totals,
+}: {
+  onSelectPool: (poolID: string) => void;
+  paymentCurrency: string;
+  pool: Pool | null;
+  pools: Pool[];
+  selectedPoolID: string;
+  totals: ReturnType<typeof paymentTotals>;
+}) {
+  const theme = normalizedPoolTheme(pool?.theme);
+
+  return (
+    <section
+      className="overflow-hidden rounded-lg border bg-white shadow-sm"
+      style={{ borderColor: theme.accentColor }}
+    >
+      {theme.bannerURL ? (
+        <div
+          aria-hidden="true"
+          className="h-20 bg-cover bg-center"
+          style={{ backgroundImage: `url(${JSON.stringify(theme.bannerURL)})` }}
+        />
+      ) : (
+        <div aria-hidden="true" className="h-2" style={{ backgroundColor: theme.primaryColor }} />
+      )}
+      <div className="flex flex-col gap-4 p-5 lg:flex-row lg:items-end lg:justify-between">
+        <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-end">
+          <ThemeLogo theme={theme} />
+          <div>
+            <label className="text-sm font-medium text-zinc-600" htmlFor="pool-select">
+              Polla
+            </label>
+            <select
+              id="pool-select"
+              className="mt-2 min-h-10 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950 lg:min-w-80"
+              value={selectedPoolID}
+              onChange={(event) => onSelectPool(event.target.value)}
+            >
+              {pools.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {poolDisplayName(item)}
+                </option>
+              ))}
+            </select>
+            <p className="mt-2 text-sm font-medium" style={{ color: theme.primaryColor }}>
+              {pool ? poolDisplayName(pool) : "Sin polla seleccionada"}
+            </p>
+          </div>
+        </div>
+        {pool ? (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <Metric label="Participantes" value={String(pool.participants.length)} />
+            <Metric label="Confirmados" value={String(totals.confirmedCount)} />
+            <Metric label="Pendientes" value={String(totals.pendingCount)} />
+            <Metric
+              label="Recaudo confirmado"
+              value={formatMoney(totals.confirmedAmountCents, paymentCurrency)}
+            />
+          </div>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+function PoolThemePanel({
+  canManage,
+  draft,
+  onChange,
+  onSave,
+  saving,
+}: {
+  canManage: boolean;
+  draft: ThemeDraft;
+  onChange: (draft: ThemeDraft) => void;
+  onSave: () => void;
+  saving: boolean;
+}) {
+  const update = (patch: Partial<ThemeDraft>) => onChange({ ...draft, ...patch });
+
+  return (
+    <section className="rounded-lg border border-zinc-200 bg-white shadow-sm">
+      <div className="flex flex-col gap-3 border-b border-zinc-200 px-5 py-4 md:flex-row md:items-center md:justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-zinc-950">Identidad visual</h2>
+          <p className="text-sm text-zinc-600">
+            Logo, banner, mascota opcional y colores de la polla.
+          </p>
+        </div>
+        <span
+          className={`w-fit rounded-md px-2 py-1 text-xs font-medium ${
+            canManage ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"
+          }`}
+        >
+          {canManage ? "Configurable" : "Solo lectura"}
+        </span>
+      </div>
+
+      <div className="grid gap-4 p-5 lg:grid-cols-3">
+        <label className="grid gap-2 text-sm font-medium text-zinc-700">
+          <span>Nombre visible</span>
+          <input
+            className="min-h-10 rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-950 disabled:bg-zinc-100"
+            disabled={!canManage || saving}
+            onChange={(event) => update({ displayName: event.target.value })}
+            value={draft.displayName}
+          />
+        </label>
+        <label className="grid gap-2 text-sm font-medium text-zinc-700">
+          <span>Logo URL</span>
+          <input
+            className="min-h-10 rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-950 disabled:bg-zinc-100"
+            disabled={!canManage || saving}
+            onChange={(event) => update({ logoURL: event.target.value })}
+            value={draft.logoURL}
+          />
+        </label>
+        <label className="grid gap-2 text-sm font-medium text-zinc-700">
+          <span>Banner URL</span>
+          <input
+            className="min-h-10 rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-950 disabled:bg-zinc-100"
+            disabled={!canManage || saving}
+            onChange={(event) => update({ bannerURL: event.target.value })}
+            value={draft.bannerURL}
+          />
+        </label>
+        <label className="grid gap-2 text-sm font-medium text-zinc-700">
+          <span>Mascota URL</span>
+          <input
+            className="min-h-10 rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-950 disabled:bg-zinc-100"
+            disabled={!canManage || saving}
+            onChange={(event) => update({ mascotURL: event.target.value })}
+            value={draft.mascotURL}
+          />
+        </label>
+        <ColorField
+          disabled={!canManage || saving}
+          label="Color principal"
+          onChange={(value) => update({ primaryColor: value })}
+          value={draft.primaryColor}
+        />
+        <ColorField
+          disabled={!canManage || saving}
+          label="Color secundario"
+          onChange={(value) => update({ secondaryColor: value })}
+          value={draft.secondaryColor}
+        />
+        <ColorField
+          disabled={!canManage || saving}
+          label="Color acento"
+          onChange={(value) => update({ accentColor: value })}
+          value={draft.accentColor}
+        />
+        <div className="flex items-end">
+          <button
+            className="min-h-10 rounded-md bg-zinc-950 px-3 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
+            disabled={!canManage || saving}
+            onClick={onSave}
+            type="button"
+          >
+            {saving ? "Guardando" : "Guardar identidad"}
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ColorField({
+  disabled,
+  label,
+  onChange,
+  value,
+}: {
+  disabled: boolean;
+  label: string;
+  onChange: (value: string) => void;
+  value: string;
+}) {
+  return (
+    <div className="grid gap-2 text-sm font-medium text-zinc-700">
+      <span>{label}</span>
+      <span className="grid grid-cols-[44px_1fr] gap-2">
+        <input
+          aria-label={`${label} selector`}
+          className="h-10 w-11 rounded-md border border-zinc-300 bg-white p-1 disabled:bg-zinc-100"
+          disabled={disabled}
+          onChange={(event) => onChange(event.target.value)}
+          type="color"
+          value={colorPickerValue(value)}
+        />
+        <input
+          aria-label={label}
+          className="min-h-10 rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-950 disabled:bg-zinc-100"
+          disabled={disabled}
+          onChange={(event) => onChange(event.target.value)}
+          value={value}
+        />
+      </span>
+    </div>
+  );
+}
+
+function ThemeLogo({ theme }: { theme: NormalizedTheme }) {
+  if (theme.logoURL) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        alt=""
+        className="h-16 w-16 rounded-md border border-zinc-200 bg-white object-contain p-2"
+        src={theme.logoURL}
+      />
+    );
+  }
+
+  return (
+    <div
+      aria-hidden="true"
+      className="grid h-16 w-16 place-items-center rounded-md text-lg font-semibold text-white"
+      style={{ backgroundColor: theme.primaryColor }}
+    >
+      PV
+    </div>
+  );
+}
+
 function StatusPanel({ text }: { text: string }) {
   return (
     <section className="rounded-lg border border-zinc-200 bg-white p-6 shadow-sm">
@@ -1504,6 +1790,10 @@ function canManagePredictionSettings(pool: Pool) {
   return pool.current_user_role === "pool_admin";
 }
 
+function canManageTheme(pool: Pool) {
+  return pool.current_user_role === "pool_admin";
+}
+
 function canManageResults(pool: Pool) {
   return pool.current_user_role === "pool_admin";
 }
@@ -1719,6 +2009,43 @@ function defaultPredictionSettingsDraft(pool: Pool | null): PredictionSettingsDr
     predictionMode: pool?.prediction_mode ?? "score_with_outcome",
     matchResultScoringMode: pool?.match_result_scoring_mode ?? "exclusive",
   };
+}
+
+function defaultThemeDraft(pool: Pool | null): ThemeDraft {
+  const theme = normalizedPoolTheme(pool?.theme);
+
+  return {
+    displayName: pool?.theme?.display_name || pool?.name || "",
+    logoURL: theme.logoURL,
+    bannerURL: theme.bannerURL,
+    mascotURL: theme.mascotURL,
+    primaryColor: theme.primaryColor,
+    secondaryColor: theme.secondaryColor,
+    accentColor: theme.accentColor,
+  };
+}
+
+function normalizedPoolTheme(theme?: PoolTheme): NormalizedTheme {
+  const primaryColor = theme?.primary_color;
+  const secondaryColor = theme?.secondary_color;
+  const accentColor = theme?.accent_color;
+
+  return {
+    logoURL: theme?.logo_url ?? "",
+    bannerURL: theme?.banner_url ?? "",
+    mascotURL: theme?.mascot_url ?? "",
+    primaryColor: validThemeColor(primaryColor) ? primaryColor : "#0F766E",
+    secondaryColor: validThemeColor(secondaryColor) ? secondaryColor : "#111827",
+    accentColor: validThemeColor(accentColor) ? accentColor : "#F59E0B",
+  };
+}
+
+function colorPickerValue(value: string) {
+  return validThemeColor(value) && value.length === 7 ? value : "#0F766E";
+}
+
+function validThemeColor(value: string | undefined): value is string {
+  return Boolean(value?.match(/^#[0-9A-Fa-f]{3}([0-9A-Fa-f]{3})?$/));
 }
 
 function defaultDraft(pool: Pool | null, payment?: Payment) {

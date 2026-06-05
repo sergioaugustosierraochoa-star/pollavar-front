@@ -42,6 +42,14 @@ const tournamentSummary: TournamentSummary = {
   format_code: "groups_plus_knockout_48_12x4_best8_thirds",
   starts_at: "2026-06-11T00:00:00Z",
   ends_at: "2026-07-19T23:59:59Z",
+  theme_template: {
+    logo_url: "",
+    banner_url: "",
+    mascot_url: "",
+    primary_color: "#007A3D",
+    secondary_color: "#111827",
+    accent_color: "#C8A45D",
+  },
   group_count: 12,
   team_count: 48,
 };
@@ -494,6 +502,10 @@ describe("createPollavarClient", () => {
           },
         });
       }
+      if (value.endsWith("/theme") && init?.method === "PUT") {
+        const body = JSON.parse(String(init.body));
+        return jsonResponse({ data: { ...pool, theme: { ...pool.theme, ...body } } });
+      }
       if (value.endsWith("/standing-predictions")) {
         return jsonResponse({ data: [standingPrediction] });
       }
@@ -569,6 +581,22 @@ describe("createPollavarClient", () => {
     ).resolves.toMatchObject({
       prediction_mode: "outcome",
       match_result_scoring_mode: "cumulative",
+    });
+    await expect(
+      client.updatePoolTheme("token", "pool id", {
+        display_name: "Mundialistas",
+        logo_url: "https://cdn.example.com/logo.png",
+        banner_url: "/assets/banner.png",
+        mascot_url: "",
+        primary_color: "#007A3D",
+        secondary_color: "#101828",
+        accent_color: "#C8A45D",
+      }),
+    ).resolves.toMatchObject({
+      theme: {
+        display_name: "Mundialistas",
+        primary_color: "#007A3D",
+      },
     });
 
     expect(fetcher).toHaveBeenNthCalledWith(2, "http://api.local/api/v1/pools/pool%20id", {
@@ -698,6 +726,22 @@ describe("createPollavarClient", () => {
         },
       },
     );
+    expect(fetcher).toHaveBeenCalledWith("http://api.local/api/v1/pools/pool%20id/theme", {
+      method: "PUT",
+      body: JSON.stringify({
+        display_name: "Mundialistas",
+        logo_url: "https://cdn.example.com/logo.png",
+        banner_url: "/assets/banner.png",
+        mascot_url: "",
+        primary_color: "#007A3D",
+        secondary_color: "#101828",
+        accent_color: "#C8A45D",
+      }),
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer token",
+      },
+    });
   });
 
   it("saves match results and loads audit logs", async () => {

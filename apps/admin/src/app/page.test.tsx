@@ -78,6 +78,14 @@ const tournamentSummary = {
   format_code: "groups_plus_knockout_48_12x4_best8_thirds",
   starts_at: "2026-06-11T00:00:00Z",
   ends_at: "2026-07-19T23:59:59Z",
+  theme_template: {
+    logo_url: "",
+    banner_url: "",
+    mascot_url: "",
+    primary_color: "#007A3D",
+    secondary_color: "#111827",
+    accent_color: "#C8A45D",
+  },
   group_count: 12,
   team_count: 48,
 };
@@ -499,6 +507,63 @@ describe("Admin home", () => {
     );
   });
 
+  it("updates pool visual identity from the admin panel", async () => {
+    storeSession();
+    const fetcher = vi.fn(adminFetch);
+    vi.stubGlobal("fetch", fetcher);
+
+    render(<AdminHome />);
+
+    expect(await screen.findByRole("heading", { name: "Identidad visual" })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Nombre visible"), {
+      target: { value: "Mundialistas" },
+    });
+    fireEvent.change(screen.getByLabelText("Logo URL"), {
+      target: { value: "https://cdn.example.com/new-logo.png" },
+    });
+    fireEvent.change(screen.getByLabelText("Banner URL"), {
+      target: { value: "/assets/new-banner.png" },
+    });
+    fireEvent.change(screen.getByLabelText("Mascota URL"), {
+      target: { value: "https://cdn.example.com/mascot.png" },
+    });
+    fireEvent.change(screen.getByLabelText("Color principal"), {
+      target: { value: "#007A3D" },
+    });
+    fireEvent.change(screen.getByLabelText("Color secundario"), {
+      target: { value: "#101828" },
+    });
+    fireEvent.change(screen.getByLabelText("Color acento"), {
+      target: { value: "#C8A45D" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar identidad" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("status")).toHaveTextContent("Identidad visual actualizada.");
+    });
+    expect(screen.getAllByText("Mundialistas").length).toBeGreaterThan(0);
+
+    expect(fetcher).toHaveBeenCalledWith(
+      "http://localhost:8080/api/v1/pools/pool-id/theme",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({
+          display_name: "Mundialistas",
+          logo_url: "https://cdn.example.com/new-logo.png",
+          banner_url: "/assets/new-banner.png",
+          mascot_url: "https://cdn.example.com/mascot.png",
+          primary_color: "#007A3D",
+          secondary_color: "#101828",
+          accent_color: "#C8A45D",
+        }),
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer token",
+        },
+      }),
+    );
+  });
+
   it("shows a locked message when prediction settings already have activity", async () => {
     storeSession();
     const fetcher = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
@@ -758,6 +823,24 @@ async function adminFetch(url: RequestInfo | URL, init?: RequestInit) {
         ...pool,
         prediction_mode: body.prediction_mode,
         match_result_scoring_mode: body.match_result_scoring_mode,
+      },
+    });
+  }
+  if (value.endsWith("/api/v1/pools/pool-id/theme") && init?.method === "PUT") {
+    const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+    return jsonResponse({
+      data: {
+        ...pool,
+        theme: {
+          ...pool.theme,
+          display_name: body.display_name,
+          logo_url: body.logo_url,
+          banner_url: body.banner_url,
+          mascot_url: body.mascot_url,
+          primary_color: body.primary_color,
+          secondary_color: body.secondary_color,
+          accent_color: body.accent_color,
+        },
       },
     });
   }
