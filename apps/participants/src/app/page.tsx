@@ -41,6 +41,7 @@ type StandingDrafts = Record<string, string[]>;
 const defaultScoringRules: ScoringRule[] = [
   { code: "exact_score", points: 5, enabled: true },
   { code: "match_result", points: 3, enabled: true },
+  { code: "group_position_exact", points: 2, enabled: true },
 ];
 type LoadedPoolData = {
   poolDetail: Pool;
@@ -1138,7 +1139,7 @@ function RankingPanel({
                 {selectedDetails.map((detail) => (
                   <li
                     className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 px-3 py-3 text-sm"
-                    key={`${detail.prediction_id}-${detail.rule_code}-${detail.created_at}`}
+                    key={`${detail.prediction_id || detail.standing_prediction_id}-${detail.rule_code}-${detail.created_at}`}
                   >
                     <span className="min-w-0">
                       <span className="block font-semibold text-zinc-950">
@@ -2342,6 +2343,8 @@ function scoringRuleLabel(code: ScoringRule["code"]) {
       return "Marcador exacto";
     case "match_result":
       return "Resultado correcto";
+    case "group_position_exact":
+      return "Posicion exacta de grupo";
     default:
       return code;
   }

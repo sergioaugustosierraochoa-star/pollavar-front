@@ -184,6 +184,7 @@ const predictionSnapshot: PredictionSnapshot = {
 const scoringRules: ScoringRule[] = [
   { code: "exact_score", points: 5, enabled: true },
   { code: "match_result", points: 3, enabled: true },
+  { code: "group_position_exact", points: 2, enabled: true },
 ];
 
 const rankingEntry: RankingEntry = {
@@ -212,6 +213,7 @@ const pointEventDetail: PointEventDetail = {
   pool_id: "pool-id",
   user_id: "user-id",
   prediction_id: "prediction-id",
+  standing_prediction_id: "",
   match_id: "match-id",
   match_number: 1,
   rule_code: "exact_score",

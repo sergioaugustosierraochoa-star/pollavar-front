@@ -203,7 +203,7 @@ export type PredictionSummary = {
   scored_matches: number;
 };
 
-export type ScoringRuleCode = "exact_score" | "match_result";
+export type ScoringRuleCode = "exact_score" | "match_result" | "group_position_exact";
 
 export type ScoringRule = {
   code: ScoringRuleCode;
@@ -311,6 +311,7 @@ export type PointEventDetail = {
   pool_id: string;
   user_id: string;
   prediction_id: string;
+  standing_prediction_id: string;
   match_id: string;
   match_number: number;
   rule_code: ScoringRuleCode;
