@@ -27,6 +27,7 @@ const pool = {
   prediction_close_hours_before: 6,
   prediction_mode: "score_with_outcome",
   match_result_scoring_mode: "exclusive",
+  ranking_tie_policy: "split_equal",
   created_by: "admin-id",
   created_at: "2026-05-27T01:00:00Z",
   updated_at: "2026-05-27T01:00:00Z",
@@ -350,6 +351,7 @@ const prizePreview = {
   pool_id: "pool-id",
   currency: "COP",
   confirmed_total_cents: 5000000,
+  ranking_tie_policy: "split_equal",
   rules: prizeRules,
   payouts: [
     {
@@ -1974,7 +1976,7 @@ describe("Admin home", () => {
   });
 
   it("renders a read-only state when the selected pool cannot manage payments", async () => {
-    storeSession({ user: { ...session.user, id: "participant-id" } });
+    storeSession();
     const fetcher = vi.fn(async (url: RequestInfo | URL) => {
       const value = String(url);
       if (value.endsWith("/api/v1/tournaments")) {
@@ -2009,10 +2011,13 @@ describe("Admin home", () => {
       if (value.endsWith("/api/v1/pools/pool-id/prizes/preview")) {
         return jsonResponse({ data: prizePreview });
       }
+      if (value.endsWith("/api/v1/pools/pool-id/ranking")) {
+        return jsonResponse({ data: [] });
+      }
       if (value.endsWith("/api/v1/pools/pool-id/global-prizes/preview")) {
         return jsonResponse({ data: globalPrizePreview });
       }
-      return jsonResponse({ code: "unauthorized" }, { status: 401 });
+      return jsonResponse({ data: [] });
     });
     vi.stubGlobal("fetch", fetcher);
 

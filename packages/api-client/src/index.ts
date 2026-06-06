@@ -195,6 +195,8 @@ export type PoolParticipant = {
   joined_at: string;
 };
 
+export type RankingTiePolicy = "split_equal" | "automatic" | "manual";
+
 export type Pool = {
   id: string;
   tournament_id: string;
@@ -207,6 +209,7 @@ export type Pool = {
   prediction_close_hours_before: number;
   prediction_mode: PredictionMode;
   match_result_scoring_mode: MatchResultScoringMode;
+  ranking_tie_policy: RankingTiePolicy;
   created_by: string;
   created_at: string;
   updated_at: string;
@@ -286,6 +289,7 @@ export type PrizePreview = {
   pool_id: string;
   currency: string;
   confirmed_total_cents: number;
+  ranking_tie_policy: RankingTiePolicy;
   rules: PrizeRule[];
   payouts: PrizePayout[];
 };
@@ -974,6 +978,17 @@ export function createPollavarClient(options: PollavarClientOptions = {}) {
         `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/prizes/preview`,
         {
           method: "GET",
+          headers: authHeaders(token),
+        },
+      );
+    },
+    updateRankingTiePolicy(token: string, poolID: string, policy: RankingTiePolicy) {
+      return request<Pool>(
+        fetcher,
+        `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/ranking-tie-policy`,
+        {
+          method: "PUT",
+          body: JSON.stringify({ policy }),
           headers: authHeaders(token),
         },
       );

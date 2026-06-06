@@ -41,6 +41,8 @@ import {
   type PredictionSettingsSource,
   type PredictionMatchStatus,
   type PrizePreview,
+  type RankingEntry,
+  type RankingTiePolicy,
   type SaveGlobalPredictionInput,
   type ScoringRule,
   type Team,
@@ -284,6 +286,7 @@ export default function AdminHome() {
   const [tournament, setTournament] = useState<Tournament | null>(null);
   const [predictionStatuses, setPredictionStatuses] = useState<PredictionMatchStatus[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
+  const [ranking, setRanking] = useState<RankingEntry[]>([]);
   const [paymentCurrency, setPaymentCurrency] = useState("COP");
   const [paymentStatusFilter, setPaymentStatusFilter] = useState<PaymentStatus | "all">("all");
   const [prizePreview, setPrizePreview] = useState<PrizePreview | null>(null);
@@ -359,6 +362,7 @@ export default function AdminHome() {
   const [savingPredictionSettings, setSavingPredictionSettings] = useState(false);
   const [savingPredictionOverrides, setSavingPredictionOverrides] = useState(false);
   const [savingPrizes, setSavingPrizes] = useState(false);
+  const [savingRankingTiePolicy, setSavingRankingTiePolicy] = useState(false);
   const [creatingPool, setCreatingPool] = useState(false);
   const [savingBracket, setSavingBracket] = useState(false);
   const [savingMatchSlotOverrideID, setSavingMatchSlotOverrideID] = useState("");
@@ -417,6 +421,10 @@ export default function AdminHome() {
     () => filterParticipantsByPaymentStatus(pool?.participants ?? [], paymentsByUserID, paymentStatusFilter),
     [pool?.participants, paymentsByUserID, paymentStatusFilter],
   );
+  const rankingPrizePayouts = useMemo(
+    () => buildRankingPrizePayouts(prizePreview, ranking),
+    [prizePreview, ranking],
+  );
 
   const signOutAdmin = useCallback(function signOutAdmin() {
     requestID.current += 1;
@@ -431,6 +439,7 @@ export default function AdminHome() {
     setTournament(null);
     setPredictionStatuses([]);
     setPayments([]);
+    setRanking([]);
     setPaymentCurrency("COP");
     setPaymentStatusFilter("all");
     setPrizePreview(null);
@@ -471,6 +480,7 @@ export default function AdminHome() {
     setSavingPredictionSettings(false);
     setSavingPredictionOverrides(false);
     setSavingPrizes(false);
+    setSavingRankingTiePolicy(false);
     setCreatingPool(false);
     setSavingMatchSlotOverrideID("");
     setCreatePoolDraft(defaultCreatePoolDraft(null));
@@ -529,6 +539,7 @@ export default function AdminHome() {
         setTournament(null);
         setPredictionStatuses([]);
         setPayments([]);
+        setRanking([]);
         setPaymentCurrency("COP");
         setPaymentStatusFilter("all");
         setPrizePreview(null);
@@ -581,6 +592,7 @@ export default function AdminHome() {
       const canManagePredictionConfig = canManagePredictionSettings(poolDetail);
       const [
         nextPrizePreview,
+        nextRanking,
         nextGlobalPrizePreview,
         nextPredictionStatuses,
         tournamentDetail,
@@ -595,6 +607,7 @@ export default function AdminHome() {
         nextOfficialStandings,
       ] = await Promise.all([
         client.getPrizePreview(token, poolDetail.id),
+        listRankingWithFallback(client, token, poolDetail.id),
         client.getGlobalPredictionPrizePreview(token, poolDetail.id),
         client.listPredictionStatuses(token, poolDetail.id),
         tournamentRequest,
@@ -629,6 +642,7 @@ export default function AdminHome() {
       setTournament(tournamentDetail);
       setPredictionStatuses(nextPredictionStatuses);
       setPayments(nextPaymentCollection.payments);
+      setRanking(nextRanking);
       setPaymentCurrency(nextPaymentCollection.currency || poolDetail.currency || "COP");
       setPrizePreview(nextPrizePreview);
       setGlobalPrizePreview(nextGlobalPrizePreview);
@@ -1855,6 +1869,46 @@ export default function AdminHome() {
     }
   }
 
+  async function saveRankingTiePolicy(policy: RankingTiePolicy) {
+    if (!session || !pool || !canManageSelectedPoolPrizes) {
+      return;
+    }
+    if (policy === pool.ranking_tie_policy) {
+      return;
+    }
+
+    setSavingRankingTiePolicy(true);
+    setMessage("");
+
+    try {
+      const updatedPool = await createPollavarClient().updateRankingTiePolicy(
+        session.token,
+        pool.id,
+        policy,
+      );
+      setPool(updatedPool);
+      setPools((current) =>
+        current.map((item) => (item.id === updatedPool.id ? { ...item, ...updatedPool } : item)),
+      );
+      setPrizePreview((current) =>
+        current ? { ...current, ranking_tie_policy: updatedPool.ranking_tie_policy } : current,
+      );
+      setMessage("Politica de desempates actualizada.");
+    } catch (error) {
+      if (isUnauthorized(error)) {
+        signOutAdmin();
+        return;
+      }
+      if (isForbidden(error)) {
+        setMessage("No tienes permisos para actualizar premios.");
+        return;
+      }
+      setMessage("No pudimos actualizar la politica de desempates.");
+    } finally {
+      setSavingRankingTiePolicy(false);
+    }
+  }
+
   async function savePredictionSettings() {
     if (!session || !pool || !canManageSelectedPoolPredictionSettings) {
       return;
@@ -2307,6 +2361,32 @@ export default function AdminHome() {
 
                 <div className="grid gap-5 p-5 lg:grid-cols-[minmax(0,1.15fr)_minmax(280px,0.85fr)]">
                   <div className="overflow-x-auto">
+                    <div className="mb-4 grid gap-2 md:grid-cols-[minmax(0,1fr)_220px] md:items-end">
+                      <div>
+                        <label
+                          className="text-sm font-medium text-zinc-800"
+                          htmlFor="ranking-tie-policy"
+                        >
+                          Empates en posiciones de premio
+                        </label>
+                        <p className="mt-1 text-xs text-zinc-500">
+                          Define como se maneja un empate dentro de una posicion premiada.
+                        </p>
+                      </div>
+                      <select
+                        id="ranking-tie-policy"
+                        className="min-h-10 rounded-md border border-zinc-300 px-3 py-2 text-sm"
+                        disabled={!canManageSelectedPoolPrizes || savingRankingTiePolicy}
+                        value={pool.ranking_tie_policy}
+                        onChange={(event) =>
+                          void saveRankingTiePolicy(event.target.value as RankingTiePolicy)
+                        }
+                      >
+                        <option value="split_equal">Permitir empate y dividir</option>
+                        <option value="automatic">Desempate automatico</option>
+                        <option value="manual">Revision manual</option>
+                      </select>
+                    </div>
                     <table className="min-w-[620px] w-full border-collapse text-left text-sm">
                       <thead className="bg-zinc-50 text-xs uppercase text-zinc-500">
                         <tr>
@@ -2400,24 +2480,42 @@ export default function AdminHome() {
                         <p className="text-sm font-semibold text-zinc-950">Vista previa</p>
                       </div>
                       <div className="divide-y divide-zinc-200">
-                        {(prizePreview?.payouts ?? []).length > 0 ? (
-                          prizePreview?.payouts.map((payout) => (
+                        {rankingPrizePayouts.length > 0 ? (
+                          rankingPrizePayouts.map((payout) => (
                             <div
                               key={`${payout.position}-${payout.description}`}
-                              className="flex items-center justify-between gap-3 px-4 py-3 text-sm"
+                              className="px-4 py-3 text-sm"
                             >
-                              <div>
-                                <p className="font-medium text-zinc-950">
-                                  {payout.description || `Posicion ${payout.position}`}
+                              <div className="flex items-center justify-between gap-3">
+                                <div>
+                                  <p className="font-medium text-zinc-950">
+                                    {payout.description || `Posicion ${payout.position}`}
+                                  </p>
+                                  <p className="text-xs text-zinc-500">{payout.percentage}%</p>
+                                </div>
+                                <p className="font-semibold text-zinc-950">
+                                  {formatMoney(
+                                    payout.estimated_amount_cents,
+                                    prizePreview?.currency ?? paymentCurrency,
+                                  )}
                                 </p>
-                                <p className="text-xs text-zinc-500">{payout.percentage}%</p>
                               </div>
-                              <p className="font-semibold text-zinc-950">
-                                {formatMoney(
-                                  payout.estimated_amount_cents,
-                                  prizePreview?.currency ?? paymentCurrency,
-                                )}
-                              </p>
+                              {payout.winners.length > 0 ? (
+                                <div className="mt-2 space-y-1 text-xs text-zinc-600">
+                                  {payout.split ? (
+                                    <p>Premio dividido entre {payout.winners.length} empatados.</p>
+                                  ) : null}
+                                  {payout.winners.map((winner) => (
+                                    <p key={`${payout.position}-${winner.user_id}`}>
+                                      {rankingDisplayName(winner)} ·{" "}
+                                      {formatMoney(
+                                        winner.estimated_amount_cents,
+                                        prizePreview?.currency ?? paymentCurrency,
+                                      )}
+                                    </p>
+                                  ))}
+                                </div>
+                              ) : null}
                             </div>
                           ))
                         ) : (
@@ -7229,6 +7327,47 @@ function formatMoney(amountCents: number, currency: string) {
   }).format(amount)}`;
 }
 
+type RankingPrizePayout = PrizePreview["payouts"][number] & {
+  split: boolean;
+  winners: Array<RankingEntry & { estimated_amount_cents: number }>;
+};
+
+function buildRankingPrizePayouts(
+  preview: PrizePreview | null,
+  ranking: RankingEntry[],
+): RankingPrizePayout[] {
+  const payouts = preview?.payouts ?? [];
+  return payouts.map((payout) => {
+    const winners =
+      preview?.ranking_tie_policy === "split_equal"
+        ? ranking.filter((entry) => entry.prize_eligible && entry.position === payout.position)
+        : [];
+    const winnerAmounts = splitCents(payout.estimated_amount_cents, winners.length);
+
+    return {
+      ...payout,
+      split: winners.length > 1,
+      winners: winners.map((winner, index) => ({
+        ...winner,
+        estimated_amount_cents: winnerAmounts[index] ?? 0,
+      })),
+    };
+  });
+}
+
+function splitCents(amountCents: number, parts: number) {
+  if (parts <= 0) {
+    return [];
+  }
+  const base = Math.trunc(amountCents / parts);
+  const remainder = amountCents - base * parts;
+  return Array.from({ length: parts }, (_, index) => base + (index < remainder ? 1 : 0));
+}
+
+function rankingDisplayName(entry: RankingEntry) {
+  return entry.user_name || entry.username || entry.user_id;
+}
+
 function formatMatchDate(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
@@ -7278,6 +7417,24 @@ function defaultTiebreakerDraft(tournament: Tournament | null) {
   return Object.fromEntries(
     allTournamentTiebreakers.map((tiebreaker) => [tiebreaker, configured.has(tiebreaker)]),
   ) as TournamentTiebreakerDraft;
+}
+
+async function listRankingWithFallback(
+  client: ReturnType<typeof createPollavarClient>,
+  token: string,
+  poolID: string,
+) {
+  try {
+    return await client.listRanking(token, poolID);
+  } catch (error) {
+    if (
+      error instanceof PollavarAPIError &&
+      (error.status === 401 || error.status === 403 || error.status === 404)
+    ) {
+      return [];
+    }
+    throw error;
+  }
 }
 
 function tiebreakerLabel(tiebreaker: Tournament["tiebreakers"][number]) {

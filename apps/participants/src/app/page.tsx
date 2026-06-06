@@ -1192,7 +1192,7 @@ function Dashboard({
           scoringRules={scoringRules}
           summary={summary}
         />
-        <PrizePanel globalPreview={globalPrizePreview} preview={prizePreview} />
+        <PrizePanel globalPreview={globalPrizePreview} preview={prizePreview} ranking={ranking} />
         <GlobalPredictionsPanel
           definitions={globalPredictionDefinitions}
           drafts={globalDrafts}
@@ -1458,11 +1458,14 @@ function DashboardNavigation({
 function PrizePanel({
   globalPreview,
   preview,
+  ranking,
 }: {
   globalPreview: GlobalPredictionPrizePreview | null;
   preview: PrizePreview | null;
+  ranking: RankingEntry[];
 }) {
   const payouts = preview?.payouts ?? [];
+  const rankingPayouts = buildRankingPrizePayouts(preview, ranking);
   const globalPrizes = globalPreview?.prizes ?? [];
   const currency = preview?.currency ?? globalPreview?.currency ?? "COP";
   const confirmedTotalCents =
@@ -1494,7 +1497,7 @@ function PrizePanel({
       </div>
       {payouts.length > 0 ? (
         <div className="grid divide-y divide-zinc-200 md:grid-cols-2 md:divide-x md:divide-y-0">
-          {payouts.map((payout) => (
+          {rankingPayouts.map((payout) => (
             <div key={`${payout.position}-${payout.description}`} className="px-5 py-4">
               <p className="text-sm font-semibold text-zinc-950">
                 {payout.description || `Posicion ${payout.position}`}
@@ -1503,6 +1506,19 @@ function PrizePanel({
               <p className="mt-3 text-xl font-semibold text-zinc-950">
                 {formatMoney(payout.estimated_amount_cents, currency)}
               </p>
+              {payout.winners.length > 0 ? (
+                <div className="mt-3 space-y-1 text-xs text-zinc-600">
+                  {payout.split ? (
+                    <p>Premio dividido entre {payout.winners.length} empatados.</p>
+                  ) : null}
+                  {payout.winners.map((winner) => (
+                    <p key={`${payout.position}-${winner.user_id}`}>
+                      {rankingDisplayName(winner)} ·{" "}
+                      {formatMoney(winner.estimated_amount_cents, currency)}
+                    </p>
+                  ))}
+                </div>
+              ) : null}
             </div>
           ))}
         </div>
@@ -3237,6 +3253,7 @@ async function getPrizePreviewWithFallback(
         pool_id: poolID,
         currency: "COP",
         confirmed_total_cents: 0,
+        ranking_tie_policy: "split_equal",
         rules: [],
         payouts: [],
       } satisfies PrizePreview;
@@ -3921,6 +3938,43 @@ function effectiveUnderdogRule(
     enabled: settings.underdog_bonus_enabled,
     points: settings.underdog_bonus_points,
   } satisfies ScoringRule;
+}
+
+type RankingPrizePayout = PrizePreview["payouts"][number] & {
+  split: boolean;
+  winners: Array<RankingEntry & { estimated_amount_cents: number }>;
+};
+
+function buildRankingPrizePayouts(
+  preview: PrizePreview | null,
+  ranking: RankingEntry[],
+): RankingPrizePayout[] {
+  const payouts = preview?.payouts ?? [];
+  return payouts.map((payout) => {
+    const winners =
+      preview?.ranking_tie_policy === "split_equal"
+        ? ranking.filter((entry) => entry.prize_eligible && entry.position === payout.position)
+        : [];
+    const winnerAmounts = splitCents(payout.estimated_amount_cents, winners.length);
+
+    return {
+      ...payout,
+      split: winners.length > 1,
+      winners: winners.map((winner, index) => ({
+        ...winner,
+        estimated_amount_cents: winnerAmounts[index] ?? 0,
+      })),
+    };
+  });
+}
+
+function splitCents(amountCents: number, parts: number) {
+  if (parts <= 0) {
+    return [];
+  }
+  const base = Math.trunc(amountCents / parts);
+  const remainder = amountCents - base * parts;
+  return Array.from({ length: parts }, (_, index) => base + (index < remainder ? 1 : 0));
 }
 
 function rankingDisplayName(entry: RankingEntry) {

@@ -27,6 +27,7 @@ const pool = {
   prediction_close_hours_before: 6,
   prediction_mode: "score_with_outcome",
   match_result_scoring_mode: "exclusive",
+  ranking_tie_policy: "split_equal",
   created_by: "user-id",
   created_at: "2026-05-27T01:00:00Z",
   updated_at: "2026-05-27T01:00:00Z",
@@ -521,6 +522,7 @@ const prizePreview = {
   pool_id: "pool-id",
   currency: "COP",
   confirmed_total_cents: 5000000,
+  ranking_tie_policy: "split_equal",
   rules: [
     {
       id: "prize-rule-1",
