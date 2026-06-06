@@ -1709,6 +1709,27 @@ function GlobalPredictionInput({
     );
   }
 
+  if (definition.value_type === "boolean") {
+    return (
+      <label className="grid gap-1 text-xs font-medium text-zinc-600">
+        <span>Respuesta</span>
+        <select
+          aria-label={`Pronostico global ${definition.label}`}
+          className="h-10 rounded-md border border-zinc-300 bg-white px-3 text-sm text-zinc-950 disabled:bg-zinc-100"
+          disabled={closed}
+          onChange={(event) =>
+            onUpdateDraft(definition.code, "valueNumber", event.target.value)
+          }
+          value={draft.valueNumber}
+        >
+          <option value="">Elegir</option>
+          <option value="1">Si</option>
+          <option value="0">No</option>
+        </select>
+      </label>
+    );
+  }
+
   return (
     <label className="grid gap-1 text-xs font-medium text-zinc-600">
       <span>{definition.value_type === "team" ? "Equipo" : "Respuesta"}</span>
@@ -3609,6 +3630,11 @@ function globalPredictionInputFromDraft(
     return valueNumber === null ? null : { value_number: valueNumber };
   }
 
+  if (definition.value_type === "boolean") {
+    const valueNumber = parseWholeNumber(draft.valueNumber);
+    return valueNumber === 0 || valueNumber === 1 ? { value_number: valueNumber } : null;
+  }
+
   const rangeMin = parseWholeNumber(draft.rangeMin);
   const rangeMax = parseWholeNumber(draft.rangeMax);
   if (rangeMin === null || rangeMax === null || rangeMax < rangeMin) {
@@ -3918,6 +3944,8 @@ function globalPredictionValueTypeLabel(valueType: GlobalPredictionDefinition["v
       return "Numero exacto";
     case "number_range":
       return "Rango numerico";
+    case "boolean":
+      return "Si / No";
     case "text":
     default:
       return "Texto";
@@ -3940,6 +3968,12 @@ function globalPredictionValueLabel(
   }
   if (value.value_type === "number") {
     return typeof value.value_number === "number" ? String(value.value_number) : "-";
+  }
+  if (value.value_type === "boolean") {
+    if (typeof value.value_number !== "number") {
+      return "-";
+    }
+    return value.value_number === 1 ? "Si" : "No";
   }
   if (typeof value.range_min === "number" && typeof value.range_max === "number") {
     return `${value.range_min}-${value.range_max}`;

@@ -398,7 +398,13 @@ export type PredictionMode = "score" | "outcome" | "score_with_outcome";
 export type MatchResultScoringMode = "exclusive" | "cumulative";
 export type PredictionSettingsOverrideScope = "stage" | "match";
 export type PredictionSettingsSource = "pool" | "stage" | "match";
-export type GlobalPredictionValueType = "team" | "player" | "text" | "number" | "number_range";
+export type GlobalPredictionValueType =
+  | "team"
+  | "player"
+  | "text"
+  | "number"
+  | "number_range"
+  | "boolean";
 
 export type PredictionSettingsOverride = {
   id: string;

@@ -1163,6 +1163,59 @@ describe("Participants home", () => {
     );
   });
 
+  it("saves a boolean global prediction from the participant dashboard", async () => {
+    storeSession();
+    const booleanDefinition = {
+      id: "global-definition-extra-time",
+      pool_id: "pool-id",
+      code: "custom_final_extra_time",
+      label: "Final con alargue",
+      value_type: "boolean",
+      enabled: true,
+      points_enabled: true,
+      prize_enabled: false,
+      prize_type: "none",
+      prize_fixed_amount_cents: 0,
+      prize_percentage: 0,
+      prize_share_policy: "split_equal",
+      points: 2,
+      sort_order: 3,
+      closes_at: "2099-06-11T00:00:00Z",
+      created_at: "2026-05-27T01:00:00Z",
+      updated_at: "2026-05-27T01:00:00Z",
+    };
+    const fetcher = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      const value = String(url);
+      if (value.endsWith("/global-prediction-definitions")) {
+        return jsonResponse({ data: [booleanDefinition] });
+      }
+      if (value.endsWith("/global-predictions")) {
+        return jsonResponse({ data: [] });
+      }
+      return dashboardFetch(url, init);
+    });
+    vi.stubGlobal("fetch", fetcher);
+
+    render(<ParticipantsHome />);
+
+    const booleanInput = await screen.findByLabelText("Pronostico global Final con alargue");
+    fireEvent.change(booleanInput, { target: { value: "1" } });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Guardar prediccion global Final con alargue" }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("status")).toHaveTextContent("Pronostico global guardado.");
+    });
+    expect(fetcher).toHaveBeenCalledWith(
+      "http://localhost:8080/api/v1/pools/pool-id/global-predictions/custom_final_extra_time",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({ value_number: 1 }),
+      }),
+    );
+  });
+
   it("saves an outcome-only prediction when the pool uses outcome mode", async () => {
     storeSession();
     const outcomePool = { ...pool, prediction_mode: "outcome" };

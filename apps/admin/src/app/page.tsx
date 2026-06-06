@@ -214,6 +214,7 @@ const globalPredictionValueTypeOptions: Array<{
   { value: "text", label: "Texto" },
   { value: "number", label: "Numero" },
   { value: "number_range", label: "Rango numerico" },
+  { value: "boolean", label: "Si / No" },
 ];
 
 export default function AdminHome() {
@@ -3613,6 +3614,25 @@ function GlobalResultInput({
     );
   }
 
+  if (definition.value_type === "boolean") {
+    return (
+      <label className="grid gap-2 text-sm font-medium text-zinc-700">
+        <span>Resultado oficial</span>
+        <select
+          aria-label={`Resultado oficial ${definition.label}`}
+          className="min-h-10 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950 disabled:bg-zinc-100"
+          disabled={disabled}
+          onChange={(event) => onUpdate("valueNumber", event.target.value)}
+          value={draft.valueNumber}
+        >
+          <option value="">Elegir</option>
+          <option value="1">Si</option>
+          <option value="0">No</option>
+        </select>
+      </label>
+    );
+  }
+
   return (
     <label className="grid gap-2 text-sm font-medium text-zinc-700">
       <span>{globalValueTypeLabel(definition.value_type)}</span>
@@ -5003,12 +5023,15 @@ function globalPredictionInputFromDraft(
     return valueText ? { value_text: valueText } : null;
   }
 
-  const valueNumber = parseWholeNumber(draft.valueNumber);
-  if (valueNumber === null) {
-    return null;
-  }
-  return { value_number: valueNumber };
-}
+	  const valueNumber = parseWholeNumber(draft.valueNumber);
+	  if (valueNumber === null) {
+	    return null;
+	  }
+	  if (definition.value_type === "boolean" && valueNumber !== 0 && valueNumber !== 1) {
+	    return null;
+	  }
+	  return { value_number: valueNumber };
+	}
 
 function globalPredictionValueTypeSupportsAliases(valueType: GlobalPredictionValueType) {
   return valueType === "player" || valueType === "text";
@@ -5076,6 +5099,8 @@ function globalValueTypeLabel(valueType: GlobalPredictionValueType) {
       return "Numero exacto";
     case "number_range":
       return "Rango numerico";
+    case "boolean":
+      return "Si / No";
     case "text":
     default:
       return "Texto";
@@ -5133,9 +5158,12 @@ function globalValueLabel(value: GlobalPredictionResult, teamOptions: Tournament
     }
     return value.value_text;
   }
-  if (typeof value.value_number === "number") {
-    return String(value.value_number);
-  }
+	  if (typeof value.value_number === "number") {
+	    if (value.value_type === "boolean") {
+	      return value.value_number === 1 ? "Si" : "No";
+	    }
+	    return String(value.value_number);
+	  }
   if (typeof value.range_min === "number" && typeof value.range_max === "number") {
     return `${value.range_min} - ${value.range_max}`;
   }

@@ -1042,6 +1042,85 @@ describe("Admin home", () => {
     );
   });
 
+  it("saves a boolean official global result", async () => {
+    storeSession();
+    const booleanDefinition = {
+      id: "global-definition-extra-time",
+      pool_id: "pool-id",
+      code: "custom_final_extra_time",
+      label: "Final con alargue",
+      value_type: "boolean",
+      enabled: true,
+      points_enabled: true,
+      prize_enabled: false,
+      prize_type: "none",
+      prize_fixed_amount_cents: 0,
+      prize_percentage: 0,
+      prize_share_policy: "split_equal",
+      points: 2,
+      sort_order: 1,
+      closes_at: "2020-06-11T00:00:00Z",
+      created_at: "2026-05-27T01:00:00Z",
+      updated_at: "2026-05-27T01:00:00Z",
+    };
+    const fetcher = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      const value = String(url);
+      if (value.endsWith("/api/v1/pools/pool-id/global-prediction-definitions")) {
+        return jsonResponse({ data: [booleanDefinition] });
+      }
+      if (value.endsWith("/api/v1/pools/pool-id/global-results")) {
+        return jsonResponse({ data: [] });
+      }
+      if (
+        value.endsWith("/api/v1/pools/pool-id/global-results/custom_final_extra_time") &&
+        init?.method === "PUT"
+      ) {
+        const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+        return jsonResponse({
+          data: {
+            id: "global-result-extra-time",
+            pool_id: "pool-id",
+            definition_id: "global-definition-extra-time",
+            code: "custom_final_extra_time",
+            value_type: "boolean",
+            value_text: "",
+            value_number: body.value_number,
+            range_min: null,
+            range_max: null,
+            recorded_by: "admin-id",
+            recorded_at: "2026-07-20T01:00:00Z",
+            created_at: "2026-07-20T01:00:00Z",
+            updated_at: "2026-07-20T01:00:00Z",
+          },
+        });
+      }
+      return adminFetch(url, init);
+    });
+    vi.stubGlobal("fetch", fetcher);
+
+    render(<AdminHome />);
+
+    expect(await screen.findByRole("heading", { name: "Predicciones globales" })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Resultado oficial Final con alargue"), {
+      target: { value: "1" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar resultado Final con alargue" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("status")).toHaveTextContent("Resultado global actualizado.");
+    });
+    expect(fetcher).toHaveBeenCalledWith(
+      "http://localhost:8080/api/v1/pools/pool-id/global-results/custom_final_extra_time",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({
+          value_number: 1,
+        }),
+      }),
+    );
+    expect(screen.getAllByText("Si").length).toBeGreaterThan(0);
+  });
+
   it("keeps saved global definition state when refreshing global prize preview fails", async () => {
     storeSession();
     let globalPrizePreviewRequests = 0;
