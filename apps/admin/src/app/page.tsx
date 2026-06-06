@@ -153,6 +153,10 @@ type PredictionSettingsScopeRow = {
   title: string;
   subtitle: string;
   matchIDs: string[];
+  homeTeam?: Team | null;
+  awayTeam?: Team | null;
+  homeLabel?: string;
+  awayLabel?: string;
 };
 type OfficialStandingScope = {
   key: string;
@@ -655,7 +659,7 @@ export default function AdminHome() {
         tournamentRequest,
         paymentCollectionRequest,
         client.listScoringRules(token, poolDetail.id),
-        client.listMatchUnderdogBonuses(token, poolDetail.id),
+        listMatchUnderdogBonusesWithFallback(client, token, poolDetail.id),
         canManagePredictionConfig
           ? client.listPredictionSettingsOverrides(token, poolDetail.id)
           : Promise.resolve([]),
@@ -4022,7 +4026,15 @@ function PredictionSettingsOverrideTable({
               return (
                 <tr className="align-top" key={row.key}>
                   <td className="px-4 py-4">
-                    <p className="font-semibold text-zinc-950">{row.title}</p>
+                    {row.homeLabel && row.awayLabel ? (
+                      <div className="flex flex-wrap items-center gap-2 font-semibold text-zinc-950">
+                        <TeamBadge label={row.homeLabel} team={row.homeTeam} />
+                        <span className="text-zinc-400">vs</span>
+                        <TeamBadge label={row.awayLabel} team={row.awayTeam} />
+                      </div>
+                    ) : (
+                      <p className="font-semibold text-zinc-950">{row.title}</p>
+                    )}
                     <p className="mt-1 text-xs text-zinc-500">{row.subtitle}</p>
                   </td>
                   <td className="px-4 py-4">
@@ -6662,6 +6674,10 @@ function predictionSettingsScopeRowsForMatches(matches: Match[]) {
       title: `${homeName} vs ${awayName}`,
       subtitle: `Partido ${match.match_number} - ${stageLabel(match)}`,
       matchIDs: [match.id],
+      homeTeam: match.home_team,
+      awayTeam: match.away_team,
+      homeLabel: homeName,
+      awayLabel: awayName,
     });
   }
 
@@ -8055,6 +8071,28 @@ async function listRankingManualTiebreakerAuditLogsWithFallback(
     if (
       error instanceof PollavarAPIError &&
       (error.status === 401 || error.status === 403 || error.status === 404)
+    ) {
+      return [];
+    }
+    throw error;
+  }
+}
+
+async function listMatchUnderdogBonusesWithFallback(
+  client: ReturnType<typeof createPollavarClient>,
+  token: string,
+  poolID: string,
+) {
+  try {
+    const bonuses = await client.listMatchUnderdogBonuses(token, poolID);
+    return Array.isArray(bonuses) ? bonuses : [];
+  } catch (error) {
+    if (
+      error instanceof PollavarAPIError &&
+      (error.status === 401 ||
+        error.status === 403 ||
+        error.status === 404 ||
+        error.status === 500)
     ) {
       return [];
     }
