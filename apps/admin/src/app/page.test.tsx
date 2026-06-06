@@ -784,6 +784,54 @@ describe("Admin home", () => {
     );
   });
 
+  it("updates generated bracket match slots manually", async () => {
+    storeSession();
+    const fetcher = vi.fn(adminFetch);
+    vi.stubGlobal("fetch", fetcher);
+
+    render(<AdminHome />);
+
+    await screen.findByRole("heading", { name: "Oficina FC" });
+    fireEvent.click(screen.getByRole("button", { name: "Generar bracket" }));
+    await waitFor(() => {
+      expect(screen.getByRole("status")).toHaveTextContent("Bracket generado.");
+    });
+
+    const bracketsSection = screen.getByRole("heading", { name: "Brackets" }).closest("section");
+    expect(bracketsSection).not.toBeNull();
+    const generatedRow = within(bracketsSection as HTMLElement)
+      .getByText("generated-match-id")
+      .closest("tr");
+    expect(generatedRow).not.toBeNull();
+
+    const selects = within(generatedRow as HTMLElement).getAllByRole("combobox");
+    fireEvent.change(selects[0], { target: { value: "team-mexico" } });
+    fireEvent.change(selects[1], { target: { value: "team-canada" } });
+    fireEvent.change(within(generatedRow as HTMLElement).getByPlaceholderText("Motivo del ajuste"), {
+      target: { value: "correccion manual de semifinales" },
+    });
+    fireEvent.click(within(generatedRow as HTMLElement).getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("status")).toHaveTextContent("Cruce actualizado.");
+    });
+    expect(fetcher).toHaveBeenCalledWith(
+      "http://localhost:8080/api/v1/tournaments/fifa-world-cup-2026/matches/generated-match-id/slots",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({
+          home_team_id: "team-mexico",
+          away_team_id: "team-canada",
+          reason: "correccion manual de semifinales",
+        }),
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer token",
+        },
+      }),
+    );
+  });
+
   it("generates bye slots for a non power of two qualifier count", async () => {
     storeSession();
     const fetcher = vi.fn(adminFetch);
@@ -1874,6 +1922,60 @@ async function adminFetch(url: RequestInfo | URL, init?: RequestInit) {
           },
         ],
         advancement_rules: [],
+      },
+    });
+  }
+  if (
+    value.endsWith("/api/v1/tournaments/fifa-world-cup-2026/matches/generated-match-id/slots") &&
+    init?.method === "PUT"
+  ) {
+    const body = JSON.parse(String(init.body)) as {
+      home_team_id?: string;
+      away_team_id?: string;
+      reason: string;
+    };
+    return jsonResponse({
+      data: {
+        ...tournament,
+        matches: [
+          ...tournament.matches,
+          {
+            id: "generated-match-id",
+            tournament_id: "fifa-world-cup-2026",
+            stage_id: "custom-knockout",
+            stage_name: "Ronda eliminatoria",
+            stage_type: "knockout",
+            stage_round_size: 2,
+            group_id: "",
+            group_name: "",
+            match_number: 4,
+            home_team:
+              body.home_team_id === "team-mexico"
+                ? { id: "team-mexico", name: "Mexico", short_name: "MEX", country_code: "MEX" }
+                : null,
+            away_team:
+              body.away_team_id === "team-canada"
+                ? { id: "team-canada", name: "Canada", short_name: "CAN", country_code: "CAN" }
+                : null,
+            home_slot: "Seed #1",
+            away_slot: "Seed #2",
+            home_slot_config: {
+              type: "ranking_top_n",
+              source_id: "league-top",
+              rank: 1,
+              label: "Seed #1",
+            },
+            away_slot_config: {
+              type: "ranking_top_n",
+              source_id: "league-top",
+              rank: 2,
+              label: "Seed #2",
+            },
+            starts_at: "0001-01-01T00:00:00Z",
+            venue: "",
+            status: "scheduled",
+          },
+        ],
       },
     });
   }

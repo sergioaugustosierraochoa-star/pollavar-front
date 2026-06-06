@@ -663,6 +663,9 @@ describe("createPollavarClient", () => {
       if (value.endsWith("/tiebreakers") && init?.method === "PUT") {
         return jsonResponse({ data: updatedTournament });
       }
+      if (value.endsWith("/matches/semi%202/slots") && init?.method === "PUT") {
+        return jsonResponse({ data: updatedTournament });
+      }
       return jsonResponse({ data: tournament });
     });
     const client = createPollavarClient({
@@ -687,6 +690,13 @@ describe("createPollavarClient", () => {
     await expect(
       client.updateTournamentTiebreakers("token", "tournament id", {
         tiebreakers: ["points", "goals_for"],
+      }),
+    ).resolves.toEqual(updatedTournament);
+    await expect(
+      client.updateMatchSlotOverride("token", "tournament id", "semi 2", {
+        home_team_id: "team-a",
+        away_team_id: "team-z",
+        reason: "manual bracket correction",
       }),
     ).resolves.toEqual(updatedTournament);
 
@@ -735,6 +745,22 @@ describe("createPollavarClient", () => {
         },
         body: JSON.stringify({
           tiebreakers: ["points", "goals_for"],
+        }),
+      },
+    );
+    expect(fetcher).toHaveBeenNthCalledWith(
+      5,
+      "http://api.local/api/v1/tournaments/tournament%20id/matches/semi%202/slots",
+      {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer token",
+        },
+        body: JSON.stringify({
+          home_team_id: "team-a",
+          away_team_id: "team-z",
+          reason: "manual bracket correction",
         }),
       },
     );

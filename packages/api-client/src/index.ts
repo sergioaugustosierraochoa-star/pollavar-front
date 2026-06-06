@@ -158,6 +158,12 @@ export type UpdateTournamentTiebreakersInput = {
   tiebreakers: TournamentTiebreaker[];
 };
 
+export type UpdateMatchSlotOverrideInput = {
+  home_team_id?: string;
+  away_team_id?: string;
+  reason: string;
+};
+
 export type GeneratedBracket = {
   matches: Match[];
   advancement_rules: AdvancementRule[];
@@ -834,6 +840,22 @@ export function createPollavarClient(options: PollavarClientOptions = {}) {
       return request<Tournament>(
         fetcher,
         `${baseURL}/api/v1/tournaments/${encodeURIComponent(tournamentID)}/tiebreakers`,
+        {
+          method: "PUT",
+          body: JSON.stringify(input),
+          headers: authHeaders(token),
+        },
+      );
+    },
+    updateMatchSlotOverride(
+      token: string,
+      tournamentID: string,
+      matchID: string,
+      input: UpdateMatchSlotOverrideInput,
+    ) {
+      return request<Tournament>(
+        fetcher,
+        `${baseURL}/api/v1/tournaments/${encodeURIComponent(tournamentID)}/matches/${encodeURIComponent(matchID)}/slots`,
         {
           method: "PUT",
           body: JSON.stringify(input),

@@ -212,6 +212,14 @@ type BracketGeneratorDraft = {
   rulePriorityStart: string;
   sourceMatchesText: string;
 };
+type MatchSlotOverrideDrafts = Record<
+  string,
+  {
+    homeTeamID: string;
+    awayTeamID: string;
+    reason: string;
+  }
+>;
 
 const prizePercentageScale = 1000;
 const prizeTotalPercentageUnits = 100 * prizePercentageScale;
@@ -335,9 +343,12 @@ export default function AdminHome() {
   const [savingPredictionOverrides, setSavingPredictionOverrides] = useState(false);
   const [savingPrizes, setSavingPrizes] = useState(false);
   const [savingBracket, setSavingBracket] = useState(false);
+  const [savingMatchSlotOverrideID, setSavingMatchSlotOverrideID] = useState("");
   const [bracketDraft, setBracketDraft] = useState<BracketGeneratorDraft>(
     defaultBracketGeneratorDraft(null),
   );
+  const [matchSlotOverrideDrafts, setMatchSlotOverrideDrafts] =
+    useState<MatchSlotOverrideDrafts>({});
   const [generatedBracket, setGeneratedBracket] = useState<GeneratedBracket | null>(null);
   const requestID = useRef(0);
 
@@ -408,6 +419,7 @@ export default function AdminHome() {
     setGlobalAnswerSummaries({});
     setUnderdogBonusDrafts({});
     setBracketDraft(defaultBracketGeneratorDraft(null));
+    setMatchSlotOverrideDrafts({});
     setGeneratedBracket(null);
     setThemeDraft(defaultThemeDraft(null));
     setPredictionSettingsDraft(defaultPredictionSettingsDraft(null, []));
@@ -429,6 +441,7 @@ export default function AdminHome() {
     setSavingPredictionSettings(false);
     setSavingPredictionOverrides(false);
     setSavingPrizes(false);
+    setSavingMatchSlotOverrideID("");
   }, []);
 
   const loadDashboard = useCallback(async function loadDashboard(
@@ -504,6 +517,7 @@ export default function AdminHome() {
         setOfficialStandingAuditLogsByScope({});
         setTiebreakerOrder(allTournamentTiebreakers);
         setTiebreakerDraft(defaultTiebreakerDraft(null));
+        setMatchSlotOverrideDrafts({});
         setDrafts({});
         setStatus("ready");
         return;
@@ -611,6 +625,7 @@ export default function AdminHome() {
       setTiebreakerOrder(defaultTiebreakerOrder(tournamentDetail));
       setTiebreakerDraft(defaultTiebreakerDraft(tournamentDetail));
       setBracketDraft(defaultBracketGeneratorDraft(tournamentDetail));
+      setMatchSlotOverrideDrafts(hydrateMatchSlotOverrideDrafts(tournamentDetail?.matches ?? []));
       setGeneratedBracket(null);
       setResultAuditLogsByMatchID({});
       setOfficialStandingAuditLogsByScope({});
@@ -902,15 +917,13 @@ export default function AdminHome() {
       const client = createPollavarClient();
       const bracket = await client.generateKnockoutBracket(session.token, tournament.id, input);
       setGeneratedBracket(bracket);
-      setTournament((current) =>
-        current
-          ? {
-              ...current,
-              matches: [...current.matches, ...bracket.matches],
-              advancement_rules: [...current.advancement_rules, ...bracket.advancement_rules],
-            }
-          : current,
-      );
+      const nextTournament = {
+        ...tournament,
+        matches: [...tournament.matches, ...bracket.matches],
+        advancement_rules: [...tournament.advancement_rules, ...bracket.advancement_rules],
+      };
+      setTournament(nextTournament);
+      setMatchSlotOverrideDrafts(hydrateMatchSlotOverrideDrafts(nextTournament.matches));
       setMessage("Bracket generado.");
     } catch (error) {
       if (isUnauthorized(error)) {
@@ -967,6 +980,79 @@ export default function AdminHome() {
       setMessage("No pudimos actualizar los desempates del torneo.");
     } finally {
       setSavingTiebreakers(false);
+    }
+  }
+
+  function updateMatchSlotOverrideDraft(
+    matchID: string,
+    patch: Partial<MatchSlotOverrideDrafts[string]>,
+  ) {
+    setMatchSlotOverrideDrafts((current) => ({
+      ...current,
+      [matchID]: {
+        homeTeamID: current[matchID]?.homeTeamID ?? "",
+        awayTeamID: current[matchID]?.awayTeamID ?? "",
+        reason: current[matchID]?.reason ?? "",
+        ...patch,
+      },
+    }));
+  }
+
+  async function saveMatchSlotOverride(match: Match) {
+    if (!session || !tournament || !canManageSelectedTournamentBrackets) {
+      return;
+    }
+
+    const draft = matchSlotOverrideDrafts[match.id] ?? {
+      homeTeamID: match.home_team?.id ?? "",
+      awayTeamID: match.away_team?.id ?? "",
+      reason: "",
+    };
+    const homeTeamID = draft.homeTeamID.trim();
+    const awayTeamID = draft.awayTeamID.trim();
+    const reason = draft.reason.trim();
+    if (homeTeamID && homeTeamID === awayTeamID) {
+      setMessage("El local y visitante del cruce no pueden ser el mismo equipo.");
+      return;
+    }
+    if (!reason) {
+      setMessage("Indica el motivo del ajuste manual del cruce.");
+      return;
+    }
+
+    setSavingMatchSlotOverrideID(match.id);
+    setMessage("");
+
+    try {
+      const updatedTournament = await createPollavarClient().updateMatchSlotOverride(
+        session.token,
+        tournament.id,
+        match.id,
+        {
+          home_team_id: homeTeamID || undefined,
+          away_team_id: awayTeamID || undefined,
+          reason,
+        },
+      );
+      setTournament(updatedTournament);
+      setMatchSlotOverrideDrafts(hydrateMatchSlotOverrideDrafts(updatedTournament.matches));
+      setMessage("Cruce actualizado.");
+    } catch (error) {
+      if (isUnauthorized(error)) {
+        signOutAdmin();
+        return;
+      }
+      if (isForbidden(error)) {
+        setMessage("No tienes permisos para ajustar cruces de este torneo.");
+        return;
+      }
+      if (error instanceof PollavarAPIError && error.status === 400) {
+        setMessage("Revisa los equipos y el motivo del ajuste.");
+        return;
+      }
+      setMessage("No pudimos actualizar el cruce.");
+    } finally {
+      setSavingMatchSlotOverrideID("");
     }
   }
 
@@ -1929,9 +2015,13 @@ export default function AdminHome() {
                 canManage={canManageSelectedTournamentBrackets}
                 draft={bracketDraft}
                 generatedBracket={generatedBracket}
+                matchSlotOverrideDrafts={matchSlotOverrideDrafts}
                 onChange={setBracketDraft}
                 onGenerate={() => void generateKnockoutBracket()}
+                onSaveMatchSlotOverride={(match) => void saveMatchSlotOverride(match)}
+                onUpdateMatchSlotOverrideDraft={updateMatchSlotOverrideDraft}
                 saving={savingBracket}
+                savingMatchSlotOverrideID={savingMatchSlotOverrideID}
                 tournament={tournament}
               />
             ) : null}
@@ -3096,20 +3186,33 @@ function BracketGeneratorPanel({
   canManage,
   draft,
   generatedBracket,
+  matchSlotOverrideDrafts,
   onChange,
   onGenerate,
+  onSaveMatchSlotOverride,
+  onUpdateMatchSlotOverrideDraft,
   saving,
+  savingMatchSlotOverrideID,
   tournament,
 }: {
   canManage: boolean;
   draft: BracketGeneratorDraft;
   generatedBracket: GeneratedBracket | null;
+  matchSlotOverrideDrafts: MatchSlotOverrideDrafts;
   onChange: (draft: BracketGeneratorDraft) => void;
   onGenerate: () => void;
+  onSaveMatchSlotOverride: (match: Match) => void;
+  onUpdateMatchSlotOverrideDraft: (
+    matchID: string,
+    patch: Partial<MatchSlotOverrideDrafts[string]>,
+  ) => void;
   saving: boolean;
+  savingMatchSlotOverrideID: string;
   tournament: Tournament | null;
 }) {
   const update = (patch: Partial<BracketGeneratorDraft>) => onChange({ ...draft, ...patch });
+  const editableMatches = bracketEditableMatches(tournament);
+  const teamOptions = tournamentTeamOptions(tournament);
   const applyByeSlots = () => {
     const qualifierCount = parseWholeNumber(draft.qualifierCount);
     if (qualifierCount === null || qualifierCount < 2 || qualifierCount > maxGeneratedBracketSize) {
@@ -3259,6 +3362,125 @@ function BracketGeneratorPanel({
             </ul>
           ) : null}
         </div>
+      </div>
+
+      <div className="border-t border-zinc-200 p-5">
+        <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-zinc-950">Edicion manual de cruces</h3>
+            <p className="text-sm text-zinc-600">
+              Ajusta equipos por slot. Si mueves un equipo dentro de la misma fase, el backend lo
+              libera del cruce original.
+            </p>
+          </div>
+          <span className="text-xs font-medium text-zinc-500">
+            {editableMatches.length} cruces editables
+          </span>
+        </div>
+
+        {editableMatches.length > 0 ? (
+          <div className="mt-4 overflow-x-auto">
+            <table className="min-w-full divide-y divide-zinc-200 text-sm">
+              <thead className="bg-zinc-50 text-left text-xs font-semibold uppercase text-zinc-500">
+                <tr>
+                  <th className="px-3 py-2">Ronda</th>
+                  <th className="px-3 py-2">Partido</th>
+                  <th className="px-3 py-2">Local</th>
+                  <th className="px-3 py-2">Visitante</th>
+                  <th className="px-3 py-2">Motivo</th>
+                  <th className="px-3 py-2 text-right">Accion</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-200">
+                {editableMatches.map((match) => {
+                  const draftValue = matchSlotOverrideDrafts[match.id] ?? {
+                    homeTeamID: match.home_team?.id ?? "",
+                    awayTeamID: match.away_team?.id ?? "",
+                    reason: "",
+                  };
+                  const savingMatch = savingMatchSlotOverrideID === match.id;
+                  return (
+                    <tr className="align-top" key={match.id}>
+                      <td className="px-3 py-3 text-zinc-700">
+                        <div className="font-medium text-zinc-950">{match.stage_name}</div>
+                        <div className="text-xs text-zinc-500">{match.stage_type}</div>
+                      </td>
+                      <td className="px-3 py-3 text-zinc-700">
+                        #{match.match_number || "-"}
+                        <div className="text-xs text-zinc-500">{match.id}</div>
+                      </td>
+                      <td className="px-3 py-3">
+                        <select
+                          className="min-h-10 w-44 rounded-md border border-zinc-300 bg-white px-2 text-sm text-zinc-950 disabled:bg-zinc-100"
+                          disabled={!canManage || savingMatch}
+                          onChange={(event) =>
+                            onUpdateMatchSlotOverrideDraft(match.id, {
+                              homeTeamID: event.target.value,
+                            })
+                          }
+                          value={draftValue.homeTeamID}
+                        >
+                          <option value="">Hueco</option>
+                          {teamOptions.map((team) => (
+                            <option key={team.id} value={team.id}>
+                              {team.name}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="px-3 py-3">
+                        <select
+                          className="min-h-10 w-44 rounded-md border border-zinc-300 bg-white px-2 text-sm text-zinc-950 disabled:bg-zinc-100"
+                          disabled={!canManage || savingMatch}
+                          onChange={(event) =>
+                            onUpdateMatchSlotOverrideDraft(match.id, {
+                              awayTeamID: event.target.value,
+                            })
+                          }
+                          value={draftValue.awayTeamID}
+                        >
+                          <option value="">Hueco</option>
+                          {teamOptions.map((team) => (
+                            <option key={team.id} value={team.id}>
+                              {team.name}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="px-3 py-3">
+                        <input
+                          className="min-h-10 w-64 rounded-md border border-zinc-300 px-3 text-sm text-zinc-950 disabled:bg-zinc-100"
+                          disabled={!canManage || savingMatch}
+                          onChange={(event) =>
+                            onUpdateMatchSlotOverrideDraft(match.id, {
+                              reason: event.target.value,
+                            })
+                          }
+                          placeholder="Motivo del ajuste"
+                          value={draftValue.reason}
+                        />
+                      </td>
+                      <td className="px-3 py-3 text-right">
+                        <button
+                          className="min-h-10 rounded-md bg-zinc-950 px-3 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
+                          disabled={!canManage || savingMatch}
+                          onClick={() => onSaveMatchSlotOverride(match)}
+                          type="button"
+                        >
+                          {savingMatch ? "Guardando" : "Guardar"}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="mt-4 rounded-md border border-dashed border-zinc-300 px-3 py-4 text-sm text-zinc-500">
+            Todavia no hay cruces eliminatorios para ajustar.
+          </p>
+        )}
       </div>
     </section>
   );
@@ -6379,7 +6601,41 @@ function tournamentTeamOptions(tournament: Tournament | null) {
       teamsByID.set(team.id || team.name, team);
     }
   }
+  for (const match of tournament?.matches ?? []) {
+    for (const team of [match.home_team, match.away_team]) {
+      if (team?.id) {
+        teamsByID.set(team.id, team);
+      }
+    }
+  }
   return [...teamsByID.values()].sort((left, right) => left.name.localeCompare(right.name, "es"));
+}
+
+function bracketEditableMatches(tournament: Tournament | null) {
+  return [...(tournament?.matches ?? [])]
+    .filter((match) =>
+      ["knockout", "playoff", "placement"].includes(match.stage_type) ||
+      match.stage_round_size > 0,
+    )
+    .sort(
+      (left, right) =>
+        left.stage_name.localeCompare(right.stage_name, "es") ||
+        left.match_number - right.match_number ||
+        left.id.localeCompare(right.id, "es"),
+    );
+}
+
+function hydrateMatchSlotOverrideDrafts(matches: Match[]): MatchSlotOverrideDrafts {
+  return Object.fromEntries(
+    matches.map((match) => [
+      match.id,
+      {
+        homeTeamID: match.home_team?.id ?? "",
+        awayTeamID: match.away_team?.id ?? "",
+        reason: "",
+      },
+    ]),
+  );
 }
 
 function teamOptionLabel(value: string, teamOptions: TournamentTeamOption[]) {
