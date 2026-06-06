@@ -679,6 +679,10 @@ describe("Admin home", () => {
             { type: "ranking_top_n", source_id: "league-top", rank: 1, label: "Seed #1" },
             { type: "ranking_top_n", source_id: "league-top", rank: 2, label: "Seed #2" },
           ],
+          from_stage_id: "group-stage",
+          from_stage_name: "Fase de grupos",
+          rule_id_prefix: "league-top",
+          rule_priority_start: 1,
         }),
         headers: {
           "Content-Type": "application/json",

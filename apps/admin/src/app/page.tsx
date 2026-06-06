@@ -4622,9 +4622,9 @@ function defaultBracketGeneratorDraft(tournament: Tournament | null): BracketGen
     matchIDPrefix: "custom-knockout-match",
     matchNumberStart: String(Math.max(nextMatchNumber, 1)),
     slotsText: "ranking_top_n,league-top,1,Seed #1\nranking_top_n,league-top,2,Seed #2",
-    fromStageID: "",
-    fromStageName: "",
-    ruleIDPrefix: "custom-knockout-advance",
+    fromStageID: "group-stage",
+    fromStageName: "Fase de grupos",
+    ruleIDPrefix: "league-top",
     rulePriorityStart: "1",
     sourceMatchesText: "",
   };
@@ -5220,6 +5220,7 @@ function parseBracketGeneratorDraft(
     : undefined;
   const slots = parseBracketSlots(draft.slotsText);
   const sourceMatches = parseSourceMatches(draft.sourceMatchesText);
+  const needsRankingRule = slots?.some((slot) => slot.type === "ranking_top_n") ?? false;
 
   if (
     !draft.stageID.trim() ||
@@ -5244,7 +5245,7 @@ function parseBracketGeneratorDraft(
     match_number_start: matchNumberStart,
     slots,
   };
-  if (sourceMatches.length > 0) {
+  if (sourceMatches.length > 0 || needsRankingRule) {
     if (!draft.fromStageID.trim() || !draft.ruleIDPrefix.trim() || !rulePriorityStart) {
       return null;
     }
@@ -5252,7 +5253,9 @@ function parseBracketGeneratorDraft(
     input.from_stage_name = draft.fromStageName.trim() || undefined;
     input.rule_id_prefix = draft.ruleIDPrefix.trim();
     input.rule_priority_start = rulePriorityStart;
-    input.source_matches = sourceMatches;
+    if (sourceMatches.length > 0) {
+      input.source_matches = sourceMatches;
+    }
   }
   return input;
 }
