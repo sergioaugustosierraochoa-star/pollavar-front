@@ -623,6 +623,9 @@ describe("createPollavarClient", () => {
       if (String(url).endsWith("/api/v1/tournaments")) {
         return jsonResponse({ data: [tournamentSummary] });
       }
+      if (String(url).endsWith("/brackets/generate")) {
+        return jsonResponse({ data: { matches: [tournament.matches[0]], advancement_rules: [tournament.advancement_rules[0]] } });
+      }
       return jsonResponse({ data: tournament });
     });
     const client = createPollavarClient({
@@ -632,6 +635,18 @@ describe("createPollavarClient", () => {
 
     await expect(client.listTournaments()).resolves.toEqual([tournamentSummary]);
     await expect(client.getTournament("fifa world cup")).resolves.toEqual(tournament);
+    await expect(
+      client.generateKnockoutBracket("token", "tournament id", {
+        stage_id: "round-2",
+        stage_name: "Round 2",
+        match_id_prefix: "round-2-match",
+        match_number_start: 3,
+        slots: [{ type: "ranking_top_n", source_id: "league-top", rank: 1, label: "Seed #1" }],
+      }),
+    ).resolves.toEqual({
+      matches: [tournament.matches[0]],
+      advancement_rules: [tournament.advancement_rules[0]],
+    });
 
     expect(fetcher).toHaveBeenNthCalledWith(1, "http://api.local/api/v1/tournaments", {
       method: "GET",
@@ -647,6 +662,24 @@ describe("createPollavarClient", () => {
         headers: {
           "Content-Type": "application/json",
         },
+      },
+    );
+    expect(fetcher).toHaveBeenNthCalledWith(
+      3,
+      "http://api.local/api/v1/tournaments/tournament%20id/brackets/generate",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer token",
+        },
+        body: JSON.stringify({
+          stage_id: "round-2",
+          stage_name: "Round 2",
+          match_id_prefix: "round-2-match",
+          match_number_start: 3,
+          slots: [{ type: "ranking_top_n", source_id: "league-top", rank: 1, label: "Seed #1" }],
+        }),
       },
     );
   });

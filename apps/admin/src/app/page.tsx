@@ -5,6 +5,8 @@ import {
   createPollavarClient,
   type AuthUser,
   type EffectiveMatchPredictionSettings,
+  type GeneratedBracket,
+  type GenerateKnockoutBracketInput,
   type GlobalPredictionAnswerGroup,
   type GlobalPredictionAnswerSummary,
   type GlobalPredictionDefinition,
@@ -19,6 +21,7 @@ import {
   type MatchOutcome,
   type MatchResultAuditLog,
   type MatchUnderdogBonus,
+  type MatchSlot,
   type MatchResultScoringMode,
   type Payment,
   type PaymentCollection,
@@ -175,6 +178,18 @@ type TournamentTeamOption = Tournament["groups"][number]["teams"][number];
 type RefreshPrizePreviewOptions = {
   syncDrafts?: boolean;
 };
+type BracketGeneratorDraft = {
+  stageID: string;
+  stageName: string;
+  matchIDPrefix: string;
+  matchNumberStart: string;
+  slotsText: string;
+  fromStageID: string;
+  fromStageName: string;
+  ruleIDPrefix: string;
+  rulePriorityStart: string;
+  sourceMatchesText: string;
+};
 
 const prizePercentageScale = 1000;
 const prizeTotalPercentageUnits = 100 * prizePercentageScale;
@@ -277,6 +292,11 @@ export default function AdminHome() {
   const [savingPredictionSettings, setSavingPredictionSettings] = useState(false);
   const [savingPredictionOverrides, setSavingPredictionOverrides] = useState(false);
   const [savingPrizes, setSavingPrizes] = useState(false);
+  const [savingBracket, setSavingBracket] = useState(false);
+  const [bracketDraft, setBracketDraft] = useState<BracketGeneratorDraft>(
+    defaultBracketGeneratorDraft(null),
+  );
+  const [generatedBracket, setGeneratedBracket] = useState<GeneratedBracket | null>(null);
   const requestID = useRef(0);
 
   const predictionStatusesByMatch = useMemo(
@@ -308,6 +328,9 @@ export default function AdminHome() {
   );
   const canManageSelectedPoolTheme = Boolean(pool && canManageTheme(pool));
   const canManageSelectedPoolResults = Boolean(pool && canManageResults(pool));
+  const canManageSelectedTournamentBrackets = Boolean(
+    session && pool && canManageTournamentBrackets(pool, session.user),
+  );
   const totals = useMemo(
     () => paymentTotals(pool?.participants ?? [], paymentsByUserID),
     [pool?.participants, paymentsByUserID],
@@ -338,6 +361,8 @@ export default function AdminHome() {
     setGlobalResultDrafts({});
     setGlobalAnswerSummaries({});
     setUnderdogBonusDrafts({});
+    setBracketDraft(defaultBracketGeneratorDraft(null));
+    setGeneratedBracket(null);
     setThemeDraft(defaultThemeDraft(null));
     setPredictionSettingsDraft(defaultPredictionSettingsDraft(null, []));
     setPredictionSettingsOverrideDrafts({});
@@ -521,6 +546,8 @@ export default function AdminHome() {
       setResultDrafts(
         hydrateResultDrafts(tournamentDetail?.matches ?? [], nextPredictionStatuses),
       );
+      setBracketDraft(defaultBracketGeneratorDraft(tournamentDetail));
+      setGeneratedBracket(null);
       setResultAuditLogsByMatchID({});
       setDrafts(hydratePaymentDrafts(poolDetail, nextPaymentCollection.payments));
       setStatus("ready");
@@ -752,6 +779,49 @@ export default function AdminHome() {
       setMessage("No pudimos guardar la plantilla del catalogo.");
     } finally {
       setSavingGlobalTemplateCode("");
+    }
+  }
+
+  async function generateKnockoutBracket() {
+    if (!session || !pool || !tournament || !canManageSelectedTournamentBrackets) {
+      return;
+    }
+
+    const input = parseBracketGeneratorDraft(bracketDraft);
+    if (!input) {
+      setMessage("Revisa la configuracion del bracket.");
+      return;
+    }
+
+    setSavingBracket(true);
+    setMessage("");
+
+    try {
+      const client = createPollavarClient();
+      const bracket = await client.generateKnockoutBracket(session.token, tournament.id, input);
+      setGeneratedBracket(bracket);
+      setTournament((current) =>
+        current
+          ? {
+              ...current,
+              matches: [...current.matches, ...bracket.matches],
+              advancement_rules: [...current.advancement_rules, ...bracket.advancement_rules],
+            }
+          : current,
+      );
+      setMessage("Bracket generado.");
+    } catch (error) {
+      if (isUnauthorized(error)) {
+        signOutAdmin();
+        return;
+      }
+      if (isForbidden(error)) {
+        setMessage("No tienes permisos para generar brackets de este torneo.");
+        return;
+      }
+      setMessage("No pudimos generar el bracket.");
+    } finally {
+      setSavingBracket(false);
     }
   }
 
@@ -1574,6 +1644,18 @@ export default function AdminHome() {
             ) : null}
 
             {pool ? (
+              <BracketGeneratorPanel
+                canManage={canManageSelectedTournamentBrackets}
+                draft={bracketDraft}
+                generatedBracket={generatedBracket}
+                onChange={setBracketDraft}
+                onGenerate={() => void generateKnockoutBracket()}
+                saving={savingBracket}
+                tournament={tournament}
+              />
+            ) : null}
+
+            {pool ? (
               <GlobalPredictionAdminPanel
                 canManage={canManageSelectedPoolGlobalPredictions}
                 canManageResults={canManageSelectedPoolResults}
@@ -2076,6 +2158,7 @@ function AdminSectionNavigation({ pool }: { pool: Pool }) {
     { href: "#identidad", label: "Identidad" },
     { href: "#pronosticos", label: "Pronosticos" },
     { href: "#overrides", label: "Overrides" },
+    { href: "#brackets", label: "Brackets" },
     { href: "#globales", label: "Globales" },
     { href: "#resultados", label: "Resultados" },
     { href: "#premios", label: "Premios" },
@@ -2678,6 +2761,180 @@ function PredictionSettingsOverrideTable({
         </table>
       </div>
     </div>
+  );
+}
+
+function TextInput({
+  disabled,
+  label,
+  onChange,
+  type = "text",
+  value,
+}: {
+  disabled: boolean;
+  label: string;
+  onChange: (value: string) => void;
+  type?: "number" | "text";
+  value: string;
+}) {
+  return (
+    <label className="grid gap-2 text-sm font-medium text-zinc-700">
+      <span>{label}</span>
+      <input
+        className="min-h-10 rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-950 disabled:bg-zinc-100"
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.value)}
+        type={type}
+        value={value}
+      />
+    </label>
+  );
+}
+
+function BracketGeneratorPanel({
+  canManage,
+  draft,
+  generatedBracket,
+  onChange,
+  onGenerate,
+  saving,
+  tournament,
+}: {
+  canManage: boolean;
+  draft: BracketGeneratorDraft;
+  generatedBracket: GeneratedBracket | null;
+  onChange: (draft: BracketGeneratorDraft) => void;
+  onGenerate: () => void;
+  saving: boolean;
+  tournament: Tournament | null;
+}) {
+  const update = (patch: Partial<BracketGeneratorDraft>) => onChange({ ...draft, ...patch });
+
+  return (
+    <section
+      className="scroll-mt-4 rounded-lg border border-zinc-200 bg-white shadow-sm"
+      id="brackets"
+    >
+      <div className="flex flex-col gap-3 border-b border-zinc-200 px-5 py-4 md:flex-row md:items-center md:justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-zinc-950">Brackets</h2>
+          <p className="text-sm text-zinc-600">
+            Genera rondas eliminatorias desde slots configurables.
+          </p>
+        </div>
+        <span
+          className={`w-fit rounded-md px-2 py-1 text-xs font-medium ${
+            canManage ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"
+          }`}
+        >
+          {canManage ? "Configurable" : "Solo lectura"}
+        </span>
+      </div>
+
+      <div className="grid gap-5 p-5 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.8fr)]">
+        <div className="grid gap-4">
+          <div className="grid gap-3 md:grid-cols-2">
+            <TextInput
+              disabled={!canManage || saving}
+              label="ID de ronda"
+              onChange={(value) => update({ stageID: value })}
+              value={draft.stageID}
+            />
+            <TextInput
+              disabled={!canManage || saving}
+              label="Nombre de ronda"
+              onChange={(value) => update({ stageName: value })}
+              value={draft.stageName}
+            />
+            <TextInput
+              disabled={!canManage || saving}
+              label="Prefijo de partidos"
+              onChange={(value) => update({ matchIDPrefix: value })}
+              value={draft.matchIDPrefix}
+            />
+            <TextInput
+              disabled={!canManage || saving}
+              label="Numero inicial"
+              onChange={(value) => update({ matchNumberStart: value })}
+              type="number"
+              value={draft.matchNumberStart}
+            />
+            <TextInput
+              disabled={!canManage || saving}
+              label="Ronda origen"
+              onChange={(value) => update({ fromStageID: value })}
+              value={draft.fromStageID}
+            />
+            <TextInput
+              disabled={!canManage || saving}
+              label="Nombre origen"
+              onChange={(value) => update({ fromStageName: value })}
+              value={draft.fromStageName}
+            />
+            <TextInput
+              disabled={!canManage || saving}
+              label="Prefijo de reglas"
+              onChange={(value) => update({ ruleIDPrefix: value })}
+              value={draft.ruleIDPrefix}
+            />
+            <TextInput
+              disabled={!canManage || saving}
+              label="Prioridad inicial"
+              onChange={(value) => update({ rulePriorityStart: value })}
+              type="number"
+              value={draft.rulePriorityStart}
+            />
+          </div>
+
+          <label className="grid gap-2 text-sm font-medium text-zinc-700">
+            <span>Slots</span>
+            <textarea
+              className="min-h-36 rounded-md border border-zinc-300 px-3 py-2 font-mono text-sm text-zinc-950 disabled:bg-zinc-100"
+              disabled={!canManage || saving}
+              onChange={(event) => update({ slotsText: event.target.value })}
+              value={draft.slotsText}
+            />
+          </label>
+
+          <label className="grid gap-2 text-sm font-medium text-zinc-700">
+            <span>Partidos fuente</span>
+            <textarea
+              className="min-h-24 rounded-md border border-zinc-300 px-3 py-2 font-mono text-sm text-zinc-950 disabled:bg-zinc-100"
+              disabled={!canManage || saving}
+              onChange={(event) => update({ sourceMatchesText: event.target.value })}
+              value={draft.sourceMatchesText}
+            />
+          </label>
+
+          <button
+            className="min-h-10 w-fit rounded-md bg-zinc-950 px-3 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
+            disabled={!canManage || saving || !tournament}
+            onClick={onGenerate}
+            type="button"
+          >
+            {saving ? "Generando" : "Generar bracket"}
+          </button>
+        </div>
+
+        <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-4">
+          <h3 className="text-sm font-semibold text-zinc-950">Resultado</h3>
+          <p className="mt-1 text-sm text-zinc-600">
+            {generatedBracket
+              ? `${generatedBracket.matches.length} partidos y ${generatedBracket.advancement_rules.length} reglas creadas.`
+              : `${tournament?.matches.length ?? 0} partidos actuales en el torneo.`}
+          </p>
+          {generatedBracket ? (
+            <ul className="mt-4 grid gap-2 text-sm text-zinc-700">
+              {generatedBracket.matches.map((match) => (
+                <li className="rounded-md border border-zinc-200 bg-white px-3 py-2" key={match.id}>
+                  #{match.match_number} {match.home_slot} vs {match.away_slot}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -4107,6 +4364,13 @@ function canManageResults(pool: Pool) {
   return pool.current_user_role === "pool_admin";
 }
 
+function canManageTournamentBrackets(pool: Pool, user: AuthUser) {
+  return (
+    pool.current_user_role === "pool_admin" &&
+    (user.role === "pool_admin" || user.role === "superadmin")
+  );
+}
+
 function poolDisplayName(pool: Pool) {
   return pool.theme?.display_name || pool.name;
 }
@@ -4342,6 +4606,27 @@ function defaultPredictionSettingsDraft(
     matchResultScoringMode: pool?.match_result_scoring_mode ?? "exclusive",
     underdogBonusEnabled: underdogRule?.enabled ?? false,
     underdogBonusPoints: String(underdogRule?.points ?? 2),
+  };
+}
+
+function defaultBracketGeneratorDraft(tournament: Tournament | null): BracketGeneratorDraft {
+  const nextMatchNumber =
+    (tournament?.matches ?? []).reduce(
+      (maxMatchNumber, match) => Math.max(maxMatchNumber, match.match_number),
+      0,
+    ) + 1;
+
+  return {
+    stageID: "custom-knockout",
+    stageName: "Ronda eliminatoria",
+    matchIDPrefix: "custom-knockout-match",
+    matchNumberStart: String(Math.max(nextMatchNumber, 1)),
+    slotsText: "ranking_top_n,league-top,1,Seed #1\nranking_top_n,league-top,2,Seed #2",
+    fromStageID: "",
+    fromStageName: "",
+    ruleIDPrefix: "custom-knockout-advance",
+    rulePriorityStart: "1",
+    sourceMatchesText: "",
   };
 }
 
@@ -4924,6 +5209,113 @@ function isDraftGlobalTemplate(template: GlobalPredictionTemplate) {
 
 function normalizeConfigCode(value: string) {
   return value.trim().toLowerCase().replace(/[^a-z0-9_]+/g, "_").replace(/^_+|_+$/g, "");
+}
+
+function parseBracketGeneratorDraft(
+  draft: BracketGeneratorDraft,
+): GenerateKnockoutBracketInput | null {
+  const matchNumberStart = parseWholeNumber(draft.matchNumberStart);
+  const rulePriorityStart = draft.rulePriorityStart.trim()
+    ? parseWholeNumber(draft.rulePriorityStart)
+    : undefined;
+  const slots = parseBracketSlots(draft.slotsText);
+  const sourceMatches = parseSourceMatches(draft.sourceMatchesText);
+
+  if (
+    !draft.stageID.trim() ||
+    !draft.stageName.trim() ||
+    !draft.matchIDPrefix.trim() ||
+    matchNumberStart === null ||
+    matchNumberStart <= 0 ||
+    slots === null ||
+    slots.length < 2 ||
+    slots.length % 2 !== 0 ||
+    sourceMatches === null ||
+    rulePriorityStart === null ||
+    (rulePriorityStart !== undefined && rulePriorityStart <= 0)
+  ) {
+    return null;
+  }
+
+  const input: GenerateKnockoutBracketInput = {
+    stage_id: draft.stageID.trim(),
+    stage_name: draft.stageName.trim(),
+    match_id_prefix: draft.matchIDPrefix.trim(),
+    match_number_start: matchNumberStart,
+    slots,
+  };
+  if (sourceMatches.length > 0) {
+    if (!draft.fromStageID.trim() || !draft.ruleIDPrefix.trim() || !rulePriorityStart) {
+      return null;
+    }
+    input.from_stage_id = draft.fromStageID.trim();
+    input.from_stage_name = draft.fromStageName.trim() || undefined;
+    input.rule_id_prefix = draft.ruleIDPrefix.trim();
+    input.rule_priority_start = rulePriorityStart;
+    input.source_matches = sourceMatches;
+  }
+  return input;
+}
+
+function parseBracketSlots(value: string): MatchSlot[] | null {
+  const slots: MatchSlot[] = [];
+  const lines = value
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  for (const line of lines) {
+    const [type = "", sourceID = "", rank = "", ...labelParts] = line.split(",");
+    const parsedType = parseBracketSlotType(type);
+    const parsedRank = parseWholeNumber(rank);
+    const label = labelParts.join(",").trim();
+    if (!parsedType || !sourceID.trim() || parsedRank === null || parsedRank <= 0 || !label) {
+      return null;
+    }
+    slots.push({
+      type: parsedType,
+      source_id: sourceID.trim(),
+      rank: parsedRank,
+      label,
+    });
+  }
+
+  return slots;
+}
+
+function parseBracketSlotType(value: string): MatchSlot["type"] | null {
+  const type = value.trim();
+  if (
+    type === "team" ||
+    type === "seed" ||
+    type === "group_position" ||
+    type === "best_group_rank" ||
+    type === "ranking_top_n" ||
+    type === "match_winner" ||
+    type === "match_loser" ||
+    type === "bye" ||
+    type === "placeholder"
+  ) {
+    return type;
+  }
+  return null;
+}
+
+function parseSourceMatches(value: string) {
+  const lines = value
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const matches: Array<{ id: string; match_number: number }> = [];
+  for (const line of lines) {
+    const [id = "", matchNumber = ""] = line.split(",");
+    const parsedMatchNumber = parseWholeNumber(matchNumber);
+    if (!id.trim() || parsedMatchNumber === null) {
+      return null;
+    }
+    matches.push({ id: id.trim(), match_number: parsedMatchNumber });
+  }
+  return matches;
 }
 
 function parseGlobalDefinitionDrafts(

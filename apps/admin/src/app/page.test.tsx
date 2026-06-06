@@ -10,7 +10,7 @@ const session = {
     name: "Admin",
     username: "admin",
     email: "admin@example.com",
-    role: "participant",
+    role: "pool_admin",
     created_at: "2026-05-27T01:00:00Z",
   },
 };
@@ -609,6 +609,11 @@ describe("Admin home", () => {
       expect(screen.getByRole("status")).toHaveTextContent("Alias globales actualizados.");
     });
 
+    fireEvent.click(screen.getByRole("button", { name: "Generar bracket" }));
+    await waitFor(() => {
+      expect(screen.getByRole("status")).toHaveTextContent("Bracket generado.");
+    });
+
     const participantRow = rowWithText("@participante");
     expect(within(participantRow).getByText("@participante")).toBeInTheDocument();
     expect(within(participantRow).getByText("Pago pendiente")).toBeInTheDocument();
@@ -661,6 +666,26 @@ describe("Admin home", () => {
         },
       }),
     );
+    expect(fetcher).toHaveBeenCalledWith(
+      "http://localhost:8080/api/v1/tournaments/fifa-world-cup-2026/brackets/generate",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          stage_id: "custom-knockout",
+          stage_name: "Ronda eliminatoria",
+          match_id_prefix: "custom-knockout-match",
+          match_number_start: 4,
+          slots: [
+            { type: "ranking_top_n", source_id: "league-top", rank: 1, label: "Seed #1" },
+            { type: "ranking_top_n", source_id: "league-top", rank: 2, label: "Seed #2" },
+          ],
+        }),
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer token",
+        },
+      }),
+    );
   });
 
   it("shows configured bye slot labels in official results", async () => {
@@ -691,6 +716,28 @@ describe("Admin home", () => {
       rowWithTextIn(officialResultsSection as HTMLElement, "Seed #1 vs Clasificado directo"),
     ).toBeInTheDocument();
     expect(within(officialResultsSection as HTMLElement).queryByText("BYE")).not.toBeInTheDocument();
+  });
+
+  it("rejects malformed bracket slots before generating a bracket", async () => {
+    storeSession();
+    const fetcher = vi.fn(adminFetch);
+    vi.stubGlobal("fetch", fetcher);
+
+    render(<AdminHome />);
+
+    await screen.findByRole("heading", { name: "Oficina FC" });
+    fireEvent.change(screen.getByLabelText("Slots"), {
+      target: { value: "ranking_top_n,league-top,1,Seed #1\nranking_top_n,league-top,x" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Generar bracket" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toHaveTextContent("Revisa la configuracion del bracket.");
+    });
+    expect(fetcher).not.toHaveBeenCalledWith(
+      "http://localhost:8080/api/v1/tournaments/fifa-world-cup-2026/brackets/generate",
+      expect.anything(),
+    );
   });
 
   it("shows a permission message when payment update is forbidden", async () => {
@@ -1504,6 +1551,34 @@ async function adminFetch(url: RequestInfo | URL, init?: RequestInit) {
   }
   if (value.endsWith("/api/v1/tournaments/fifa-world-cup-2026")) {
     return jsonResponse({ data: tournament });
+  }
+  if (value.endsWith("/api/v1/tournaments/fifa-world-cup-2026/brackets/generate")) {
+    const body = JSON.parse(String(init?.body));
+    return jsonResponse({
+      data: {
+        matches: [
+          {
+            id: "generated-match-id",
+            tournament_id: "fifa-world-cup-2026",
+            stage_id: body.stage_id,
+            stage_name: body.stage_name,
+            stage_type: "knockout",
+            stage_round_size: body.slots.length,
+            group_id: "",
+            group_name: "",
+            match_number: body.match_number_start,
+            home_slot: body.slots[0].label,
+            away_slot: body.slots[1].label,
+            home_slot_config: body.slots[0],
+            away_slot_config: body.slots[1],
+            starts_at: "0001-01-01T00:00:00Z",
+            venue: "",
+            status: "scheduled",
+          },
+        ],
+        advancement_rules: [],
+      },
+    });
   }
   if (value.endsWith("/api/v1/pools")) {
     return jsonResponse({ data: [pool] });

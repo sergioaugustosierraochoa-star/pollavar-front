@@ -128,6 +128,28 @@ export type AdvancementRule = {
   label: string;
 };
 
+export type GenerateKnockoutBracketInput = {
+  stage_id: string;
+  stage_name: string;
+  stage_type?: string;
+  match_id_prefix: string;
+  match_number_start: number;
+  slots: MatchSlot[];
+  from_stage_id?: string;
+  from_stage_name?: string;
+  rule_id_prefix?: string;
+  rule_priority_start?: number;
+  source_matches?: Array<{
+    id: string;
+    match_number: number;
+  }>;
+};
+
+export type GeneratedBracket = {
+  matches: Match[];
+  advancement_rules: AdvancementRule[];
+};
+
 export type PoolTheme = {
   id: string;
   pool_id: string;
@@ -735,6 +757,21 @@ export function createPollavarClient(options: PollavarClientOptions = {}) {
         `${baseURL}/api/v1/tournaments/${encodeURIComponent(slug)}`,
         {
           method: "GET",
+        },
+      );
+    },
+    generateKnockoutBracket(
+      token: string,
+      tournamentID: string,
+      input: GenerateKnockoutBracketInput,
+    ) {
+      return request<GeneratedBracket>(
+        fetcher,
+        `${baseURL}/api/v1/tournaments/${encodeURIComponent(tournamentID)}/brackets/generate`,
+        {
+          method: "POST",
+          headers: authHeaders(token),
+          body: JSON.stringify(input),
         },
       );
     },
