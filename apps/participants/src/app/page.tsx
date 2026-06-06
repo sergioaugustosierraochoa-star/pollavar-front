@@ -3361,7 +3361,7 @@ function matchTeamKey(team: Match["home_team"], slot: string) {
 function matchSlotLabel(match: Match, side: "home" | "away") {
   const slotConfig = side === "home" ? match.home_slot_config : match.away_slot_config;
   const fallbackSlot = side === "home" ? match.home_slot : match.away_slot;
-  return slotConfig.label || fallbackSlot;
+  return slotConfig?.label || fallbackSlot;
 }
 
 function matchTeamName(team: Match["home_team"], slot: string) {

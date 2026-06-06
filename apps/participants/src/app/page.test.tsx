@@ -632,6 +632,27 @@ const closedStandingsTournament = {
   })),
 };
 
+const byeSlotMatch = {
+  id: "bye-slot-match",
+  tournament_id: "fifa-world-cup-2026",
+  stage_id: "round-of-32",
+  stage_name: "Round of 32",
+  stage_type: "knockout",
+  stage_round_size: 32,
+  group_id: "",
+  group_name: "",
+  match_number: 99,
+  home_team: null,
+  away_team: null,
+  home_slot: "Seed #1",
+  away_slot: "BYE",
+  home_slot_config: { type: "seed", source_id: "seed-1", rank: 1, label: "Seed #1" },
+  away_slot_config: { type: "bye", source_id: "bye-1", rank: 1, label: "Clasificado directo" },
+  starts_at: "2099-07-01T19:00:00Z",
+  venue: "Bye Stadium",
+  status: "scheduled",
+};
+
 describe("Participants home", () => {
   afterEach(() => {
     vi.useRealTimers();
@@ -802,6 +823,40 @@ describe("Participants home", () => {
         },
       }),
     );
+  });
+
+  it("shows configured bye slot labels before teams are resolved", async () => {
+    storeSession();
+    const tournamentWithBye = {
+      ...tournament,
+      matches: [byeSlotMatch],
+    };
+    const fetcher = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      const value = String(url);
+      if (value.endsWith("/api/v1/tournaments/fifa-world-cup-2026")) {
+        return jsonResponse({ data: tournamentWithBye });
+      }
+      if (value.endsWith("/summary")) {
+        return jsonResponse({
+          data: { ...summary, total_matches: 1, predicted_matches: 0, missing_matches: 1 },
+        });
+      }
+      if (value.endsWith("/api/v1/pools/pool-id/predictions")) {
+        return jsonResponse({ data: [] });
+      }
+      if (value.endsWith("/statuses")) {
+        return jsonResponse({ data: [] });
+      }
+      return dashboardFetch(url, init);
+    });
+    vi.stubGlobal("fetch", fetcher);
+
+    render(<ParticipantsHome />);
+
+    expect(await screen.findByRole("heading", { name: "Ronda de 32" })).toBeInTheDocument();
+    expect(screen.getAllByText("Seed #1").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Clasificado directo").length).toBeGreaterThan(0);
+    expect(screen.queryByText("BYE")).not.toBeInTheDocument();
   });
 
   it("loads closed prediction snapshots on demand", async () => {

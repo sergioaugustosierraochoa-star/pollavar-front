@@ -161,6 +161,27 @@ const tournament = {
   ],
 };
 
+const byeSlotMatch = {
+  id: "bye-slot-match",
+  tournament_id: "fifa-world-cup-2026",
+  stage_id: "round-of-32",
+  stage_name: "Round of 32",
+  stage_type: "knockout",
+  stage_round_size: 32,
+  group_id: "",
+  group_name: "",
+  match_number: 99,
+  home_team: null,
+  away_team: null,
+  home_slot: "Seed #1",
+  away_slot: "BYE",
+  home_slot_config: { type: "seed", source_id: "seed-1", rank: 1, label: "Seed #1" },
+  away_slot_config: { type: "bye", source_id: "bye-1", rank: 1, label: "Clasificado directo" },
+  starts_at: "2026-07-01T19:00:00Z",
+  venue: "Bye Stadium",
+  status: "scheduled",
+};
+
 const predictionStatuses = [
   {
     match_id: "match-id",
@@ -640,6 +661,36 @@ describe("Admin home", () => {
         },
       }),
     );
+  });
+
+  it("shows configured bye slot labels in official results", async () => {
+    storeSession();
+    const tournamentWithBye = {
+      ...tournament,
+      matches: [byeSlotMatch],
+    };
+    const fetcher = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      const value = String(url);
+      if (value.endsWith("/api/v1/tournaments/fifa-world-cup-2026")) {
+        return jsonResponse({ data: tournamentWithBye });
+      }
+      if (value.endsWith("/api/v1/pools/pool-id/predictions/statuses")) {
+        return jsonResponse({ data: [] });
+      }
+      return adminFetch(url, init);
+    });
+    vi.stubGlobal("fetch", fetcher);
+
+    render(<AdminHome />);
+
+    const officialResultsSection = await screen
+      .findByRole("heading", { name: "Resultados oficiales" })
+      .then((heading) => heading.closest("section"));
+    expect(officialResultsSection).not.toBeNull();
+    expect(
+      rowWithTextIn(officialResultsSection as HTMLElement, "Seed #1 vs Clasificado directo"),
+    ).toBeInTheDocument();
+    expect(within(officialResultsSection as HTMLElement).queryByText("BYE")).not.toBeInTheDocument();
   });
 
   it("shows a permission message when payment update is forbidden", async () => {
