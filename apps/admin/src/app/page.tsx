@@ -23,6 +23,8 @@ import {
   type MatchUnderdogBonus,
   type MatchSlot,
   type MatchResultScoringMode,
+  type OfficialStanding,
+  type OfficialStandingAuditLog,
   type Payment,
   type PaymentCollection,
   type PaymentMethod,
@@ -39,6 +41,7 @@ import {
   type PrizePreview,
   type SaveGlobalPredictionInput,
   type ScoringRule,
+  type Team,
   type Tournament,
   type TournamentSummary,
 } from "@pollavar/api-client";
@@ -147,6 +150,15 @@ type PredictionSettingsScopeRow = {
   subtitle: string;
   matchIDs: string[];
 };
+type OfficialStandingScope = {
+  key: string;
+  stageID: string;
+  groupID: string;
+  title: string;
+  subtitle: string;
+  teams: TournamentTeamOption[];
+};
+type OfficialStandingDrafts = Record<string, Record<string, string>>;
 type UnderdogBonusDrafts = Record<
   string,
   {
@@ -174,7 +186,7 @@ type NormalizedTheme = {
   secondaryColor: string;
   accentColor: string;
 };
-type TournamentTeamOption = Tournament["groups"][number]["teams"][number];
+type TournamentTeamOption = Team;
 type RefreshPrizePreviewOptions = {
   syncDrafts?: boolean;
 };
@@ -280,9 +292,21 @@ export default function AdminHome() {
   const [resultAuditLogsByMatchID, setResultAuditLogsByMatchID] = useState<
     Record<string, MatchResultAuditLog[]>
   >({});
+  const [officialStandings, setOfficialStandings] = useState<OfficialStanding[]>([]);
+  const [officialStandingDrafts, setOfficialStandingDrafts] = useState<OfficialStandingDrafts>(
+    {},
+  );
+  const [officialStandingReasons, setOfficialStandingReasons] = useState<Record<string, string>>(
+    {},
+  );
+  const [officialStandingAuditLogsByScope, setOfficialStandingAuditLogsByScope] = useState<
+    Record<string, OfficialStandingAuditLog[]>
+  >({});
   const [drafts, setDrafts] = useState<PaymentDrafts>({});
   const [savingResultMatchID, setSavingResultMatchID] = useState("");
   const [loadingAuditMatchID, setLoadingAuditMatchID] = useState("");
+  const [savingOfficialStandingScope, setSavingOfficialStandingScope] = useState("");
+  const [loadingOfficialStandingAuditScope, setLoadingOfficialStandingAuditScope] = useState("");
   const [savingUserID, setSavingUserID] = useState("");
   const [savingBonusMatchID, setSavingBonusMatchID] = useState("");
   const [savingGlobalDefinitions, setSavingGlobalDefinitions] = useState(false);
@@ -308,6 +332,10 @@ export default function AdminHome() {
   const resultGroups = useMemo(
     () => groupMatchesForResults(tournament?.matches ?? []),
     [tournament?.matches],
+  );
+  const officialStandingScopes = useMemo(
+    () => officialStandingScopesForTournament(tournament),
+    [tournament],
   );
   const predictionSettingsScopeRows = useMemo(
     () => predictionSettingsScopeRowsForMatches(tournament?.matches ?? []),
@@ -454,6 +482,10 @@ export default function AdminHome() {
         setEffectiveMatchSettings([]);
         setResultDrafts({});
         setResultAuditLogsByMatchID({});
+        setOfficialStandings([]);
+        setOfficialStandingDrafts({});
+        setOfficialStandingReasons({});
+        setOfficialStandingAuditLogsByScope({});
         setDrafts({});
         setStatus("ready");
         return;
@@ -489,6 +521,7 @@ export default function AdminHome() {
         nextGlobalTemplates,
         nextGlobalDefinitions,
         nextGlobalResults,
+        nextOfficialStandings,
       ] = await Promise.all([
         client.getPrizePreview(token, poolDetail.id),
         client.getGlobalPredictionPrizePreview(token, poolDetail.id),
@@ -508,6 +541,7 @@ export default function AdminHome() {
           : Promise.resolve([]),
         client.listGlobalPredictionDefinitions(token, poolDetail.id),
         client.listGlobalPredictionResults(token, poolDetail.id),
+        canManageResults(poolDetail) ? client.listOfficialStandings(token, poolDetail.id) : [],
       ]);
       const nextPaymentCollection: PaymentCollection = paymentCollection ?? {
         pool_id: poolDetail.id,
@@ -548,9 +582,18 @@ export default function AdminHome() {
       setResultDrafts(
         hydrateResultDrafts(tournamentDetail?.matches ?? [], nextPredictionStatuses),
       );
+      setOfficialStandings(nextOfficialStandings);
+      setOfficialStandingDrafts(
+        hydrateOfficialStandingDrafts(
+          officialStandingScopesForTournament(tournamentDetail),
+          nextOfficialStandings,
+        ),
+      );
+      setOfficialStandingReasons(defaultOfficialStandingReasons(nextOfficialStandings));
       setBracketDraft(defaultBracketGeneratorDraft(tournamentDetail));
       setGeneratedBracket(null);
       setResultAuditLogsByMatchID({});
+      setOfficialStandingAuditLogsByScope({});
       setDrafts(hydratePaymentDrafts(poolDetail, nextPaymentCollection.payments));
       setStatus("ready");
       setMessage(
@@ -617,6 +660,23 @@ export default function AdminHome() {
         ...current[matchID],
         [side]: value,
       },
+    }));
+  }
+
+  function updateOfficialStandingDraft(scopeKey: string, teamID: string, value: string) {
+    setOfficialStandingDrafts((current) => ({
+      ...current,
+      [scopeKey]: {
+        ...(current[scopeKey] ?? {}),
+        [teamID]: value,
+      },
+    }));
+  }
+
+  function updateOfficialStandingReason(scopeKey: string, value: string) {
+    setOfficialStandingReasons((current) => ({
+      ...current,
+      [scopeKey]: value,
     }));
   }
 
@@ -1156,6 +1216,130 @@ export default function AdminHome() {
       setMessage("No pudimos cargar la auditoria del resultado.");
     } finally {
       setLoadingAuditMatchID("");
+    }
+  }
+
+  async function saveOfficialStandings(scope: OfficialStandingScope) {
+    if (!session || !pool || !canManageSelectedPoolResults) {
+      return;
+    }
+
+    const draft = officialStandingDrafts[scope.key] ?? {};
+    const standings = scope.teams
+      .map((team) => ({
+        team_id: team.id,
+        position: parseWholeNumber(draft[team.id] ?? ""),
+      }))
+      .filter(
+        (standing): standing is { team_id: string; position: number } =>
+          standing.position !== null,
+      );
+    const positions = new Set(standings.map((standing) => standing.position));
+    const reason = (officialStandingReasons[scope.key] ?? "").trim();
+
+    if (
+      standings.length !== scope.teams.length ||
+      positions.size !== scope.teams.length ||
+      standings.some((standing) => standing.position < 1) ||
+      !scope.teams.every((_, index) => positions.has(index + 1))
+    ) {
+      setMessage("Revisa que todas las posiciones oficiales esten completas y sin repetir.");
+      return;
+    }
+    if (!reason) {
+      setMessage("Indica el motivo o fuente del orden oficial.");
+      return;
+    }
+
+    setSavingOfficialStandingScope(scope.key);
+    setMessage("");
+
+    try {
+      const client = createPollavarClient();
+      const updatedStandings = await client.replaceOfficialStandings(session.token, pool.id, {
+        stage_id: scope.stageID,
+        ...(scope.groupID ? { group_id: scope.groupID } : {}),
+        reason,
+        standings,
+      });
+      setOfficialStandings((current) =>
+        replaceOfficialStandingScope(current, scope, updatedStandings),
+      );
+      setOfficialStandingDrafts((current) => ({
+        ...current,
+        [scope.key]: hydrateOfficialStandingDraft(scope, updatedStandings),
+      }));
+      setOfficialStandingReasons((current) => ({
+        ...current,
+        [scope.key]: reason,
+      }));
+      setMessage("Posiciones oficiales actualizadas.");
+      try {
+        const auditLogs = await client.listOfficialStandingAuditLogs(session.token, pool.id, {
+          stageID: scope.stageID,
+          groupID: scope.groupID,
+        });
+        setOfficialStandingAuditLogsByScope((current) => ({
+          ...current,
+          [scope.key]: auditLogs,
+        }));
+      } catch (auditError) {
+        if (isUnauthorized(auditError)) {
+          signOutAdmin();
+        }
+      }
+    } catch (error) {
+      if (isUnauthorized(error)) {
+        signOutAdmin();
+        return;
+      }
+      if (isForbidden(error)) {
+        setMessage("No tienes permisos para actualizar posiciones oficiales.");
+        return;
+      }
+      if (error instanceof PollavarAPIError && error.status === 400) {
+        setMessage("Revisa el orden oficial antes de guardarlo.");
+        return;
+      }
+      setMessage("No pudimos actualizar las posiciones oficiales.");
+    } finally {
+      setSavingOfficialStandingScope("");
+    }
+  }
+
+  async function loadOfficialStandingAudit(scope: OfficialStandingScope) {
+    if (!session || !pool || !canManageSelectedPoolResults) {
+      return;
+    }
+
+    setLoadingOfficialStandingAuditScope(scope.key);
+    setMessage("");
+
+    try {
+      const auditLogs = await createPollavarClient().listOfficialStandingAuditLogs(
+        session.token,
+        pool.id,
+        {
+          stageID: scope.stageID,
+          groupID: scope.groupID,
+        },
+      );
+      setOfficialStandingAuditLogsByScope((current) => ({
+        ...current,
+        [scope.key]: auditLogs,
+      }));
+    } catch (error) {
+      if (isUnauthorized(error)) {
+        signOutAdmin();
+        return;
+      }
+      if (isForbidden(error)) {
+        setMessage("No tienes permisos para ver la auditoria de posiciones.");
+        return;
+      }
+      setMessage("No pudimos cargar la auditoria de posiciones.");
+    } finally {
+      setLoadingOfficialStandingAuditScope("");
     }
   }
 
@@ -1707,6 +1891,24 @@ export default function AdminHome() {
                 savingBonusMatchID={savingBonusMatchID}
                 savingMatchID={savingResultMatchID}
                 statusesByMatch={predictionStatusesByMatch}
+              />
+            ) : null}
+
+            {pool ? (
+              <OfficialStandingsPanel
+                auditLogsByScope={officialStandingAuditLogsByScope}
+                canManage={canManageSelectedPoolResults}
+                drafts={officialStandingDrafts}
+                loadingAuditScope={loadingOfficialStandingAuditScope}
+                onLoadAudit={(scope) => void loadOfficialStandingAudit(scope)}
+                onSave={(scope) => void saveOfficialStandings(scope)}
+                onUpdateDraft={updateOfficialStandingDraft}
+                onUpdateReason={updateOfficialStandingReason}
+                reasons={officialStandingReasons}
+                savingScope={savingOfficialStandingScope}
+                scopes={officialStandingScopes}
+                standings={officialStandings}
+                tiebreakers={tournament?.tiebreakers ?? []}
               />
             ) : null}
 
@@ -3931,6 +4133,211 @@ function GlobalResultInput({
   );
 }
 
+function OfficialStandingsPanel({
+  auditLogsByScope,
+  canManage,
+  drafts,
+  loadingAuditScope,
+  onLoadAudit,
+  onSave,
+  onUpdateDraft,
+  onUpdateReason,
+  reasons,
+  savingScope,
+  scopes,
+  standings,
+  tiebreakers,
+}: {
+  auditLogsByScope: Record<string, OfficialStandingAuditLog[]>;
+  canManage: boolean;
+  drafts: OfficialStandingDrafts;
+  loadingAuditScope: string;
+  onLoadAudit: (scope: OfficialStandingScope) => void;
+  onSave: (scope: OfficialStandingScope) => void;
+  onUpdateDraft: (scopeKey: string, teamID: string, value: string) => void;
+  onUpdateReason: (scopeKey: string, value: string) => void;
+  reasons: Record<string, string>;
+  savingScope: string;
+  scopes: OfficialStandingScope[];
+  standings: OfficialStanding[];
+  tiebreakers: Tournament["tiebreakers"];
+}) {
+  const standingsByScope = indexOfficialStandingsByScope(standings);
+
+  return (
+    <section
+      className="scroll-mt-4 rounded-lg border border-zinc-200 bg-white shadow-sm"
+      id="posiciones-oficiales"
+    >
+      <div className="flex flex-col gap-3 border-b border-zinc-200 px-5 py-4 md:flex-row md:items-center md:justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-zinc-950">Posiciones oficiales</h2>
+          <p className="text-sm text-zinc-600">
+            Orden final por grupo o fase para resolver desempates y puntuar posiciones.
+          </p>
+        </div>
+        <span
+          className={`w-fit rounded-md px-2 py-1 text-xs font-medium ${
+            canManage ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"
+          }`}
+        >
+          {canManage ? "Carga habilitada" : "Solo lectura"}
+        </span>
+      </div>
+
+      <div className="border-b border-zinc-200 px-5 py-4">
+        <p className="text-xs font-semibold uppercase text-zinc-500">
+          Criterios automaticos configurados
+        </p>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {tiebreakers.length > 0 ? (
+            tiebreakers.map((tiebreaker) => (
+              <span
+                className="rounded-md bg-zinc-100 px-2 py-1 text-xs font-medium text-zinc-700"
+                key={tiebreaker}
+              >
+                {tiebreakerLabel(tiebreaker)}
+              </span>
+            ))
+          ) : (
+            <span className="text-sm text-zinc-600">Sin criterios definidos para el torneo.</span>
+          )}
+        </div>
+      </div>
+
+      {scopes.length === 0 ? (
+        <div className="p-5 text-sm text-zinc-600">
+          No hay grupos o fases tipo liga disponibles para cargar posiciones oficiales.
+        </div>
+      ) : (
+        <div className="divide-y divide-zinc-200">
+          {scopes.map((scope) => {
+            const scopeStandings = standingsByScope.get(scope.key) ?? [];
+            const draft = drafts[scope.key] ?? hydrateOfficialStandingDraft(scope, scopeStandings);
+            const auditLogs = auditLogsByScope[scope.key] ?? [];
+            const latestAuditLog = auditLogs[0] ?? null;
+            const isSaving = savingScope === scope.key;
+            const isLoadingAudit = loadingAuditScope === scope.key;
+
+            return (
+              <div className="grid gap-4 p-5" key={scope.key}>
+                <div>
+                  <h3 className="text-sm font-semibold text-zinc-950">{scope.title}</h3>
+                  <p className="mt-1 text-xs text-zinc-500">{scope.subtitle}</p>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="min-w-[640px] w-full border-collapse text-left text-sm">
+                    <thead className="bg-zinc-50 text-xs uppercase text-zinc-500">
+                      <tr>
+                        <th className="px-4 py-3 font-semibold">Equipo</th>
+                        <th className="px-4 py-3 font-semibold">Posicion oficial</th>
+                        <th className="px-4 py-3 font-semibold">Ultima carga</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-zinc-200">
+                      {scope.teams.map((team) => {
+                        const standing = scopeStandings.find((item) => item.team.id === team.id);
+                        return (
+                          <tr key={team.id}>
+                            <td className="px-4 py-3">
+                              <p className="font-medium text-zinc-950">{team.name}</p>
+                              <p className="text-xs text-zinc-500">{team.short_name}</p>
+                            </td>
+                            <td className="px-4 py-3">
+                              <input
+                                aria-label={`Posicion oficial de ${team.name}`}
+                                className="w-28 rounded-md border border-zinc-300 px-3 py-2 text-sm"
+                                disabled={!canManage || isSaving}
+                                min={1}
+                                onChange={(event) =>
+                                  onUpdateDraft(scope.key, team.id, event.target.value)
+                                }
+                                type="number"
+                                value={draft[team.id] ?? ""}
+                              />
+                            </td>
+                            <td className="px-4 py-3 text-xs text-zinc-600">
+                              {standing ? (
+                                <>
+                                  <span className="font-medium text-zinc-700">
+                                    #{standing.position}
+                                  </span>{" "}
+                                  - {formatDateTime(standing.updated_at)}
+                                </>
+                              ) : (
+                                "Sin posicion oficial"
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                <label className="grid gap-1 text-sm font-medium text-zinc-700">
+                  Motivo o fuente oficial
+                  <textarea
+                    className="min-h-20 rounded-md border border-zinc-300 px-3 py-2 text-sm font-normal text-zinc-950"
+                    disabled={!canManage || isSaving}
+                    onChange={(event) => onUpdateReason(scope.key, event.target.value)}
+                    placeholder="Ej. Tabla oficial publicada por organizacion"
+                    value={reasons[scope.key] ?? ""}
+                  />
+                </label>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    className="rounded-md bg-zinc-950 px-3 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-zinc-300"
+                    disabled={!canManage || isSaving}
+                    onClick={() => onSave(scope)}
+                    type="button"
+                  >
+                    {isSaving ? "Guardando..." : "Guardar posiciones"}
+                  </button>
+                  <button
+                    className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-semibold text-zinc-800 disabled:cursor-not-allowed disabled:text-zinc-400"
+                    disabled={!canManage || isLoadingAudit}
+                    onClick={() => onLoadAudit(scope)}
+                    type="button"
+                  >
+                    {isLoadingAudit ? "Cargando..." : "Ver auditoria"}
+                  </button>
+                  {latestAuditLog ? (
+                    <span className="text-xs text-zinc-500">
+                      Ultimo cambio: {formatDateTime(latestAuditLog.created_at)} -{" "}
+                      {latestAuditLog.reason || "Sin motivo"}
+                    </span>
+                  ) : null}
+                </div>
+
+                {auditLogs.length > 0 ? (
+                  <div className="rounded-md border border-zinc-200 bg-zinc-50 p-3">
+                    <p className="text-xs font-semibold uppercase text-zinc-500">
+                      Historial reciente
+                    </p>
+                    <div className="mt-2 grid gap-2">
+                      {auditLogs.slice(0, 3).map((log) => (
+                        <div className="text-xs text-zinc-600" key={log.id}>
+                          <span className="font-medium text-zinc-800">
+                            {formatDateTime(log.created_at)}
+                          </span>{" "}
+                          - {log.reason || "Sin motivo"} - {log.current.length} posiciones
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function ResultsPanel({
   auditLogsByMatchID,
   bonusDrafts,
@@ -4454,6 +4861,158 @@ function groupMatchesForResults(matches: Match[]) {
   }
 
   return Array.from(groupsByID.values());
+}
+
+function officialStandingScopesForTournament(tournament: Tournament | null) {
+  if (!tournament) {
+    return [];
+  }
+
+  const matchesByGroupID = new Map<string, Match[]>();
+  for (const match of tournament.matches) {
+    if (!match.group_id) {
+      continue;
+    }
+    const matches = matchesByGroupID.get(match.group_id) ?? [];
+    matches.push(match);
+    matchesByGroupID.set(match.group_id, matches);
+  }
+
+  const groupScopes = tournament.groups
+    .filter((group) => group.teams.length > 0)
+    .map((group) => {
+      const matches = matchesByGroupID.get(group.id) ?? [];
+      const firstMatch = matches[0] ?? null;
+      const stageID = firstMatch?.stage_id || "group-stage";
+      const title = firstMatch?.group_name ? `Grupo ${firstMatch.group_name}` : group.name;
+      const subtitle = firstMatch
+        ? `${stageLabel(firstMatch)} - ${group.teams.length} equipos`
+        : `${group.teams.length} equipos`;
+
+      return {
+        key: officialStandingScopeKey(stageID, group.id),
+        stageID,
+        groupID: group.id,
+        title,
+        subtitle,
+        teams: group.teams,
+      } satisfies OfficialStandingScope;
+    });
+  if (groupScopes.length > 0) {
+    return groupScopes;
+  }
+
+  return officialStandingStageScopesForMatches(tournament.matches);
+}
+
+function officialStandingStageScopesForMatches(matches: Match[]) {
+  const stagesByID = new Map<string, { firstMatch: Match; teamsByID: Map<string, Team> }>();
+  for (const match of matches) {
+    if (!match.stage_id || !officialStandingStageTypeSupportsScope(match.stage_type)) {
+      continue;
+    }
+    const stage = stagesByID.get(match.stage_id) ?? {
+      firstMatch: match,
+      teamsByID: new Map<string, Team>(),
+    };
+    if (match.home_team) {
+      stage.teamsByID.set(match.home_team.id, match.home_team);
+    }
+    if (match.away_team) {
+      stage.teamsByID.set(match.away_team.id, match.away_team);
+    }
+    stagesByID.set(match.stage_id, stage);
+  }
+
+  return Array.from(stagesByID.entries())
+    .map(([stageID, stage]) => {
+      const teams = Array.from(stage.teamsByID.values()).sort((left, right) =>
+        left.name.localeCompare(right.name),
+      );
+      return {
+        key: officialStandingScopeKey(stageID, ""),
+        stageID,
+        groupID: "",
+        title: stageLabel(stage.firstMatch),
+        subtitle: `${teams.length} equipos`,
+        teams,
+      } satisfies OfficialStandingScope;
+    })
+    .filter((scope) => scope.teams.length > 0);
+}
+
+function officialStandingStageTypeSupportsScope(stageType: string) {
+  const normalized = stageType.toLowerCase();
+  return normalized === "league" || normalized === "group";
+}
+
+function officialStandingScopeKey(stageID: string, groupID: string) {
+  return `${stageID}::${groupID}`;
+}
+
+function indexOfficialStandingsByScope(standings: OfficialStanding[]) {
+  const indexed = new Map<string, OfficialStanding[]>();
+  for (const standing of standings) {
+    const key = officialStandingScopeKey(standing.stage_id, standing.group_id);
+    const values = indexed.get(key) ?? [];
+    values.push(standing);
+    indexed.set(key, values);
+  }
+  for (const values of indexed.values()) {
+    values.sort((left, right) => left.position - right.position);
+  }
+  return indexed;
+}
+
+function hydrateOfficialStandingDrafts(
+  scopes: OfficialStandingScope[],
+  standings: OfficialStanding[],
+) {
+  const standingsByScope = indexOfficialStandingsByScope(standings);
+  const drafts: OfficialStandingDrafts = {};
+  for (const scope of scopes) {
+    drafts[scope.key] = hydrateOfficialStandingDraft(
+      scope,
+      standingsByScope.get(scope.key) ?? [],
+    );
+  }
+  return drafts;
+}
+
+function hydrateOfficialStandingDraft(
+  scope: OfficialStandingScope,
+  standings: OfficialStanding[],
+) {
+  const standingsByTeamID = new Map(standings.map((standing) => [standing.team.id, standing]));
+  const draft: Record<string, string> = {};
+  scope.teams.forEach((team, index) => {
+    draft[team.id] = String(standingsByTeamID.get(team.id)?.position ?? index + 1);
+  });
+  return draft;
+}
+
+function defaultOfficialStandingReasons(standings: OfficialStanding[]) {
+  const reasons: Record<string, string> = {};
+  for (const standing of standings) {
+    const key = officialStandingScopeKey(standing.stage_id, standing.group_id);
+    if (!reasons[key] && standing.reason) {
+      reasons[key] = standing.reason;
+    }
+  }
+  return reasons;
+}
+
+function replaceOfficialStandingScope(
+  current: OfficialStanding[],
+  scope: OfficialStandingScope,
+  updated: OfficialStanding[],
+) {
+  return [
+    ...current.filter(
+      (standing) => standing.stage_id !== scope.stageID || standing.group_id !== scope.groupID,
+    ),
+    ...updated,
+  ];
 }
 
 function stageLabel(match: Pick<Match, "stage_id" | "stage_name" | "stage_type" | "stage_round_size">) {
@@ -5859,6 +6418,25 @@ function formatMatchDate(value: string) {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(date);
+}
+
+function formatDateTime(value: string) {
+  return formatMatchDate(value);
+}
+
+function tiebreakerLabel(tiebreaker: Tournament["tiebreakers"][number]) {
+  switch (tiebreaker) {
+    case "points":
+      return "Puntos";
+    case "goal_difference":
+      return "Diferencia de gol";
+    case "goals_for":
+      return "Goles a favor";
+    case "goals_against":
+      return "Goles en contra";
+    default:
+      return tiebreaker;
+  }
 }
 
 function paymentStatusLabel(status: PaymentStatus) {

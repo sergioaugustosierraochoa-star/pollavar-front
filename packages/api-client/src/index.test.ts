@@ -12,6 +12,8 @@ import {
   type GlobalPredictionTemplate,
   type MatchResultAuditLog,
   type MatchUnderdogBonus,
+  type OfficialStanding,
+  type OfficialStandingAuditLog,
   type Payment,
   type PaymentCollection,
   type PointEventDetail,
@@ -59,6 +61,7 @@ const tournamentSummary: TournamentSummary = {
     secondary_color: "#111827",
     accent_color: "#C8A45D",
   },
+  tiebreakers: ["points", "goal_difference", "goals_for"],
   group_count: 12,
   team_count: 48,
 };
@@ -201,6 +204,32 @@ const matchResultAuditLog: MatchResultAuditLog = {
     result_status: "final",
   },
   created_at: "2026-06-11T22:30:00Z",
+};
+
+const officialStanding: OfficialStanding = {
+  pool_id: "pool-id",
+  tournament_id: "fifa-world-cup-2026",
+  stage_id: "group-stage",
+  group_id: "group-a",
+  team: { id: "MEX", name: "Mexico", short_name: "MEX", country_code: "MEX" },
+  position: 1,
+  reason: "Tabla oficial FIFA",
+  updated_by: "admin-id",
+  updated_at: "2026-06-11T22:35:00Z",
+};
+
+const officialStandingAuditLog: OfficialStandingAuditLog = {
+  id: "official-standing-audit-id",
+  pool_id: "pool-id",
+  tournament_id: "fifa-world-cup-2026",
+  stage_id: "group-stage",
+  group_id: "group-a",
+  actor_user_id: "admin-id",
+  action: "official_standings_replaced",
+  previous: [],
+  current: [officialStanding],
+  reason: "Tabla oficial FIFA",
+  created_at: "2026-06-11T22:40:00Z",
 };
 
 const predictionSnapshot: PredictionSnapshot = {
@@ -1371,6 +1400,93 @@ describe("createPollavarClient", () => {
     expect(fetcher).toHaveBeenNthCalledWith(
       2,
       "http://api.local/api/v1/pools/pool%20id/match-results/match%20id/audit-logs",
+      {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer token",
+        },
+      },
+    );
+  });
+
+  it("loads, replaces, and audits official standings", async () => {
+    const fetcher = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      const value = String(url);
+      if (
+        value.endsWith("/official-standings?stage_id=group-stage&group_id=group-a") &&
+        init?.method === "GET"
+      ) {
+        return jsonResponse({ data: [officialStanding] });
+      }
+      if (value.endsWith("/official-standings") && init?.method === "PUT") {
+        return jsonResponse({ data: [officialStanding] });
+      }
+      if (
+        value.endsWith("/official-standings/audit-logs?stage_id=group-stage&group_id=group-a") &&
+        init?.method === "GET"
+      ) {
+        return jsonResponse({ data: [officialStandingAuditLog] });
+      }
+      return jsonResponse({ code: "not_found" }, { status: 404 });
+    });
+    const client = createPollavarClient({
+      baseURL: "http://api.local",
+      fetcher,
+    });
+
+    await expect(
+      client.listOfficialStandings("token", "pool id", {
+        stageID: "group-stage",
+        groupID: "group-a",
+      }),
+    ).resolves.toEqual([officialStanding]);
+    await expect(
+      client.replaceOfficialStandings("token", "pool id", {
+        stage_id: "group-stage",
+        group_id: "group-a",
+        reason: "Tabla oficial FIFA",
+        standings: [{ team_id: "MEX", position: 1 }],
+      }),
+    ).resolves.toEqual([officialStanding]);
+    await expect(
+      client.listOfficialStandingAuditLogs("token", "pool id", {
+        stageID: "group-stage",
+        groupID: "group-a",
+      }),
+    ).resolves.toEqual([officialStandingAuditLog]);
+
+    expect(fetcher).toHaveBeenNthCalledWith(
+      1,
+      "http://api.local/api/v1/pools/pool%20id/official-standings?stage_id=group-stage&group_id=group-a",
+      {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer token",
+        },
+      },
+    );
+    expect(fetcher).toHaveBeenNthCalledWith(
+      2,
+      "http://api.local/api/v1/pools/pool%20id/official-standings",
+      {
+        method: "PUT",
+        body: JSON.stringify({
+          stage_id: "group-stage",
+          group_id: "group-a",
+          reason: "Tabla oficial FIFA",
+          standings: [{ team_id: "MEX", position: 1 }],
+        }),
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer token",
+        },
+      },
+    );
+    expect(fetcher).toHaveBeenNthCalledWith(
+      3,
+      "http://api.local/api/v1/pools/pool%20id/official-standings/audit-logs?stage_id=group-stage&group_id=group-a",
       {
         method: "GET",
         headers: {

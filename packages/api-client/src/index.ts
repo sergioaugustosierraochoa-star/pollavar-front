@@ -34,9 +34,16 @@ export type TournamentSummary = {
   starts_at: string;
   ends_at: string;
   theme_template: TournamentThemeTemplate;
+  tiebreakers: TournamentTiebreaker[];
   group_count: number;
   team_count: number;
 };
+
+export type TournamentTiebreaker =
+  | "points"
+  | "goal_difference"
+  | "goals_for"
+  | "goals_against";
 
 export type TournamentThemeTemplate = {
   logo_url: string;
@@ -377,6 +384,44 @@ export type SaveMatchResultInput = {
   home_score: number;
   away_score: number;
   result_status?: string;
+};
+
+export type OfficialStanding = {
+  pool_id: string;
+  tournament_id: string;
+  stage_id: string;
+  group_id: string;
+  team: Team;
+  position: number;
+  reason: string;
+  updated_by: string;
+  updated_at: string;
+};
+
+export type OfficialStandingInput = {
+  team_id: string;
+  position: number;
+};
+
+export type ReplaceOfficialStandingsInput = {
+  stage_id: string;
+  group_id?: string;
+  reason: string;
+  standings: OfficialStandingInput[];
+};
+
+export type OfficialStandingAuditLog = {
+  id: string;
+  pool_id: string;
+  tournament_id: string;
+  stage_id: string;
+  group_id: string;
+  actor_user_id: string;
+  action: "official_standings_replaced";
+  previous: OfficialStanding[];
+  current: OfficialStanding[];
+  reason: string;
+  created_at: string;
 };
 
 export type PredictionMatchStatus = {
@@ -911,6 +956,51 @@ export function createPollavarClient(options: PollavarClientOptions = {}) {
         },
       );
     },
+    listOfficialStandings(
+      token: string,
+      poolID: string,
+      params: { stageID?: string; groupID?: string } = {},
+    ) {
+      const query = officialStandingsQuery(params);
+      return request<OfficialStanding[]>(
+        fetcher,
+        `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/official-standings${query}`,
+        {
+          method: "GET",
+          headers: authHeaders(token),
+        },
+      );
+    },
+    replaceOfficialStandings(
+      token: string,
+      poolID: string,
+      input: ReplaceOfficialStandingsInput,
+    ) {
+      return request<OfficialStanding[]>(
+        fetcher,
+        `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/official-standings`,
+        {
+          method: "PUT",
+          body: JSON.stringify(input),
+          headers: authHeaders(token),
+        },
+      );
+    },
+    listOfficialStandingAuditLogs(
+      token: string,
+      poolID: string,
+      params: { stageID?: string; groupID?: string } = {},
+    ) {
+      const query = officialStandingsQuery(params);
+      return request<OfficialStandingAuditLog[]>(
+        fetcher,
+        `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/official-standings/audit-logs${query}`,
+        {
+          method: "GET",
+          headers: authHeaders(token),
+        },
+      );
+    },
     listMatchUnderdogBonuses(token: string, poolID: string) {
       return request<MatchUnderdogBonus[]>(
         fetcher,
@@ -1297,6 +1387,18 @@ function authHeaders(token: string) {
   return {
     Authorization: `Bearer ${token}`,
   };
+}
+
+function officialStandingsQuery(params: { stageID?: string; groupID?: string }) {
+  const search = new URLSearchParams();
+  if (params.stageID) {
+    search.set("stage_id", params.stageID);
+  }
+  if (params.groupID) {
+    search.set("group_id", params.groupID);
+  }
+  const value = search.toString();
+  return value ? `?${value}` : "";
 }
 
 function errorCode(payload: DataEnvelope<unknown> | ErrorEnvelope) {

@@ -86,6 +86,7 @@ const tournamentSummary = {
     secondary_color: "#111827",
     accent_color: "#C8A45D",
   },
+  tiebreakers: ["points", "goal_difference", "goals_for"],
   group_count: 12,
   team_count: 48,
 };
@@ -227,6 +228,45 @@ const matchResultAuditLog = {
     result_status: "final",
   },
   created_at: "2026-06-01T22:00:00Z",
+};
+
+const officialStandings = [
+  {
+    pool_id: "pool-id",
+    tournament_id: "fifa-world-cup-2026",
+    stage_id: "group-stage",
+    group_id: "group-a",
+    team: { id: "team-mexico", name: "Mexico", short_name: "MEX", country_code: "MEX" },
+    position: 1,
+    reason: "Tabla oficial FIFA",
+    updated_by: "admin-id",
+    updated_at: "2026-06-02T22:00:00Z",
+  },
+  {
+    pool_id: "pool-id",
+    tournament_id: "fifa-world-cup-2026",
+    stage_id: "group-stage",
+    group_id: "group-a",
+    team: { id: "team-canada", name: "Canada", short_name: "CAN", country_code: "CAN" },
+    position: 2,
+    reason: "Tabla oficial FIFA",
+    updated_by: "admin-id",
+    updated_at: "2026-06-02T22:00:00Z",
+  },
+];
+
+const officialStandingAuditLog = {
+  id: "official-standing-audit-id",
+  pool_id: "pool-id",
+  tournament_id: "fifa-world-cup-2026",
+  stage_id: "group-stage",
+  group_id: "group-a",
+  actor_user_id: "admin-id",
+  action: "official_standings_replaced",
+  previous: [],
+  current: officialStandings,
+  reason: "Tabla oficial FIFA",
+  created_at: "2026-06-02T22:05:00Z",
 };
 
 const confirmedPayment = {
@@ -883,6 +923,172 @@ describe("Admin home", () => {
           "Content-Type": "application/json",
           Authorization: "Bearer token",
         },
+      }),
+    );
+  });
+
+  it("updates official standings and loads their audit log", async () => {
+    storeSession();
+    const fetcher = vi.fn(adminFetch);
+    vi.stubGlobal("fetch", fetcher);
+
+    render(<AdminHome />);
+
+    expect(await screen.findByRole("heading", { name: "Posiciones oficiales" })).toBeInTheDocument();
+    const standingsSection = screen
+      .getByRole("heading", { name: "Posiciones oficiales" })
+      .closest("section");
+    expect(standingsSection).not.toBeNull();
+
+    fireEvent.change(
+      within(standingsSection as HTMLElement).getByLabelText("Posicion oficial de Mexico"),
+      { target: { value: "2" } },
+    );
+    fireEvent.change(
+      within(standingsSection as HTMLElement).getByLabelText("Posicion oficial de Canada"),
+      { target: { value: "1" } },
+    );
+    fireEvent.change(
+      within(standingsSection as HTMLElement).getByLabelText("Motivo o fuente oficial"),
+      { target: { value: "Tabla oficial Concacaf" } },
+    );
+    fireEvent.click(
+      within(standingsSection as HTMLElement).getByRole("button", {
+        name: "Guardar posiciones",
+      }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("status")).toHaveTextContent("Posiciones oficiales actualizadas.");
+    });
+    expect(fetcher).toHaveBeenCalledWith(
+      "http://localhost:8080/api/v1/pools/pool-id/official-standings",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({
+          stage_id: "group-stage",
+          group_id: "group-a",
+          reason: "Tabla oficial Concacaf",
+          standings: [
+            { team_id: "team-mexico", position: 2 },
+            { team_id: "team-canada", position: 1 },
+          ],
+        }),
+      }),
+    );
+
+    fireEvent.click(
+      within(standingsSection as HTMLElement).getByRole("button", {
+        name: "Ver auditoria",
+      }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Historial reciente")).toBeInTheDocument();
+    });
+    expect(fetcher).toHaveBeenCalledWith(
+      "http://localhost:8080/api/v1/pools/pool-id/official-standings/audit-logs?stage_id=group-stage&group_id=group-a",
+      expect.objectContaining({ method: "GET" }),
+    );
+  });
+
+  it("rejects official standings with skipped positions", async () => {
+    storeSession();
+    const fetcher = vi.fn(adminFetch);
+    vi.stubGlobal("fetch", fetcher);
+
+    render(<AdminHome />);
+
+    const standingsSection = await screen
+      .findByRole("heading", { name: "Posiciones oficiales" })
+      .then((heading) => heading.closest("section"));
+    expect(standingsSection).not.toBeNull();
+
+    fireEvent.change(
+      within(standingsSection as HTMLElement).getByLabelText("Posicion oficial de Mexico"),
+      { target: { value: "1" } },
+    );
+    fireEvent.change(
+      within(standingsSection as HTMLElement).getByLabelText("Posicion oficial de Canada"),
+      { target: { value: "3" } },
+    );
+    fireEvent.change(
+      within(standingsSection as HTMLElement).getByLabelText("Motivo o fuente oficial"),
+      { target: { value: "Tabla oficial FIFA" } },
+    );
+    fireEvent.click(
+      within(standingsSection as HTMLElement).getByRole("button", {
+        name: "Guardar posiciones",
+      }),
+    );
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Revisa que todas las posiciones oficiales esten completas y sin repetir.",
+    );
+    expect(fetcher).not.toHaveBeenCalledWith(
+      "http://localhost:8080/api/v1/pools/pool-id/official-standings",
+      expect.objectContaining({ method: "PUT" }),
+    );
+  });
+
+  it("builds official standing scopes for league stages without configured groups", async () => {
+    storeSession();
+    const leagueTournament = {
+      ...tournament,
+      groups: [],
+      matches: [
+        {
+          ...tournament.matches[0],
+          stage_id: "league-stage",
+          stage_name: "League Stage",
+          stage_type: "league",
+          group_id: "",
+          group_name: "",
+        },
+      ],
+    };
+    const fetcher = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      const value = String(url);
+      if (value.endsWith("/api/v1/tournaments/fifa-world-cup-2026")) {
+        return jsonResponse({ data: leagueTournament });
+      }
+      return adminFetch(url, init);
+    });
+    vi.stubGlobal("fetch", fetcher);
+
+    render(<AdminHome />);
+
+    const standingsSection = await screen
+      .findByRole("heading", { name: "Posiciones oficiales" })
+      .then((heading) => heading.closest("section"));
+    expect(standingsSection).not.toBeNull();
+    expect(within(standingsSection as HTMLElement).getByText("League Stage")).toBeInTheDocument();
+
+    fireEvent.change(
+      within(standingsSection as HTMLElement).getByLabelText("Motivo o fuente oficial"),
+      { target: { value: "Tabla final liga" } },
+    );
+    fireEvent.click(
+      within(standingsSection as HTMLElement).getByRole("button", {
+        name: "Guardar posiciones",
+      }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("status")).toHaveTextContent("Posiciones oficiales actualizadas.");
+    });
+    expect(fetcher).toHaveBeenCalledWith(
+      "http://localhost:8080/api/v1/pools/pool-id/official-standings",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({
+          stage_id: "league-stage",
+          reason: "Tabla final liga",
+          standings: [
+            { team_id: "team-canada", position: 1 },
+            { team_id: "team-mexico", position: 2 },
+          ],
+        }),
       }),
     );
   });
@@ -1915,6 +2121,39 @@ async function adminFetch(url: RequestInfo | URL, init?: RequestInit) {
   }
   if (value.endsWith("/api/v1/pools/pool-id/global-prizes/preview") && init?.method === "GET") {
     return jsonResponse({ data: globalPrizePreview });
+  }
+  if (value.endsWith("/api/v1/pools/pool-id/official-standings") && init?.method === "GET") {
+    return jsonResponse({ data: officialStandings });
+  }
+  if (value.endsWith("/api/v1/pools/pool-id/official-standings") && init?.method === "PUT") {
+    const body = JSON.parse(String(init.body)) as {
+      stage_id: string;
+      group_id: string;
+      reason: string;
+      standings: Array<{ team_id: string; position: number }>;
+    };
+    const teamsByID = new Map(tournament.groups.flatMap((group) => group.teams).map((team) => [team.id, team]));
+    return jsonResponse({
+      data: body.standings.map((standing) => ({
+        pool_id: "pool-id",
+        tournament_id: "fifa-world-cup-2026",
+        stage_id: body.stage_id,
+        group_id: body.group_id,
+        team: teamsByID.get(standing.team_id),
+        position: standing.position,
+        reason: body.reason,
+        updated_by: "admin-id",
+        updated_at: "2026-06-03T22:00:00Z",
+      })),
+    });
+  }
+  if (
+    value.endsWith(
+      "/api/v1/pools/pool-id/official-standings/audit-logs?stage_id=group-stage&group_id=group-a",
+    ) &&
+    init?.method === "GET"
+  ) {
+    return jsonResponse({ data: [officialStandingAuditLog] });
   }
   if (value.endsWith("/api/v1/pools/pool-id")) {
     return jsonResponse({ data: pool });
