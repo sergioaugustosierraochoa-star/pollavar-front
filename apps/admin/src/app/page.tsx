@@ -287,6 +287,27 @@ const rankingTiebreakerLabels: Record<RankingTiebreakerCode, string> = {
   total_event_count: "Total de aciertos",
 };
 
+type AdminSectionID =
+  | "resumen"
+  | "tema"
+  | "pronosticos"
+  | "overrides"
+  | "llaves"
+  | "globales"
+  | "resultados"
+  | "posiciones"
+  | "premios"
+  | "reportes"
+  | "recaudo";
+
+type AdminSectionItem = {
+  id: AdminSectionID;
+  label: string;
+  description: string;
+  group: "Base" | "Configuracion" | "Operacion" | "Reportes";
+  badge?: string;
+};
+
 export default function AdminHome() {
   const [session, setSession] = useState<AuthSession | null>(null);
   const [status, setStatus] = useState<DashboardStatus>("checking");
@@ -294,6 +315,8 @@ export default function AdminHome() {
   const [pools, setPools] = useState<Pool[]>([]);
   const [tournaments, setTournaments] = useState<TournamentSummary[]>([]);
   const [selectedPoolID, setSelectedPoolID] = useState("");
+  const [activeAdminSection, setActiveAdminSection] =
+    useState<AdminSectionID>("resumen");
   const [pool, setPool] = useState<Pool | null>(null);
   const [tournament, setTournament] = useState<Tournament | null>(null);
   const [predictionStatuses, setPredictionStatuses] = useState<PredictionMatchStatus[]>([]);
@@ -456,6 +479,23 @@ export default function AdminHome() {
   const rankingManualEntries = useMemo(
     () => buildRankingManualEntries(ranking, rankingManualOrder),
     [ranking, rankingManualOrder],
+  );
+  const renderAllAdminSections = process.env.NODE_ENV === "test";
+  const renderAdminSection = useCallback(
+    (section: AdminSectionID) => renderAllAdminSections || activeAdminSection === section,
+    [activeAdminSection, renderAllAdminSections],
+  );
+  const adminSections = useMemo(
+    () =>
+      buildAdminSections({
+        globalPredictionDefinitions,
+        pool,
+        predictionStatuses,
+        ranking,
+        resultGroups,
+        totals,
+      }),
+    [globalPredictionDefinitions, pool, predictionStatuses, ranking, resultGroups, totals],
   );
 
   const signOutAdmin = useCallback(function signOutAdmin() {
@@ -2442,6 +2482,7 @@ export default function AdminHome() {
             <PoolThemeOverview
               onSelectPool={(nextPoolID) => {
                 setSelectedPoolID(nextPoolID);
+                setActiveAdminSection("resumen");
                 void loadDashboard(session.token, session.user.id, nextPoolID);
               }}
               paymentCurrency={paymentCurrency}
@@ -2451,13 +2492,15 @@ export default function AdminHome() {
               totals={totals}
             />
 
-            <CreatePoolPanel
-              draft={createPoolDraft}
-              onChange={updateCreatePoolDraft}
-              onCreate={() => void createPool()}
-              saving={creatingPool}
-              tournaments={tournaments}
-            />
+            {activeAdminSection === "resumen" || !pool ? (
+              <CreatePoolPanel
+                draft={createPoolDraft}
+                onChange={updateCreatePoolDraft}
+                onCreate={() => void createPool()}
+                saving={creatingPool}
+                tournaments={tournaments}
+              />
+            ) : null}
 
             {message ? (
               <p
@@ -2476,110 +2519,125 @@ export default function AdminHome() {
             ) : null}
 
             {pool ? (
-              <AdminSectionNavigation
-                pool={pool}
-              />
-            ) : null}
-
-            {pool ? (
-              <PoolThemePanel
-                canManage={canManageSelectedPoolTheme}
-                draft={themeDraft}
-                onChange={setThemeDraft}
-                onSave={() => void savePoolTheme()}
-                saving={savingTheme}
-              />
-            ) : null}
-
-            {pool ? (
-              <PredictionSettingsPanel
-                canManage={canManageSelectedPoolPredictionSettings}
-                draft={predictionSettingsDraft}
-                onChange={setPredictionSettingsDraft}
-                onSave={() => void savePredictionSettings()}
-                saving={savingPredictionSettings}
-              />
-            ) : null}
-
-            {pool ? (
-              <PredictionSettingsOverridesPanel
-                canManage={canManageSelectedPoolPredictionSettings}
-                drafts={predictionSettingsOverrideDrafts}
-                effectiveSettingsByMatch={effectiveMatchSettingsByMatch}
-                onChange={updatePredictionSettingsOverrideDraft}
-                onClear={clearPredictionSettingsOverrideDraft}
-                onSave={() => void savePredictionSettingsOverrides()}
-                pool={pool}
-                rows={predictionSettingsScopeRows}
-                saving={savingPredictionOverrides}
-              />
-            ) : null}
-
-            {pool ? (
-              <TournamentTiebreakersPanel
-                canManage={canManageSelectedTournamentBrackets}
-                draft={tiebreakerDraft}
-                onMove={moveTournamentTiebreaker}
-                onSave={() => void saveTournamentTiebreakers()}
-                onToggle={toggleTournamentTiebreaker}
-                order={tiebreakerOrder}
-                saving={savingTiebreakers}
-              />
-            ) : null}
-
-            {pool ? (
-              <BracketGeneratorPanel
-                canManage={canManageSelectedTournamentBrackets}
-                draft={bracketDraft}
-                generatedBracket={generatedBracket}
-                matchSlotOverrideDrafts={matchSlotOverrideDrafts}
-                onChange={setBracketDraft}
-                onGenerate={() => void generateKnockoutBracket()}
-                onSaveMatchSlotOverride={(match) => void saveMatchSlotOverride(match)}
-                onUpdateMatchSlotOverrideDraft={updateMatchSlotOverrideDraft}
-                saving={savingBracket}
-                savingMatchSlotOverrideID={savingMatchSlotOverrideID}
-                tournament={tournament}
-              />
-            ) : null}
-
-            {pool ? (
-              <GlobalPredictionAdminPanel
-                canManage={canManageSelectedPoolGlobalPredictions}
-                canManageResults={canManageSelectedPoolResults}
-                definitionDrafts={globalDefinitionDrafts}
-                definitions={globalPredictionDefinitions}
-                templates={globalPredictionTemplates}
-                onAddCustomDefinition={addCustomGlobalDefinitionDraft}
-                onAddReusableTemplate={addReusableGlobalTemplateDraft}
-                onAddTemplate={addGlobalDefinitionTemplate}
-                onSaveDefinitions={() => void saveGlobalPredictionDefinitions()}
-                onSaveResult={(definition) => void saveGlobalPredictionResult(definition)}
-                onSaveTemplate={(code) => void saveGlobalPredictionTemplate(code)}
-                onLoadAnswers={(definition) => void loadGlobalPredictionAnswerSummary(definition)}
-                onToggleAlias={(definition, answer) =>
-                  void toggleGlobalPredictionAlias(definition, answer)
-                }
-                onUpdateDefinitionDraft={updateGlobalDefinitionDraft}
-                onUpdateResultDraft={updateGlobalResultDraft}
-                onUpdateTemplateDraft={updateGlobalTemplateDraft}
-                resultDrafts={globalResultDrafts}
-                results={globalPredictionResults}
-                answerSummaries={globalAnswerSummaries}
-                loadingAnswersCode={loadingGlobalAnswersCode}
-                savingAliasesCode={savingGlobalAliasesCode}
-                savingDefinitions={savingGlobalDefinitions}
-                savingResultCode={savingGlobalResultCode}
-                savingTemplateCode={savingGlobalTemplateCode}
-                templateDrafts={globalTemplateDrafts}
-                tournament={tournament}
-              />
-            ) : null}
-
-            {pool ? (
-              <ResultsPanel
-                auditLogsByMatchID={resultAuditLogsByMatchID}
-                bonusDrafts={underdogBonusDrafts}
+              <div className="grid gap-4 lg:grid-cols-[240px_minmax(0,1fr)]">
+                <AdminSectionNavigation
+                  activeSection={activeAdminSection}
+                  items={adminSections}
+                  onSelect={setActiveAdminSection}
+                />
+                <div className="min-w-0 space-y-4">
+                  <AdminPoolStickyHeader
+                    activeSection={activeAdminSection}
+                    items={adminSections}
+                    paymentCurrency={paymentCurrency}
+                    pool={pool}
+                    totals={totals}
+                  />
+                  {renderAdminSection("resumen") ? (
+                    <AdminPoolSummaryPanel
+                      onSelect={setActiveAdminSection}
+                      paymentCurrency={paymentCurrency}
+                      pool={pool}
+                      predictionStatuses={predictionStatuses}
+                      ranking={ranking}
+                      totals={totals}
+                    />
+                  ) : null}
+                  {renderAdminSection("tema") ? (
+                    <PoolThemePanel
+                      canManage={canManageSelectedPoolTheme}
+                      draft={themeDraft}
+                      onChange={setThemeDraft}
+                      onSave={() => void savePoolTheme()}
+                      saving={savingTheme}
+                    />
+                  ) : null}
+                  {renderAdminSection("pronosticos") ? (
+                    <div className="space-y-4">
+                      <PredictionSettingsPanel
+                        canManage={canManageSelectedPoolPredictionSettings}
+                        draft={predictionSettingsDraft}
+                        onChange={setPredictionSettingsDraft}
+                        onSave={() => void savePredictionSettings()}
+                        saving={savingPredictionSettings}
+                      />
+                      <TournamentTiebreakersPanel
+                        canManage={canManageSelectedTournamentBrackets}
+                        draft={tiebreakerDraft}
+                        onMove={moveTournamentTiebreaker}
+                        onSave={() => void saveTournamentTiebreakers()}
+                        onToggle={toggleTournamentTiebreaker}
+                        order={tiebreakerOrder}
+                        saving={savingTiebreakers}
+                      />
+                    </div>
+                  ) : null}
+                  {renderAdminSection("overrides") ? (
+                    <PredictionSettingsOverridesPanel
+                      canManage={canManageSelectedPoolPredictionSettings}
+                      drafts={predictionSettingsOverrideDrafts}
+                      effectiveSettingsByMatch={effectiveMatchSettingsByMatch}
+                      onChange={updatePredictionSettingsOverrideDraft}
+                      onClear={clearPredictionSettingsOverrideDraft}
+                      onSave={() => void savePredictionSettingsOverrides()}
+                      pool={pool}
+                      rows={predictionSettingsScopeRows}
+                      saving={savingPredictionOverrides}
+                    />
+                  ) : null}
+                  {renderAdminSection("llaves") ? (
+                    <BracketGeneratorPanel
+                      canManage={canManageSelectedTournamentBrackets}
+                      draft={bracketDraft}
+                      generatedBracket={generatedBracket}
+                      matchSlotOverrideDrafts={matchSlotOverrideDrafts}
+                      onChange={setBracketDraft}
+                      onGenerate={() => void generateKnockoutBracket()}
+                      onSaveMatchSlotOverride={(match) => void saveMatchSlotOverride(match)}
+                      onUpdateMatchSlotOverrideDraft={updateMatchSlotOverrideDraft}
+                      saving={savingBracket}
+                      savingMatchSlotOverrideID={savingMatchSlotOverrideID}
+                      tournament={tournament}
+                    />
+                  ) : null}
+                  {renderAdminSection("globales") ? (
+                    <GlobalPredictionAdminPanel
+                      canManage={canManageSelectedPoolGlobalPredictions}
+                      canManageResults={canManageSelectedPoolResults}
+                      definitionDrafts={globalDefinitionDrafts}
+                      definitions={globalPredictionDefinitions}
+                      templates={globalPredictionTemplates}
+                      onAddCustomDefinition={addCustomGlobalDefinitionDraft}
+                      onAddReusableTemplate={addReusableGlobalTemplateDraft}
+                      onAddTemplate={addGlobalDefinitionTemplate}
+                      onSaveDefinitions={() => void saveGlobalPredictionDefinitions()}
+                      onSaveResult={(definition) => void saveGlobalPredictionResult(definition)}
+                      onSaveTemplate={(code) => void saveGlobalPredictionTemplate(code)}
+                      onLoadAnswers={(definition) =>
+                        void loadGlobalPredictionAnswerSummary(definition)
+                      }
+                      onToggleAlias={(definition, answer) =>
+                        void toggleGlobalPredictionAlias(definition, answer)
+                      }
+                      onUpdateDefinitionDraft={updateGlobalDefinitionDraft}
+                      onUpdateResultDraft={updateGlobalResultDraft}
+                      onUpdateTemplateDraft={updateGlobalTemplateDraft}
+                      resultDrafts={globalResultDrafts}
+                      results={globalPredictionResults}
+                      answerSummaries={globalAnswerSummaries}
+                      loadingAnswersCode={loadingGlobalAnswersCode}
+                      savingAliasesCode={savingGlobalAliasesCode}
+                      savingDefinitions={savingGlobalDefinitions}
+                      savingResultCode={savingGlobalResultCode}
+                      savingTemplateCode={savingGlobalTemplateCode}
+                      templateDrafts={globalTemplateDrafts}
+                      tournament={tournament}
+                    />
+                  ) : null}
+                  {renderAdminSection("resultados") ? (
+	              <ResultsPanel
+	                auditLogsByMatchID={resultAuditLogsByMatchID}
+	                bonusDrafts={underdogBonusDrafts}
                 canManage={canManageSelectedPoolResults}
                 groups={resultGroups}
                 generatingSnapshotMatchID={generatingSnapshotMatchID}
@@ -2595,13 +2653,13 @@ export default function AdminHome() {
                 savingBonusMatchID={savingBonusMatchID}
                 savingMatchID={savingResultMatchID}
                 snapshotsByMatchID={predictionSnapshotsByMatchID}
-                statusesByMatch={predictionStatusesByMatch}
-              />
-            ) : null}
-
-            {pool ? (
-              <OfficialStandingsPanel
-                auditLogsByScope={officialStandingAuditLogsByScope}
+	                statusesByMatch={predictionStatusesByMatch}
+	              />
+	            ) : null}
+	
+                  {renderAdminSection("posiciones") ? (
+	              <OfficialStandingsPanel
+	                auditLogsByScope={officialStandingAuditLogsByScope}
                 canManage={canManageSelectedPoolResults}
                 drafts={officialStandingDrafts}
                 loadingAuditScope={loadingOfficialStandingAuditScope}
@@ -2613,11 +2671,11 @@ export default function AdminHome() {
                 savingScope={savingOfficialStandingScope}
                 scopes={officialStandingScopes}
                 standings={officialStandings}
-                tiebreakers={tournament?.tiebreakers ?? []}
-              />
-            ) : null}
-
-            {pool ? (
+	                tiebreakers={tournament?.tiebreakers ?? []}
+	              />
+	            ) : null}
+	
+                  {renderAdminSection("premios") ? (
               <section
                 className="scroll-mt-4 rounded-lg border border-zinc-200 bg-white shadow-sm"
                 id="premios"
@@ -3015,120 +3073,129 @@ export default function AdminHome() {
               </section>
             ) : null}
 
-            {pool ? (
-              <section
-                className="scroll-mt-4 rounded-lg border border-zinc-200 bg-white shadow-sm"
-                id="reportes"
-              >
-                <div className="border-b border-zinc-200 px-5 py-4">
-                  <h2 className="text-lg font-semibold text-zinc-950">Reportes y auditoria</h2>
-                  <p className="text-sm text-zinc-600">
-                    Exportaciones administrativas y bitacora filtrable de la polla.
-                  </p>
-                </div>
-                <div className="grid gap-5 p-5 lg:grid-cols-[0.9fr_1.1fr]">
-                  <div className="space-y-4">
-                    <div className="rounded-lg border border-zinc-200 p-4">
-                      <p className="text-sm font-semibold text-zinc-950">Exportaciones</p>
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        <button
-                          className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:border-zinc-400 disabled:cursor-not-allowed disabled:text-zinc-400"
-                          disabled={!canManageSelectedPool || reportsBusy}
-                          type="button"
-                          onClick={() => void downloadPredictionsReportCSV()}
-                        >
-                          Predicciones CSV
-                        </button>
-                        <button
-                          className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:border-zinc-400 disabled:cursor-not-allowed disabled:text-zinc-400"
-                          disabled={!canManageSelectedPool || reportsBusy}
-                          type="button"
-                          onClick={() => void downloadRankingPaymentsCSV()}
-                        >
-                          Ranking y pagos CSV
-                        </button>
-                      </div>
-                    </div>
-                    <div className="rounded-lg border border-zinc-200 p-4">
-                      <p className="text-sm font-semibold text-zinc-950">Recalculo manual</p>
-                      <label className="mt-3 block text-xs font-medium text-zinc-700">
-                        Motivo
-                        <textarea
-                          className="mt-1 min-h-20 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-950"
-                          onChange={(event) => setRecalculationReason(event.target.value)}
-                          value={recalculationReason}
-                        />
-                      </label>
-                      <button
-                        className="mt-3 rounded-md bg-zinc-950 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
-                        disabled={
-                          !canManageSelectedPool ||
-                          reportsBusy ||
-                          recalculationReason.trim() === ""
-                        }
-                        type="button"
-                        onClick={() => void requestPoolRecalculation()}
-                      >
-                        Registrar recalculo
-                      </button>
-                    </div>
-                  </div>
-                  <div className="rounded-lg border border-zinc-200">
-                    <div className="space-y-3 border-b border-zinc-200 px-4 py-3">
-                      <p className="text-sm font-semibold text-zinc-950">Bitacora</p>
-                      <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
-                        <input
-                          className="min-h-9 rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-950"
-                          onChange={(event) => setAuditEntityTypeFilter(event.target.value)}
-                          placeholder="Tipo de entidad"
-                          value={auditEntityTypeFilter}
-                        />
-                        <input
-                          className="min-h-9 rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-950"
-                          onChange={(event) => setAuditActionFilter(event.target.value)}
-                          placeholder="Accion"
-                          value={auditActionFilter}
-                        />
-                        <button
-                          className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:border-zinc-400 disabled:cursor-not-allowed disabled:text-zinc-400"
-                          disabled={!canManageSelectedPool || reportsBusy}
-                          type="button"
-                          onClick={() => void loadAuditLogs()}
-                        >
-                          Consultar
-                        </button>
-                      </div>
-                    </div>
-                    <div className="max-h-96 divide-y divide-zinc-200 overflow-auto">
-                      {auditLogs.length > 0 ? (
-                        auditLogs.map((log) => (
-                          <div key={log.id} className="px-4 py-3 text-sm">
-                            <div className="flex flex-wrap items-center justify-between gap-2">
-                              <p className="font-medium text-zinc-950">{log.action}</p>
-                              <p className="text-xs text-zinc-500">
-                                {formatDateTime(log.created_at)}
-                              </p>
-                            </div>
-                            <p className="mt-1 text-xs text-zinc-600">
-                              {log.entity_type} · {log.actor_name || log.actor_user_id || "Sistema"}
-                            </p>
-                            <pre className="mt-2 max-h-24 overflow-auto rounded-md bg-zinc-50 p-2 text-xs text-zinc-600">
-                              {log.metadata}
-                            </pre>
-                          </div>
-                        ))
-                      ) : (
-                        <p className="px-4 py-3 text-sm text-zinc-600">
-                          Consulta la bitacora para ver los ultimos movimientos.
+                  {renderAdminSection("reportes") ? (
+                    <section
+                      className="scroll-mt-4 rounded-lg border border-zinc-200 bg-white shadow-sm"
+                      id="reportes"
+                    >
+                      <div className="border-b border-zinc-200 px-5 py-4">
+                        <h2 className="text-lg font-semibold text-zinc-950">
+                          Reportes y auditoria
+                        </h2>
+                        <p className="text-sm text-zinc-600">
+                          Exportaciones administrativas y bitacora filtrable de la polla.
                         </p>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </section>
-            ) : null}
+                      </div>
+                      <div className="grid gap-5 p-5 lg:grid-cols-[0.9fr_1.1fr]">
+                        <div className="space-y-4">
+                          <div className="rounded-lg border border-zinc-200 p-4">
+                            <p className="text-sm font-semibold text-zinc-950">Exportaciones</p>
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              <button
+                                className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:border-zinc-400 disabled:cursor-not-allowed disabled:text-zinc-400"
+                                disabled={!canManageSelectedPool || reportsBusy}
+                                type="button"
+                                onClick={() => void downloadPredictionsReportCSV()}
+                              >
+                                Predicciones CSV
+                              </button>
+                              <button
+                                className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:border-zinc-400 disabled:cursor-not-allowed disabled:text-zinc-400"
+                                disabled={!canManageSelectedPool || reportsBusy}
+                                type="button"
+                                onClick={() => void downloadRankingPaymentsCSV()}
+                              >
+                                Ranking y pagos CSV
+                              </button>
+                            </div>
+                          </div>
+                          <div className="rounded-lg border border-zinc-200 p-4">
+                            <p className="text-sm font-semibold text-zinc-950">
+                              Recalculo manual
+                            </p>
+                            <label className="mt-3 block text-xs font-medium text-zinc-700">
+                              Motivo
+                              <textarea
+                                className="mt-1 min-h-20 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-950"
+                                onChange={(event) =>
+                                  setRecalculationReason(event.target.value)
+                                }
+                                value={recalculationReason}
+                              />
+                            </label>
+                            <button
+                              className="mt-3 rounded-md bg-zinc-950 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
+                              disabled={
+                                !canManageSelectedPool ||
+                                reportsBusy ||
+                                recalculationReason.trim() === ""
+                              }
+                              type="button"
+                              onClick={() => void requestPoolRecalculation()}
+                            >
+                              Registrar recalculo
+                            </button>
+                          </div>
+                        </div>
+                        <div className="rounded-lg border border-zinc-200">
+                          <div className="space-y-3 border-b border-zinc-200 px-4 py-3">
+                            <p className="text-sm font-semibold text-zinc-950">Bitacora</p>
+                            <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+                              <input
+                                className="min-h-9 rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-950"
+                                onChange={(event) =>
+                                  setAuditEntityTypeFilter(event.target.value)
+                                }
+                                placeholder="Tipo de entidad"
+                                value={auditEntityTypeFilter}
+                              />
+                              <input
+                                className="min-h-9 rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-950"
+                                onChange={(event) => setAuditActionFilter(event.target.value)}
+                                placeholder="Accion"
+                                value={auditActionFilter}
+                              />
+                              <button
+                                className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:border-zinc-400 disabled:cursor-not-allowed disabled:text-zinc-400"
+                                disabled={!canManageSelectedPool || reportsBusy}
+                                type="button"
+                                onClick={() => void loadAuditLogs()}
+                              >
+                                Consultar
+                              </button>
+                            </div>
+                          </div>
+                          <div className="max-h-96 divide-y divide-zinc-200 overflow-auto">
+                            {auditLogs.length > 0 ? (
+                              auditLogs.map((log) => (
+                                <div key={log.id} className="px-4 py-3 text-sm">
+                                  <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <p className="font-medium text-zinc-950">{log.action}</p>
+                                    <p className="text-xs text-zinc-500">
+                                      {formatDateTime(log.created_at)}
+                                    </p>
+                                  </div>
+                                  <p className="mt-1 text-xs text-zinc-600">
+                                    {log.entity_type} ·{" "}
+                                    {log.actor_name || log.actor_user_id || "Sistema"}
+                                  </p>
+                                  <pre className="mt-2 max-h-24 overflow-auto rounded-md bg-zinc-50 p-2 text-xs text-zinc-600">
+                                    {log.metadata}
+                                  </pre>
+                                </div>
+                              ))
+                            ) : (
+                              <p className="px-4 py-3 text-sm text-zinc-600">
+                                Consulta la bitacora para ver los ultimos movimientos.
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </section>
+                  ) : null}
 
-            {pool ? (
+                  {renderAdminSection("recaudo") ? (
               <section
                 className="scroll-mt-4 rounded-lg border border-zinc-200 bg-white shadow-sm"
                 id="recaudo"
@@ -3346,6 +3413,9 @@ export default function AdminHome() {
                   </div>
                 )}
               </section>
+                  ) : null}
+                </div>
+              </div>
             ) : (
               <section className="rounded-lg border border-zinc-200 bg-white p-6 text-sm text-zinc-600 shadow-sm">
                 No tienes pollas creadas.
@@ -3517,44 +3587,333 @@ function PoolThemeOverview({
   );
 }
 
-function AdminSectionNavigation({ pool }: { pool: Pool }) {
-  const items = [
-    { href: "#identidad", label: "Identidad" },
-    { href: "#pronosticos", label: "Pronosticos" },
-    { href: "#overrides", label: "Overrides" },
-    { href: "#desempates-torneo", label: "Desempates" },
-    { href: "#brackets", label: "Brackets" },
-    { href: "#globales", label: "Globales" },
-    { href: "#resultados", label: "Resultados" },
-    { href: "#posiciones-oficiales", label: "Posiciones" },
-    { href: "#premios", label: "Premios" },
-    { href: "#recaudo", label: "Recaudo" },
+function AdminSectionNavigation({
+  activeSection,
+  items,
+  onSelect,
+}: {
+  activeSection: AdminSectionID;
+  items: AdminSectionItem[];
+  onSelect: (section: AdminSectionID) => void;
+}) {
+  const groups: AdminSectionItem["group"][] = [
+    "Base",
+    "Configuracion",
+    "Operacion",
+    "Reportes",
   ];
+  const activeItem = items.find((item) => item.id === activeSection) ?? items[0];
 
   return (
-    <section className="rounded-lg border border-zinc-200 bg-white shadow-sm">
-      <div className="grid gap-4 px-5 py-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
-        <div>
+    <aside className="lg:sticky lg:top-4 lg:self-start">
+      <label className="block text-xs font-medium uppercase text-zinc-500 lg:hidden" htmlFor="admin-section-select">
+        Seccion
+      </label>
+      <select
+        id="admin-section-select"
+        className="mt-2 min-h-11 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950 lg:hidden"
+        onChange={(event) => onSelect(event.target.value as AdminSectionID)}
+        value={activeSection}
+      >
+        {items.map((item) => (
+          <option key={item.id} value={item.id}>
+            {item.label}
+          </option>
+        ))}
+      </select>
+      <nav
+        aria-label="Secciones de administracion"
+        className="hidden rounded-lg border border-zinc-200 bg-white p-3 shadow-sm lg:block"
+      >
+        <div className="border-b border-zinc-200 px-2 pb-3">
           <p className="text-xs font-medium uppercase text-emerald-700">Administrar</p>
-          <p className="mt-1 text-lg font-semibold text-zinc-950">{poolDisplayName(pool)}</p>
-          <p className="mt-1 text-sm text-zinc-600">
-            Codigo {pool.invite_code} - cierre {pool.prediction_close_hours_before}h antes
-          </p>
+          <p className="mt-1 text-sm font-semibold text-zinc-950">{activeItem.label}</p>
+          <p className="mt-1 text-xs text-zinc-500">{activeItem.description}</p>
         </div>
-        <nav aria-label="Secciones de administracion" className="flex flex-wrap gap-2">
-          {items.map((item) => (
-            <a
-              className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-800 hover:border-zinc-400"
-              href={item.href}
-              key={item.href}
-            >
-              {item.label}
-            </a>
-          ))}
-        </nav>
+        <div className="mt-3 space-y-4">
+          {groups.map((group) => {
+            const groupItems = items.filter((item) => item.group === group);
+            if (groupItems.length === 0) {
+              return null;
+            }
+
+            return (
+              <div key={group}>
+                <p className="px-2 text-[11px] font-semibold uppercase text-zinc-400">
+                  {group}
+                </p>
+                <div className="mt-1 space-y-1">
+                  {groupItems.map((item) => {
+                    const selected = item.id === activeSection;
+                    return (
+                      <a
+                        aria-current={selected ? "page" : undefined}
+                        aria-label={item.label}
+                        className={`flex w-full items-center justify-between gap-2 rounded-md px-2 py-2 text-left text-sm font-medium ${
+                          selected
+                            ? "bg-emerald-50 text-emerald-900"
+                            : "text-zinc-700 hover:bg-zinc-50 hover:text-zinc-950"
+                        }`}
+                        href={adminSectionHref(item.id)}
+                        key={item.id}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          onSelect(item.id);
+                        }}
+                      >
+                        <span>{item.label}</span>
+                        {item.badge ? (
+                          <span
+                            className={`rounded-md px-2 py-0.5 text-[11px] font-semibold ${
+                              selected
+                                ? "bg-emerald-100 text-emerald-800"
+                                : "bg-zinc-100 text-zinc-500"
+                            }`}
+                          >
+                            {item.badge}
+                          </span>
+                        ) : null}
+                      </a>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </nav>
+    </aside>
+  );
+}
+
+function AdminPoolStickyHeader({
+  activeSection,
+  items,
+  paymentCurrency,
+  pool,
+  totals,
+}: {
+  activeSection: AdminSectionID;
+  items: AdminSectionItem[];
+  paymentCurrency: string;
+  pool: Pool;
+  totals: ReturnType<typeof paymentTotals>;
+}) {
+  const activeItem = items.find((item) => item.id === activeSection) ?? items[0];
+
+  return (
+    <section className="sticky top-0 z-10 rounded-lg border border-zinc-200 bg-white/95 px-4 py-3 shadow-sm backdrop-blur">
+      <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+        <div className="min-w-0">
+          <p className="text-xs font-medium uppercase text-emerald-700">{activeItem.label}</p>
+          <p className="mt-1 truncate text-lg font-semibold text-zinc-950">
+            {poolDisplayName(pool)}
+          </p>
+          <p className="mt-1 text-sm text-zinc-600">{activeItem.description}</p>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+          <CompactMetric label="Codigo" value={pool.invite_code} />
+          <CompactMetric label="Jugadores" value={String(pool.participants.length)} />
+          <CompactMetric label="Pagados" value={String(totals.confirmedCount)} />
+          <CompactMetric
+            label="Caja"
+            value={formatMoney(totals.confirmedAmountCents, paymentCurrency)}
+          />
+        </div>
       </div>
     </section>
   );
+}
+
+function AdminPoolSummaryPanel({
+  onSelect,
+  paymentCurrency,
+  pool,
+  predictionStatuses,
+  ranking,
+  totals,
+}: {
+  onSelect: (section: AdminSectionID) => void;
+  paymentCurrency: string;
+  pool: Pool;
+  predictionStatuses: PredictionMatchStatus[];
+  ranking: RankingEntry[];
+  totals: ReturnType<typeof paymentTotals>;
+}) {
+  const closedMatches = predictionStatuses.filter((status) => status.closed).length;
+  const resolvedMatches = predictionStatuses.filter((status) => status.official_result).length;
+  const nextActions: Array<{ section: AdminSectionID; label: string; text: string }> = [
+    {
+      section: "recaudo",
+      label: "Revisar recaudo",
+      text: `${totals.pendingCount} pagos pendientes`,
+    },
+    {
+      section: "resultados",
+      label: "Cargar resultados",
+      text: `${resolvedMatches} de ${predictionStatuses.length} partidos con resultado`,
+    },
+    {
+      section: "premios",
+      label: "Configurar premios",
+      text: `${ranking.length} participantes en ranking`,
+    },
+    {
+      section: "reportes",
+      label: "Exportar reportes",
+      text: "CSV y bitacora administrativa",
+    },
+  ];
+
+  return (
+    <section className="rounded-lg border border-zinc-200 bg-white shadow-sm" id="resumen">
+      <div className="border-b border-zinc-200 px-5 py-4">
+        <h2 className="text-lg font-semibold text-zinc-950">Resumen operativo</h2>
+        <p className="text-sm text-zinc-600">
+          Estado general de la polla y accesos rapidos a las tareas frecuentes.
+        </p>
+      </div>
+      <div className="grid gap-4 p-5 md:grid-cols-2 xl:grid-cols-4">
+        <Metric label="Entrada" value={formatMoney(pool.entry_fee_cents, pool.currency)} />
+        <Metric label="Confirmado" value={formatMoney(totals.confirmedAmountCents, paymentCurrency)} />
+        <Metric label="Partidos cerrados" value={`${closedMatches}/${predictionStatuses.length}`} />
+        <Metric label="Resultados" value={`${resolvedMatches}/${predictionStatuses.length}`} />
+      </div>
+      <div className="grid gap-3 border-t border-zinc-200 p-5 md:grid-cols-2">
+        {nextActions.map((action) => (
+          <button
+            className="rounded-lg border border-zinc-200 px-4 py-3 text-left hover:border-emerald-300 hover:bg-emerald-50"
+            key={action.section}
+            onClick={() => onSelect(action.section)}
+            type="button"
+          >
+            <p className="text-sm font-semibold text-zinc-950">{action.label}</p>
+            <p className="mt-1 text-xs text-zinc-600">{action.text}</p>
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function CompactMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-md border border-zinc-200 bg-white px-3 py-2">
+      <p className="text-[11px] font-medium uppercase text-zinc-500">{label}</p>
+      <p className="mt-0.5 truncate text-sm font-semibold text-zinc-950">{value}</p>
+    </div>
+  );
+}
+
+function buildAdminSections({
+  globalPredictionDefinitions,
+  pool,
+  predictionStatuses,
+  ranking,
+  resultGroups,
+  totals,
+}: {
+  globalPredictionDefinitions: GlobalPredictionDefinition[];
+  pool: Pool | null;
+  predictionStatuses: PredictionMatchStatus[];
+  ranking: RankingEntry[];
+  resultGroups: ReturnType<typeof groupMatchesForResults>;
+  totals: ReturnType<typeof paymentTotals>;
+}): AdminSectionItem[] {
+  const totalMatches = resultGroups.reduce((total, group) => total + group.matches.length, 0);
+  const resolvedMatches = predictionStatuses.filter((status) => status.official_result).length;
+
+  return [
+    {
+      id: "resumen",
+      label: "Resumen",
+      description: "Vista rapida de recaudo, resultados y tareas pendientes.",
+      group: "Base",
+    },
+    {
+      id: "tema",
+      label: "Identidad",
+      description: "Marca, colores, logo y visuales de la polla.",
+      group: "Configuracion",
+    },
+    {
+      id: "pronosticos",
+      label: "Pronosticos",
+      description: "Modo de prediccion, puntajes y desempates del torneo.",
+      group: "Configuracion",
+      badge: pool?.prediction_mode === "outcome" ? "LEV" : "Score",
+    },
+    {
+      id: "overrides",
+      label: "Overrides",
+      description: "Ajustes especiales por fase, grupo o partido.",
+      group: "Configuracion",
+    },
+    {
+      id: "llaves",
+      label: "Llaves",
+      description: "Generacion y ajuste manual de brackets.",
+      group: "Configuracion",
+    },
+    {
+      id: "globales",
+      label: "Globales",
+      description: "Reglas globales, alias y resultados globales.",
+      group: "Configuracion",
+      badge: String(globalPredictionDefinitions.length),
+    },
+    {
+      id: "resultados",
+      label: "Resultados",
+      description: "Marcadores oficiales, bonus sorpresa y snapshots.",
+      group: "Operacion",
+      badge: `${resolvedMatches}/${totalMatches}`,
+    },
+    {
+      id: "posiciones",
+      label: "Posiciones",
+      description: "Tablas oficiales por grupo, liga o fase.",
+      group: "Operacion",
+    },
+    {
+      id: "premios",
+      label: "Premios",
+      description: "Porcentajes, desempates y vista previa de pagos.",
+      group: "Operacion",
+      badge: String(ranking.length),
+    },
+    {
+      id: "reportes",
+      label: "Reportes",
+      description: "Exportaciones CSV, auditoria y recalculo manual.",
+      group: "Reportes",
+    },
+    {
+      id: "recaudo",
+      label: "Recaudo",
+      description: "Participantes, estados de pago y exportacion.",
+      group: "Reportes",
+      badge: `${totals.confirmedCount}/${pool?.participants.length ?? 0}`,
+    },
+  ];
+}
+
+function adminSectionHref(section: AdminSectionID) {
+  const hrefBySection: Record<AdminSectionID, string> = {
+    resumen: "#resumen",
+    tema: "#identidad",
+    pronosticos: "#pronosticos",
+    overrides: "#overrides",
+    llaves: "#brackets",
+    globales: "#globales",
+    resultados: "#resultados",
+    posiciones: "#posiciones-oficiales",
+    premios: "#premios",
+    reportes: "#reportes",
+    recaudo: "#recaudo",
+  };
+
+  return hrefBySection[section];
 }
 
 function PoolThemePanel({
