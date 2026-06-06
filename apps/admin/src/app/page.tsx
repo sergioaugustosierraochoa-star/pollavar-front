@@ -428,7 +428,7 @@ export default function AdminHome() {
   const canManageSelectedPoolTheme = Boolean(pool && canManageTheme(pool));
   const canManageSelectedPoolResults = Boolean(pool && canManageResults(pool));
   const canManageSelectedTournamentBrackets = Boolean(
-    session && pool && canManageTournamentBrackets(pool, session.user),
+    session && pool && canManageTournamentBrackets(session.user),
   );
   const totals = useMemo(
     () => paymentTotals(pool?.participants ?? [], paymentsByUserID),
@@ -5971,11 +5971,8 @@ function canManageResults(pool: Pool) {
   return pool.current_user_role === "pool_admin";
 }
 
-function canManageTournamentBrackets(pool: Pool, user: AuthUser) {
-  return (
-    pool.current_user_role === "pool_admin" &&
-    (user.role === "pool_admin" || user.role === "superadmin")
-  );
+function canManageTournamentBrackets(user: AuthUser) {
+  return user.role === "superadmin";
 }
 
 function poolDisplayName(pool: Pool) {

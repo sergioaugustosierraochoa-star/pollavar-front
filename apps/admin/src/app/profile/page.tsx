@@ -247,8 +247,6 @@ function roleLabel(role: string) {
   switch (role) {
     case "superadmin":
       return "Superadmin";
-    case "pool_admin":
-      return "Administrador de polla";
     default:
       return "Participante";
   }

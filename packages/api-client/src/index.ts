@@ -1,9 +1,12 @@
+export type GlobalUserRole = "participant" | "superadmin";
+export type PoolRole = "participant" | "pool_admin";
+
 export type AuthUser = {
   id: string;
   name: string;
   username: string;
   email: string;
-  role: string;
+  role: GlobalUserRole;
   created_at: string;
 };
 
@@ -209,7 +212,7 @@ export type PoolParticipant = {
   user_id: string;
   user_name: string;
   username: string;
-  role: string;
+  role: PoolRole;
   payment_status: string;
   prize_eligible: boolean;
   joined_at: string;
@@ -233,7 +236,7 @@ export type Pool = {
   created_by: string;
   created_at: string;
   updated_at: string;
-  current_user_role: string;
+  current_user_role: PoolRole;
   theme: PoolTheme;
   participants: PoolParticipant[];
 };

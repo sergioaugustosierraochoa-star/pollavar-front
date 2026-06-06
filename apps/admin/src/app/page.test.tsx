@@ -1,8 +1,20 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import type { GlobalUserRole } from "@pollavar/api-client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import AdminHome from "./page";
 
-const session = {
+const session: {
+  token: string;
+  expiresAt: string;
+  user: {
+    id: string;
+    name: string;
+    username: string;
+    email: string;
+    role: GlobalUserRole;
+    created_at: string;
+  };
+} = {
   token: "token",
   expiresAt: "2099-05-28T01:00:00Z",
   user: {
@@ -10,7 +22,7 @@ const session = {
     name: "Admin",
     username: "admin",
     email: "admin@example.com",
-    role: "pool_admin",
+    role: "superadmin",
     created_at: "2026-05-27T01:00:00Z",
   },
 };
@@ -963,6 +975,23 @@ describe("Admin home", () => {
       "/api/v1/tournaments/fifa-world-cup-2026/brackets/generate",
       expect.anything(),
     );
+  });
+
+  it("keeps global tournament brackets read-only for pool admins without superadmin role", async () => {
+    storeSession({ user: { role: "participant" } });
+    const fetcher = vi.fn(adminFetch);
+    vi.stubGlobal("fetch", fetcher);
+
+    render(<AdminHome />);
+
+    const bracketsSection = (await screen.findByRole("heading", { name: "Brackets" })).closest(
+      "section",
+    );
+    expect(bracketsSection).not.toBeNull();
+    expect(within(bracketsSection as HTMLElement).getByText("Solo lectura")).toBeInTheDocument();
+    expect(
+      within(bracketsSection as HTMLElement).getByRole("button", { name: "Generar bracket" }),
+    ).toBeDisabled();
   });
 
   it("updates generated bracket match slots manually", async () => {
@@ -2057,7 +2086,11 @@ describe("Admin home", () => {
   });
 });
 
-function storeSession(overrides: Partial<typeof session> = {}) {
+function storeSession(
+  overrides: Partial<Omit<typeof session, "user">> & {
+    user?: Partial<typeof session.user>;
+  } = {},
+) {
   window.localStorage.setItem(
     "pollavar.admin.session",
     JSON.stringify({
