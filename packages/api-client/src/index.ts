@@ -142,6 +142,8 @@ export type GenerateKnockoutBracketInput = {
   source_matches?: Array<{
     id: string;
     match_number: number;
+    home_slot_config?: MatchSlot;
+    away_slot_config?: MatchSlot;
   }>;
 };
 

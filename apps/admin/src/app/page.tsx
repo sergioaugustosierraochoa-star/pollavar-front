@@ -5309,14 +5309,27 @@ function parseSourceMatches(value: string) {
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean);
-  const matches: Array<{ id: string; match_number: number }> = [];
+  const matches: NonNullable<GenerateKnockoutBracketInput["source_matches"]> = [];
   for (const line of lines) {
-    const [id = "", matchNumber = ""] = line.split(",");
+    const [id = "", matchNumber = "", homeSlotType = "", awaySlotType = ""] = line.split(",");
     const parsedMatchNumber = parseWholeNumber(matchNumber);
     if (!id.trim() || parsedMatchNumber === null) {
       return null;
     }
-    matches.push({ id: id.trim(), match_number: parsedMatchNumber });
+    const match: NonNullable<GenerateKnockoutBracketInput["source_matches"]>[number] = {
+      id: id.trim(),
+      match_number: parsedMatchNumber,
+    };
+    const parsedHomeType = parseBracketSlotType(homeSlotType);
+    const parsedAwayType = parseBracketSlotType(awaySlotType);
+    if (homeSlotType.trim() || awaySlotType.trim()) {
+      if (!parsedHomeType || !parsedAwayType) {
+        return null;
+      }
+      match.home_slot_config = { type: parsedHomeType, source_id: "", rank: 1, label: parsedHomeType };
+      match.away_slot_config = { type: parsedAwayType, source_id: "", rank: 1, label: parsedAwayType };
+    }
+    matches.push(match);
   }
   return matches;
 }
