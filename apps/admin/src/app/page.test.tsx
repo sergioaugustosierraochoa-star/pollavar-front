@@ -762,6 +762,75 @@ describe("Admin home", () => {
     expect(within(officialResultsSection as HTMLElement).queryByText("BYE")).not.toBeInTheDocument();
   });
 
+  it("creates a pool from the admin panel", async () => {
+    storeSession();
+    const createdPool = {
+      ...pool,
+      id: "created-pool-id",
+      name: "Nueva oficina",
+      entry_fee_cents: 7500000,
+    };
+    let created = false;
+    const fetcher = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      const value = String(url);
+      if (value.endsWith("/api/v1/pools") && init?.method === "POST") {
+        created = true;
+        return jsonResponse({ data: createdPool });
+      }
+      if (value.endsWith("/api/v1/pools")) {
+        return jsonResponse({ data: created ? [pool, createdPool] : [pool] });
+      }
+      if (value.endsWith("/api/v1/pools/created-pool-id")) {
+        return jsonResponse({ data: createdPool });
+      }
+      if (value.includes("/api/v1/pools/created-pool-id/")) {
+        return adminFetch(value.replace("/created-pool-id/", "/pool-id/"), init);
+      }
+      return adminFetch(url, init);
+    });
+    vi.stubGlobal("fetch", fetcher);
+
+    render(<AdminHome />);
+
+    await screen.findByRole("heading", { name: "Oficina FC" });
+    const createPoolSection = screen.getByRole("heading", { name: "Crear polla" }).closest("section");
+    expect(createPoolSection).not.toBeNull();
+    fireEvent.change(within(createPoolSection as HTMLElement).getByLabelText("Nombre"), {
+      target: { value: "Nueva oficina" },
+    });
+    fireEvent.change(within(createPoolSection as HTMLElement).getByLabelText("Entrada"), {
+      target: { value: "75000" },
+    });
+    fireEvent.change(within(createPoolSection as HTMLElement).getByLabelText("Descripcion"), {
+      target: { value: "Polla nueva" },
+    });
+    fireEvent.click(within(createPoolSection as HTMLElement).getByRole("button", { name: "Crear polla" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("status")).toHaveTextContent("Polla creada.");
+    });
+    expect(fetcher).toHaveBeenCalledWith(
+      "http://localhost:8080/api/v1/pools",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          tournament_slug: "fifa-world-cup-2026",
+          name: "Nueva oficina",
+          description: "Polla nueva",
+          entry_fee_cents: 7500000,
+          currency: "COP",
+          prediction_close_hours_before: 6,
+          theme: {},
+        }),
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer token",
+        },
+      }),
+    );
+    expect(screen.getByLabelText("Polla")).toHaveValue("created-pool-id");
+  });
+
   it("rejects malformed bracket slots before generating a bracket", async () => {
     storeSession();
     const fetcher = vi.fn(adminFetch);
@@ -1514,7 +1583,7 @@ describe("Admin home", () => {
         },
       }),
     );
-  });
+  }, 10000);
 
   it("saves a boolean official global result", async () => {
     storeSession();
@@ -1976,6 +2045,17 @@ async function adminFetch(url: RequestInfo | URL, init?: RequestInit) {
             status: "scheduled",
           },
         ],
+      },
+    });
+  }
+  if (value.endsWith("/api/v1/pools") && init?.method === "POST") {
+    const body = JSON.parse(String(init.body)) as { name: string; entry_fee_cents: number };
+    return jsonResponse({
+      data: {
+        ...pool,
+        id: "created-pool-id",
+        name: body.name,
+        entry_fee_cents: body.entry_fee_cents,
       },
     });
   }

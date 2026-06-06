@@ -4,6 +4,7 @@ import {
   PollavarAPIError,
   createPollavarClient,
   type AuthUser,
+  type CreatePoolInput,
   type EffectiveMatchPredictionSettings,
   type GeneratedBracket,
   type GenerateKnockoutBracketInput,
@@ -220,6 +221,14 @@ type MatchSlotOverrideDrafts = Record<
     reason: string;
   }
 >;
+type CreatePoolDraft = {
+  tournamentSlug: string;
+  name: string;
+  description: string;
+  entryFee: string;
+  currency: string;
+  predictionCloseHoursBefore: string;
+};
 
 const prizePercentageScale = 1000;
 const prizeTotalPercentageUnits = 100 * prizePercentageScale;
@@ -268,6 +277,7 @@ export default function AdminHome() {
   const [status, setStatus] = useState<DashboardStatus>("checking");
   const [message, setMessage] = useState("");
   const [pools, setPools] = useState<Pool[]>([]);
+  const [tournaments, setTournaments] = useState<TournamentSummary[]>([]);
   const [selectedPoolID, setSelectedPoolID] = useState("");
   const [pool, setPool] = useState<Pool | null>(null);
   const [tournament, setTournament] = useState<Tournament | null>(null);
@@ -342,6 +352,7 @@ export default function AdminHome() {
   const [savingPredictionSettings, setSavingPredictionSettings] = useState(false);
   const [savingPredictionOverrides, setSavingPredictionOverrides] = useState(false);
   const [savingPrizes, setSavingPrizes] = useState(false);
+  const [creatingPool, setCreatingPool] = useState(false);
   const [savingBracket, setSavingBracket] = useState(false);
   const [savingMatchSlotOverrideID, setSavingMatchSlotOverrideID] = useState("");
   const [bracketDraft, setBracketDraft] = useState<BracketGeneratorDraft>(
@@ -350,6 +361,9 @@ export default function AdminHome() {
   const [matchSlotOverrideDrafts, setMatchSlotOverrideDrafts] =
     useState<MatchSlotOverrideDrafts>({});
   const [generatedBracket, setGeneratedBracket] = useState<GeneratedBracket | null>(null);
+  const [createPoolDraft, setCreatePoolDraft] = useState<CreatePoolDraft>(
+    defaultCreatePoolDraft(null),
+  );
   const requestID = useRef(0);
 
   const predictionStatusesByMatch = useMemo(
@@ -400,6 +414,7 @@ export default function AdminHome() {
     setStatus("signed-out");
     setMessage("");
     setPools([]);
+    setTournaments([]);
     setSelectedPoolID("");
     setPool(null);
     setTournament(null);
@@ -441,7 +456,9 @@ export default function AdminHome() {
     setSavingPredictionSettings(false);
     setSavingPredictionOverrides(false);
     setSavingPrizes(false);
+    setCreatingPool(false);
     setSavingMatchSlotOverrideID("");
+    setCreatePoolDraft(defaultCreatePoolDraft(null));
   }, []);
 
   const loadDashboard = useCallback(async function loadDashboard(
@@ -484,8 +501,12 @@ export default function AdminHome() {
         return;
       }
 
-        setPools(poolList);
-        setSelectedPoolID(activePool?.id ?? "");
+      setPools(poolList);
+      setTournaments(tournamentList);
+      setCreatePoolDraft((current) =>
+        current.tournamentSlug ? current : defaultCreatePoolDraft(tournamentList[0] ?? null),
+      );
+      setSelectedPoolID(activePool?.id ?? "");
 
       if (!activePool) {
         setPool(null);
@@ -1862,6 +1883,65 @@ export default function AdminHome() {
     }
   }
 
+  function updateCreatePoolDraft(patch: Partial<CreatePoolDraft>) {
+    setCreatePoolDraft((current) => ({ ...current, ...patch }));
+  }
+
+  async function createPool() {
+    if (!session || creatingPool) {
+      return;
+    }
+
+    const entryFeeCents = parseMoneyToCents(createPoolDraft.entryFee);
+    const predictionCloseHoursBefore = parseWholeNumber(
+      createPoolDraft.predictionCloseHoursBefore,
+    );
+    const input: CreatePoolInput = {
+      tournament_slug: createPoolDraft.tournamentSlug.trim(),
+      name: createPoolDraft.name.trim(),
+      description: createPoolDraft.description.trim(),
+      entry_fee_cents: entryFeeCents ?? -1,
+      currency: createPoolDraft.currency.trim().toUpperCase() || "COP",
+      prediction_close_hours_before: predictionCloseHoursBefore ?? -1,
+      theme: {},
+    };
+
+    if (
+      !input.tournament_slug ||
+      !input.name ||
+      input.entry_fee_cents < 0 ||
+      input.prediction_close_hours_before < 0
+    ) {
+      setMessage("Revisa los datos para crear la polla.");
+      return;
+    }
+
+    setCreatingPool(true);
+    setMessage("");
+
+    try {
+      const createdPool = await createPollavarClient().createPool(session.token, input);
+      await loadDashboard(session.token, session.user.id, createdPool.id);
+      setMessage("Polla creada.");
+    } catch (error) {
+      if (isUnauthorized(error)) {
+        signOutAdmin();
+        return;
+      }
+      if (error instanceof PollavarAPIError && error.status === 400) {
+        setMessage("Revisa los datos para crear la polla.");
+        return;
+      }
+      if (error instanceof PollavarAPIError && error.status === 404) {
+        setMessage("No encontramos el torneo seleccionado.");
+        return;
+      }
+      setMessage("No pudimos crear la polla.");
+    } finally {
+      setCreatingPool(false);
+    }
+  }
+
   return (
     <main className="min-h-screen bg-[#f7f8fb] text-[#191b1f]">
       <header className="border-b border-zinc-200 bg-white">
@@ -1940,6 +2020,14 @@ export default function AdminHome() {
               pools={pools}
               selectedPoolID={selectedPoolID}
               totals={totals}
+            />
+
+            <CreatePoolPanel
+              draft={createPoolDraft}
+              onChange={updateCreatePoolDraft}
+              onCreate={() => void createPool()}
+              saving={creatingPool}
+              tournaments={tournaments}
             />
 
             {message ? (
@@ -2468,6 +2556,94 @@ export default function AdminHome() {
         ) : null}
       </section>
     </main>
+  );
+}
+
+function CreatePoolPanel({
+  draft,
+  onChange,
+  onCreate,
+  saving,
+  tournaments,
+}: {
+  draft: CreatePoolDraft;
+  onChange: (patch: Partial<CreatePoolDraft>) => void;
+  onCreate: () => void;
+  saving: boolean;
+  tournaments: TournamentSummary[];
+}) {
+  return (
+    <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
+      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-zinc-950">Crear polla</h2>
+          <p className="text-sm text-zinc-600">
+            Crea una nueva polla privada y usa el codigo de invitacion para compartirla.
+          </p>
+        </div>
+        <button
+          className="min-h-10 rounded-md bg-zinc-950 px-3 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
+          disabled={saving || tournaments.length === 0}
+          onClick={onCreate}
+          type="button"
+        >
+          {saving ? "Creando" : "Crear polla"}
+        </button>
+      </div>
+
+      <div className="mt-4 grid gap-3 md:grid-cols-2 lg:grid-cols-5">
+        <label className="grid gap-2 text-sm font-medium text-zinc-700">
+          <span>Torneo</span>
+          <select
+            className="min-h-10 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950 disabled:bg-zinc-100"
+            disabled={saving || tournaments.length === 0}
+            onChange={(event) => onChange({ tournamentSlug: event.target.value })}
+            value={draft.tournamentSlug}
+          >
+            {tournaments.map((tournament) => (
+              <option key={tournament.id} value={tournament.slug}>
+                {tournament.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <TextInput
+          disabled={saving}
+          label="Nombre"
+          onChange={(value) => onChange({ name: value })}
+          value={draft.name}
+        />
+        <TextInput
+          disabled={saving}
+          label="Entrada"
+          onChange={(value) => onChange({ entryFee: value })}
+          type="number"
+          value={draft.entryFee}
+        />
+        <TextInput
+          disabled={saving}
+          label="Moneda"
+          onChange={(value) => onChange({ currency: value })}
+          value={draft.currency}
+        />
+        <TextInput
+          disabled={saving}
+          label="Cierre horas antes"
+          onChange={(value) => onChange({ predictionCloseHoursBefore: value })}
+          type="number"
+          value={draft.predictionCloseHoursBefore}
+        />
+      </div>
+      <label className="mt-3 grid gap-2 text-sm font-medium text-zinc-700">
+        <span>Descripcion</span>
+        <input
+          className="min-h-10 rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-950 disabled:bg-zinc-100"
+          disabled={saving}
+          onChange={(event) => onChange({ description: event.target.value })}
+          value={draft.description}
+        />
+      </label>
+    </section>
   );
 }
 
@@ -6766,6 +6942,17 @@ function updateParticipantPaymentStatus(
         ? { ...participant, payment_status: status }
         : participant,
     ),
+  };
+}
+
+function defaultCreatePoolDraft(tournament: TournamentSummary | null): CreatePoolDraft {
+  return {
+    tournamentSlug: tournament?.slug ?? "",
+    name: "",
+    description: "",
+    entryFee: "0",
+    currency: "COP",
+    predictionCloseHoursBefore: "6",
   };
 }
 

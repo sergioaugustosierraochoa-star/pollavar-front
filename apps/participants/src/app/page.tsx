@@ -118,6 +118,8 @@ export default function ParticipantsHome() {
   const [message, setMessage] = useState("");
   const [pools, setPools] = useState<Pool[]>([]);
   const [selectedPoolID, setSelectedPoolID] = useState("");
+  const [joinInviteCode, setJoinInviteCode] = useState("");
+  const [joiningPool, setJoiningPool] = useState(false);
   const [pool, setPool] = useState<Pool | null>(null);
   const [tournament, setTournament] = useState<Tournament | null>(null);
   const [summary, setSummary] = useState<PredictionSummary | null>(null);
@@ -190,6 +192,8 @@ export default function ParticipantsHome() {
     setMessage("");
     setPools([]);
     setSelectedPoolID("");
+    setJoinInviteCode("");
+    setJoiningPool(false);
     setPool(null);
     setTournament(null);
     setSummary(null);
@@ -472,6 +476,45 @@ export default function ParticipantsHome() {
       return;
     }
     void loadDashboard(session.token, poolID);
+  }
+
+  async function joinPool() {
+    if (!session || joiningPool) {
+      return;
+    }
+
+    const inviteCode = joinInviteCode.trim();
+    if (!inviteCode) {
+      setMessage("Ingresa el codigo de invitacion.");
+      return;
+    }
+
+    setJoiningPool(true);
+    setMessage("");
+    try {
+      const joinedPool = await createPollavarClient().joinPool(session.token, {
+        invite_code: inviteCode,
+      });
+      setJoinInviteCode("");
+      await loadDashboard(session.token, joinedPool.id);
+      setMessage("Te uniste a la polla.");
+    } catch (error) {
+      if (isUnauthorizedError(error)) {
+        signOutParticipant();
+        return;
+      }
+      if (error instanceof PollavarAPIError && error.status === 400) {
+        setMessage("Revisa el codigo de invitacion.");
+        return;
+      }
+      if (error instanceof PollavarAPIError && error.status === 404) {
+        setMessage("No encontramos una polla con ese codigo.");
+        return;
+      }
+      setMessage("No pudimos unirte a la polla.");
+    } finally {
+      setJoiningPool(false);
+    }
   }
 
   async function loadPointDetails(userID: string) {
@@ -855,56 +898,124 @@ export default function ParticipantsHome() {
         />
       ) : null}
       {status === "ready" && session ? (
-        <Dashboard
-          drafts={drafts}
-          currentUserID={session.user.id}
-          effectiveMatchSettingsByMatch={effectiveMatchSettingsByMatch}
-          underdogBonusesByMatch={underdogBonusesByMatch}
-          onSave={savePrediction}
-          onDownloadSnapshot={downloadPredictionSnapshot}
-          onLoadSnapshot={loadPredictionSnapshot}
-          onSelectRankingUser={loadPointDetails}
-          onSaveStanding={saveStandingPrediction}
-          onSaveGlobalPrediction={saveGlobalPrediction}
-          onSelectPool={selectPool}
-          onMoveStanding={moveStandingTeam}
-          onUpdateDraft={updateDraft}
-          onUpdateGlobalDraft={updateGlobalDraft}
-          pool={pool}
-          pools={pools}
-          predictionsByMatch={predictionsByMatch}
-          predictionStatusesByMatch={predictionStatusesByMatch}
-          pointDetailsByUserID={pointDetailsByUserID}
-          pointDetailsLoadingUserID={pointDetailsLoadingUserID}
-          pointDetailsMessage={pointDetailsMessage}
-          prizePreview={prizePreview}
-          ranking={ranking}
-          scoringRules={scoringRules}
-          globalDrafts={globalDrafts}
-          globalPredictionDefinitions={globalPredictionDefinitions}
-          globalPredictionResults={globalPredictionResults}
-          globalPredictions={globalPredictions}
-          globalPrizePreview={globalPrizePreview}
-          globalSaveMessage={globalSaveMessage}
-          saveMessage={saveMessage}
-          savingGlobalDefinitionCode={savingGlobalDefinitionCode}
-          savingMatchID={savingMatchID}
-          savingStandingGroupID={savingStandingGroupID}
-          selectedPoolID={selectedPoolID}
-          selectedRankingUserID={selectedRankingUserID}
-          clockTick={clockTick}
-          snapshotDownloadingMatchID={snapshotDownloadingMatchID}
-          snapshotLoadingMatchID={snapshotLoadingMatchID}
-          snapshotMessages={snapshotMessages}
-          snapshotsByMatchID={snapshotsByMatchID}
-          standingDrafts={standingDrafts}
-          standingPredictionsByGroup={standingPredictionsByGroup}
-          standingSaveMessage={standingSaveMessage}
-          summary={summary}
-          tournament={tournament}
-        />
+        <>
+          <section className="mx-auto mt-6 max-w-7xl px-5">
+            <JoinPoolPanel
+              inviteCode={joinInviteCode}
+              joining={joiningPool}
+              message={message}
+              onChange={setJoinInviteCode}
+              onJoin={() => void joinPool()}
+            />
+          </section>
+          <Dashboard
+            drafts={drafts}
+            currentUserID={session.user.id}
+            effectiveMatchSettingsByMatch={effectiveMatchSettingsByMatch}
+            underdogBonusesByMatch={underdogBonusesByMatch}
+            onSave={savePrediction}
+            onDownloadSnapshot={downloadPredictionSnapshot}
+            onLoadSnapshot={loadPredictionSnapshot}
+            onSelectRankingUser={loadPointDetails}
+            onSaveStanding={saveStandingPrediction}
+            onSaveGlobalPrediction={saveGlobalPrediction}
+            onSelectPool={selectPool}
+            onMoveStanding={moveStandingTeam}
+            onUpdateDraft={updateDraft}
+            onUpdateGlobalDraft={updateGlobalDraft}
+            pool={pool}
+            pools={pools}
+            predictionsByMatch={predictionsByMatch}
+            predictionStatusesByMatch={predictionStatusesByMatch}
+            pointDetailsByUserID={pointDetailsByUserID}
+            pointDetailsLoadingUserID={pointDetailsLoadingUserID}
+            pointDetailsMessage={pointDetailsMessage}
+            prizePreview={prizePreview}
+            ranking={ranking}
+            scoringRules={scoringRules}
+            globalDrafts={globalDrafts}
+            globalPredictionDefinitions={globalPredictionDefinitions}
+            globalPredictionResults={globalPredictionResults}
+            globalPredictions={globalPredictions}
+            globalPrizePreview={globalPrizePreview}
+            globalSaveMessage={globalSaveMessage}
+            saveMessage={saveMessage}
+            savingGlobalDefinitionCode={savingGlobalDefinitionCode}
+            savingMatchID={savingMatchID}
+            savingStandingGroupID={savingStandingGroupID}
+            selectedPoolID={selectedPoolID}
+            selectedRankingUserID={selectedRankingUserID}
+            clockTick={clockTick}
+            snapshotDownloadingMatchID={snapshotDownloadingMatchID}
+            snapshotLoadingMatchID={snapshotLoadingMatchID}
+            snapshotMessages={snapshotMessages}
+            snapshotsByMatchID={snapshotsByMatchID}
+            standingDrafts={standingDrafts}
+            standingPredictionsByGroup={standingPredictionsByGroup}
+            standingSaveMessage={standingSaveMessage}
+            summary={summary}
+            tournament={tournament}
+          />
+        </>
       ) : null}
     </main>
+  );
+}
+
+function JoinPoolPanel({
+  inviteCode,
+  joining,
+  message,
+  onChange,
+  onJoin,
+}: {
+  inviteCode: string;
+  joining: boolean;
+  message: string;
+  onChange: (value: string) => void;
+  onJoin: () => void;
+}) {
+  const isError =
+    message.includes("No pudimos") ||
+    message.includes("No encontramos") ||
+    message.includes("Revisa") ||
+    message.includes("Ingresa");
+
+  return (
+    <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-zinc-950">Unirse a una polla</h2>
+          <p className="text-sm text-zinc-600">
+            Ingresa el codigo que te compartio el administrador.
+          </p>
+        </div>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+          <label className="grid gap-2 text-sm font-medium text-zinc-700">
+            <span>Codigo de invitacion</span>
+            <input
+              className="min-h-10 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm uppercase text-zinc-950 disabled:bg-zinc-100 sm:w-56"
+              disabled={joining}
+              onChange={(event) => onChange(event.target.value)}
+              value={inviteCode}
+            />
+          </label>
+          <button
+            className="min-h-10 rounded-md bg-zinc-950 px-3 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
+            disabled={joining}
+            onClick={onJoin}
+            type="button"
+          >
+            {joining ? "Uniendo" : "Unirme"}
+          </button>
+        </div>
+      </div>
+      {message ? (
+        <p className={`mt-3 text-sm font-medium ${isError ? "text-rose-700" : "text-emerald-700"}`} role={isError ? "alert" : "status"}>
+          {message}
+        </p>
+      ) : null}
+    </section>
   );
 }
 

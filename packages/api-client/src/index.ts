@@ -215,6 +215,29 @@ export type Pool = {
   participants: PoolParticipant[];
 };
 
+export type CreatePoolInput = {
+  tournament_slug: string;
+  name: string;
+  description?: string;
+  entry_fee_cents: number;
+  currency: string;
+  collection_responsible_user_id?: string;
+  prediction_close_hours_before: number;
+  theme?: {
+    display_name?: string;
+    logo_url?: string;
+    banner_url?: string;
+    mascot_url?: string;
+    primary_color?: string;
+    secondary_color?: string;
+    accent_color?: string;
+  };
+};
+
+export type JoinPoolInput = {
+  invite_code: string;
+};
+
 export type PaymentMethod = "cash" | "bank_transfer" | "deposit";
 export type PaymentStatus = "pending" | "confirmed" | "rejected";
 
@@ -863,9 +886,23 @@ export function createPollavarClient(options: PollavarClientOptions = {}) {
         },
       );
     },
+    createPool(token: string, input: CreatePoolInput) {
+      return request<Pool>(fetcher, `${baseURL}/api/v1/pools`, {
+        method: "POST",
+        body: JSON.stringify(input),
+        headers: authHeaders(token),
+      });
+    },
     listPools(token: string) {
       return request<Pool[]>(fetcher, `${baseURL}/api/v1/pools`, {
         method: "GET",
+        headers: authHeaders(token),
+      });
+    },
+    joinPool(token: string, input: JoinPoolInput) {
+      return request<Pool>(fetcher, `${baseURL}/api/v1/pools/join`, {
+        method: "POST",
+        body: JSON.stringify(input),
         headers: authHeaders(token),
       });
     },

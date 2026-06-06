@@ -825,6 +825,47 @@ describe("Participants home", () => {
     );
   });
 
+  it("joins a pool by invite code", async () => {
+    storeSession();
+    let joined = false;
+    const fetcher = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      const value = String(url);
+      if (value.endsWith("/api/v1/pools/join")) {
+        joined = true;
+        return jsonResponse({ data: pool });
+      }
+      if (value.endsWith("/api/v1/pools")) {
+        return jsonResponse({ data: joined ? [pool] : [] });
+      }
+      return dashboardFetch(url, init);
+    });
+    vi.stubGlobal("fetch", fetcher);
+
+    render(<ParticipantsHome />);
+
+    await screen.findByRole("heading", { name: "Unirse a una polla" });
+    fireEvent.change(screen.getByLabelText("Codigo de invitacion"), {
+      target: { value: "ABC123" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Unirme" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("status")).toHaveTextContent("Te uniste a la polla.");
+    });
+    expect(fetcher).toHaveBeenCalledWith(
+      "http://localhost:8080/api/v1/pools/join",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ invite_code: "ABC123" }),
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer token",
+        },
+      }),
+    );
+    expect(screen.getByRole("heading", { name: "Oficina FC" })).toBeInTheDocument();
+  });
+
   it("shows configured bye slot labels before teams are resolved", async () => {
     storeSession();
     const tournamentWithBye = {
@@ -1566,6 +1607,9 @@ function expectNavigationTargetsToExist(navigation: HTMLElement) {
 
 async function dashboardFetch(url: RequestInfo | URL, init?: RequestInit) {
   const value = String(url);
+  if (value.endsWith("/api/v1/pools/join")) {
+    return jsonResponse({ data: pool });
+  }
   if (value.endsWith("/api/v1/pools")) {
     return jsonResponse({ data: [pool] });
   }

@@ -781,6 +781,12 @@ describe("createPollavarClient", () => {
     };
     const fetcher = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
       const value = String(url);
+      if (value.endsWith("/api/v1/pools") && init?.method === "POST") {
+        return jsonResponse({ data: pool });
+      }
+      if (value.endsWith("/api/v1/pools/join")) {
+        return jsonResponse({ data: pool });
+      }
       if (value.endsWith("/api/v1/pools")) {
         return jsonResponse({ data: [pool] });
       }
@@ -945,6 +951,47 @@ describe("createPollavarClient", () => {
         primary_color: "#007A3D",
       },
     });
+    await expect(
+      client.createPool("token", {
+        tournament_slug: "fifa-world-cup-2026",
+        name: "Oficina FC",
+        description: "Polla de la oficina",
+        entry_fee_cents: 5000000,
+        currency: "COP",
+        prediction_close_hours_before: 6,
+      }),
+    ).resolves.toEqual(pool);
+    await expect(client.joinPool("token", { invite_code: "ABC123" })).resolves.toEqual(pool);
+
+    expect(fetcher).toHaveBeenCalledWith(
+      "http://api.local/api/v1/pools",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          tournament_slug: "fifa-world-cup-2026",
+          name: "Oficina FC",
+          description: "Polla de la oficina",
+          entry_fee_cents: 5000000,
+          currency: "COP",
+          prediction_close_hours_before: 6,
+        }),
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer token",
+        },
+      }),
+    );
+    expect(fetcher).toHaveBeenCalledWith(
+      "http://api.local/api/v1/pools/join",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ invite_code: "ABC123" }),
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer token",
+        },
+      }),
+    );
 
     expect(fetcher).toHaveBeenNthCalledWith(2, "http://api.local/api/v1/pools/pool%20id", {
       method: "GET",
