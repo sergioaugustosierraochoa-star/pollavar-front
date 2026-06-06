@@ -744,6 +744,55 @@ describe("Admin home", () => {
     );
   });
 
+  it("generates bye slots for a non power of two qualifier count", async () => {
+    storeSession();
+    const fetcher = vi.fn(adminFetch);
+    vi.stubGlobal("fetch", fetcher);
+
+    render(<AdminHome />);
+
+    await screen.findByRole("heading", { name: "Oficina FC" });
+    fireEvent.change(screen.getByLabelText("Clasificados"), {
+      target: { value: "6" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Completar con byes" }));
+    fireEvent.click(screen.getByRole("button", { name: "Generar bracket" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("status")).toHaveTextContent("Bracket generado.");
+    });
+    expect(fetcher).toHaveBeenCalledWith(
+      "http://localhost:8080/api/v1/tournaments/fifa-world-cup-2026/brackets/generate",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          stage_id: "custom-knockout",
+          stage_name: "Ronda eliminatoria",
+          match_id_prefix: "custom-knockout-match",
+          match_number_start: 4,
+          slots: [
+            { type: "ranking_top_n", source_id: "league-top", rank: 1, label: "Seed #1" },
+            { type: "bye", source_id: "bye-2", rank: 2, label: "BYE" },
+            { type: "ranking_top_n", source_id: "league-top", rank: 4, label: "Seed #4" },
+            { type: "ranking_top_n", source_id: "league-top", rank: 5, label: "Seed #5" },
+            { type: "ranking_top_n", source_id: "league-top", rank: 2, label: "Seed #2" },
+            { type: "bye", source_id: "bye-1", rank: 1, label: "BYE" },
+            { type: "ranking_top_n", source_id: "league-top", rank: 3, label: "Seed #3" },
+            { type: "ranking_top_n", source_id: "league-top", rank: 6, label: "Seed #6" },
+          ],
+          from_stage_id: "group-stage",
+          from_stage_name: "Fase de grupos",
+          rule_id_prefix: "league-top",
+          rule_priority_start: 1,
+        }),
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer token",
+        },
+      }),
+    );
+  });
+
   it("shows a permission message when payment update is forbidden", async () => {
     storeSession();
     const fetcher = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {

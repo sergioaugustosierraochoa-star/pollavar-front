@@ -183,6 +183,7 @@ type BracketGeneratorDraft = {
   stageName: string;
   matchIDPrefix: string;
   matchNumberStart: string;
+  qualifierCount: string;
   slotsText: string;
   fromStageID: string;
   fromStageName: string;
@@ -193,6 +194,7 @@ type BracketGeneratorDraft = {
 
 const prizePercentageScale = 1000;
 const prizeTotalPercentageUnits = 100 * prizePercentageScale;
+const maxGeneratedBracketSize = 4096;
 
 const paymentMethods: Array<{ value: PaymentMethod; label: string }> = [
   { value: "cash", label: "Efectivo" },
@@ -2809,6 +2811,15 @@ function BracketGeneratorPanel({
   tournament: Tournament | null;
 }) {
   const update = (patch: Partial<BracketGeneratorDraft>) => onChange({ ...draft, ...patch });
+  const applyByeSlots = () => {
+    const qualifierCount = parseWholeNumber(draft.qualifierCount);
+    if (qualifierCount === null || qualifierCount < 2 || qualifierCount > maxGeneratedBracketSize) {
+      return;
+    }
+    update({
+      slotsText: rankingTopNByeSlotsText(qualifierCount, draft.ruleIDPrefix.trim() || "league-top"),
+    });
+  };
 
   return (
     <section
@@ -2884,7 +2895,23 @@ function BracketGeneratorPanel({
               type="number"
               value={draft.rulePriorityStart}
             />
+            <TextInput
+              disabled={!canManage || saving}
+              label="Clasificados"
+              onChange={(value) => update({ qualifierCount: value })}
+              type="number"
+              value={draft.qualifierCount}
+            />
           </div>
+
+          <button
+            className="min-h-10 w-fit rounded-md border border-zinc-300 px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-400"
+            disabled={!canManage || saving}
+            onClick={applyByeSlots}
+            type="button"
+          >
+            Completar con byes
+          </button>
 
           <label className="grid gap-2 text-sm font-medium text-zinc-700">
             <span>Slots</span>
@@ -4621,6 +4648,7 @@ function defaultBracketGeneratorDraft(tournament: Tournament | null): BracketGen
     stageName: "Ronda eliminatoria",
     matchIDPrefix: "custom-knockout-match",
     matchNumberStart: String(Math.max(nextMatchNumber, 1)),
+    qualifierCount: "2",
     slotsText: "ranking_top_n,league-top,1,Seed #1\nranking_top_n,league-top,2,Seed #2",
     fromStageID: "group-stage",
     fromStageName: "Fase de grupos",
@@ -5209,6 +5237,34 @@ function isDraftGlobalTemplate(template: GlobalPredictionTemplate) {
 
 function normalizeConfigCode(value: string) {
   return value.trim().toLowerCase().replace(/[^a-z0-9_]+/g, "_").replace(/^_+|_+$/g, "");
+}
+
+function rankingTopNByeSlotsText(qualifierCount: number, ruleID: string) {
+  const bracketSize = nextPowerOfTwo(qualifierCount);
+  return bracketSeedOrder(bracketSize)
+    .map((seed) => {
+      if (seed <= qualifierCount) {
+        return `ranking_top_n,${ruleID},${seed},Seed #${seed}`;
+      }
+      return `bye,bye-${seed - qualifierCount},${seed - qualifierCount},BYE`;
+    })
+    .join("\n");
+}
+
+function nextPowerOfTwo(value: number) {
+  let next = 1;
+  while (next < value) {
+    next *= 2;
+  }
+  return next;
+}
+
+function bracketSeedOrder(size: number): number[] {
+  if (size <= 1) {
+    return [1];
+  }
+  const previous = bracketSeedOrder(size / 2);
+  return previous.flatMap((seed) => [seed, size + 1 - seed]);
 }
 
 function parseBracketGeneratorDraft(
