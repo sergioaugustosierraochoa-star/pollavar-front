@@ -499,6 +499,26 @@ export type PredictionSnapshot = {
   entries: PredictionSnapshotEntry[];
 };
 
+export type ClosedPrediction = {
+  id: string;
+  pool_id: string;
+  user_id: string;
+  match_id: string;
+  match_number: number;
+  stage_name: string;
+  group_name: string;
+  home_team_name: string;
+  away_team_name: string;
+  starts_at: string;
+  closes_at: string;
+  has_score: boolean;
+  home_score: number;
+  away_score: number;
+  outcome: MatchOutcome | "";
+  predicted_at: string;
+  last_updated_at: string;
+};
+
 export type MatchUnderdogBonus = {
   id: string;
   pool_id: string;
@@ -1288,6 +1308,16 @@ export function createPollavarClient(options: PollavarClientOptions = {}) {
       return request<PointEventDetail[]>(
         fetcher,
         `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/ranking/${encodeURIComponent(userID)}/points`,
+        {
+          method: "GET",
+          headers: authHeaders(token),
+        },
+      );
+    },
+    listClosedPredictions(token: string, poolID: string, userID: string) {
+      return request<ClosedPrediction[]>(
+        fetcher,
+        `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/ranking/${encodeURIComponent(userID)}/closed-predictions`,
         {
           method: "GET",
           headers: authHeaders(token),

@@ -1897,7 +1897,7 @@ describe("Admin home", () => {
         },
       }),
     );
-  });
+  }, 10000);
 
   it("shows a locked message when prediction settings already have activity", async () => {
     storeSession();

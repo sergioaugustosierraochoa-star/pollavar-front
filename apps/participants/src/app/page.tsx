@@ -3,6 +3,7 @@
 import {
   PollavarAPIError,
   createPollavarClient,
+  type ClosedPrediction,
   type EffectiveMatchPredictionSettings,
   type GlobalPrediction,
   type GlobalPredictionDefinition,
@@ -169,6 +170,9 @@ export default function ParticipantsHome() {
   const [pointDetailsByUserID, setPointDetailsByUserID] = useState<
     Record<string, PointEventDetail[]>
   >({});
+  const [closedPredictionsByUserID, setClosedPredictionsByUserID] = useState<
+    Record<string, ClosedPrediction[]>
+  >({});
   const [pointDetailsLoadingUserID, setPointDetailsLoadingUserID] = useState("");
   const [pointDetailsMessage, setPointDetailsMessage] = useState("");
   const [drafts, setDrafts] = useState<ScoreDrafts>({});
@@ -234,6 +238,7 @@ export default function ParticipantsHome() {
     setUnderdogBonuses([]);
     setSelectedRankingUserID("");
     setPointDetailsByUserID({});
+    setClosedPredictionsByUserID({});
     setPointDetailsLoadingUserID("");
     setPointDetailsMessage("");
     setDrafts({});
@@ -372,6 +377,7 @@ export default function ParticipantsHome() {
         setUnderdogBonuses([]);
         setSelectedRankingUserID("");
         setPointDetailsByUserID({});
+        setClosedPredictionsByUserID({});
         setPointDetailsLoadingUserID("");
         setPointDetailsMessage("");
         setDrafts({});
@@ -408,6 +414,7 @@ export default function ParticipantsHome() {
       setUnderdogBonuses(loadedPoolData.underdogBonuses);
       setSelectedRankingUserID("");
       setPointDetailsByUserID({});
+      setClosedPredictionsByUserID({});
       setPointDetailsLoadingUserID("");
       setPointDetailsMessage("");
       setTournament(loadedPoolData.tournamentDetail);
@@ -553,7 +560,12 @@ export default function ParticipantsHome() {
 
     setSelectedRankingUserID(userID);
     setPointDetailsMessage("");
-    if (Object.prototype.hasOwnProperty.call(pointDetailsByUserID, userID)) {
+    const hasPointDetails = Object.prototype.hasOwnProperty.call(pointDetailsByUserID, userID);
+    const hasClosedPredictions = Object.prototype.hasOwnProperty.call(
+      closedPredictionsByUserID,
+      userID,
+    );
+    if (hasPointDetails && hasClosedPredictions) {
       return;
     }
 
@@ -561,18 +573,24 @@ export default function ParticipantsHome() {
     setPointDetailsLoadingUserID(userID);
     try {
       const client = createPollavarClient();
-      const details = await listPointDetailsWithFallback(
-        client,
-        session.token,
-        pool.id,
-        userID,
-      );
+      const [details, closedPredictions] = await Promise.all([
+        hasPointDetails
+          ? Promise.resolve(pointDetailsByUserID[userID] ?? [])
+          : listPointDetailsWithFallback(client, session.token, pool.id, userID),
+        hasClosedPredictions
+          ? Promise.resolve(closedPredictionsByUserID[userID] ?? [])
+          : listClosedPredictionsWithFallback(client, session.token, pool.id, userID),
+      ]);
       if (dashboardRequestID.current !== requestID) {
         return;
       }
       setPointDetailsByUserID((current) => ({
         ...current,
         [userID]: details,
+      }));
+      setClosedPredictionsByUserID((current) => ({
+        ...current,
+        [userID]: closedPredictions,
       }));
     } catch (error) {
       if (isUnauthorizedError(error)) {
@@ -938,6 +956,7 @@ export default function ParticipantsHome() {
             />
           </section>
           <Dashboard
+            closedPredictionsByUserID={closedPredictionsByUserID}
             drafts={drafts}
             currentUserID={session.user.id}
             effectiveMatchSettingsByMatch={effectiveMatchSettingsByMatch}
@@ -1052,6 +1071,7 @@ function JoinPoolPanel({
 
 function Dashboard({
   clockTick,
+  closedPredictionsByUserID,
   currentUserID,
   drafts,
   effectiveMatchSettingsByMatch,
@@ -1101,6 +1121,7 @@ function Dashboard({
   tournament,
 }: {
   clockTick: number;
+  closedPredictionsByUserID: Record<string, ClosedPrediction[]>;
   currentUserID: string;
   drafts: ScoreDrafts;
   effectiveMatchSettingsByMatch: Map<string, EffectiveMatchPredictionSettings>;
@@ -1247,11 +1268,13 @@ function Dashboard({
         />
         <ParticipantsPanel currentUserID={currentUserID} pool={pool} />
         <RankingPanel
+          closedPredictionsByUserID={closedPredictionsByUserID}
           currentUserID={currentUserID}
           detailsByUserID={pointDetailsByUserID}
           loadingUserID={pointDetailsLoadingUserID}
           message={pointDetailsMessage}
           onSelectUser={onSelectRankingUser}
+          prizePreview={prizePreview}
           ranking={ranking}
           selectedUserID={selectedRankingUserID}
         />
@@ -2126,25 +2149,55 @@ function RoundClarificationsPanel({
 }
 
 function RankingPanel({
+  closedPredictionsByUserID,
   currentUserID,
   detailsByUserID,
   loadingUserID,
   message,
   onSelectUser,
+  prizePreview,
   ranking,
   selectedUserID,
 }: {
+  closedPredictionsByUserID: Record<string, ClosedPrediction[]>;
   currentUserID: string;
   detailsByUserID: Record<string, PointEventDetail[]>;
   loadingUserID: string;
   message: string;
   onSelectUser: (userID: string) => void;
+  prizePreview: PrizePreview | null;
   ranking: RankingEntry[];
   selectedUserID: string;
 }) {
+  const [participantSearch, setParticipantSearch] = useState("");
   const selectedEntry = ranking.find((entry) => entry.user_id === selectedUserID) ?? null;
+  const currentUserEntry = ranking.find((entry) => entry.user_id === currentUserID) ?? null;
   const selectedDetails = selectedUserID ? detailsByUserID[selectedUserID] : undefined;
+  const selectedClosedPredictions = selectedUserID
+    ? closedPredictionsByUserID[selectedUserID]
+    : undefined;
   const isLoading = selectedUserID !== "" && loadingUserID === selectedUserID;
+  const participantOptions = ranking.map((entry) => ({
+    entry,
+    value: rankingSearchLabel(entry),
+  }));
+  const rankingPrizePayouts = buildRankingPrizePayouts(prizePreview, ranking);
+  const prizeCurrency = prizePreview?.currency ?? "COP";
+  const confirmedTotalCents = prizePreview?.confirmed_total_cents ?? 0;
+
+  function updateParticipantSearch(value: string) {
+    setParticipantSearch(value);
+    const normalizedValue = normalizeSearchText(value);
+    const option = participantOptions.find(
+      ({ entry, value: optionValue }) =>
+        normalizeSearchText(optionValue) === normalizedValue ||
+        normalizeSearchText(rankingDisplayName(entry)) === normalizedValue ||
+        normalizeSearchText(participantHandle(entry)) === normalizedValue,
+    );
+    if (option) {
+      onSelectUser(option.entry.user_id);
+    }
+  }
 
   return (
     <section className="rounded-lg border border-zinc-200 bg-white shadow-sm" id="ranking">
@@ -2165,7 +2218,109 @@ function RankingPanel({
           Aun no hay puntos registrados para esta polla.
         </div>
       ) : (
-        <div className="grid lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.8fr)]">
+        <div>
+          <div className="grid gap-4 border-b border-zinc-200 px-5 py-4 lg:grid-cols-[minmax(0,0.8fr)_minmax(300px,1fr)] lg:items-end">
+            <div className="rounded-lg border border-sky-100 bg-sky-50 px-4 py-3">
+              <p className="text-xs font-semibold uppercase text-sky-800">Tu posicion actual</p>
+              {currentUserEntry ? (
+                <div className="mt-2 grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3">
+                  <span className="text-3xl font-semibold text-sky-950">
+                    #{currentUserEntry.position}
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-semibold text-zinc-950">
+                      {rankingDisplayName(currentUserEntry)}
+                    </span>
+                    <span className="text-xs text-zinc-600">
+                      {currentUserEntry.event_count} eventos puntuados
+                    </span>
+                  </span>
+                  <span className="text-right">
+                    <span className="block text-2xl font-semibold text-zinc-950">
+                      {currentUserEntry.points}
+                    </span>
+                    <span className="text-xs text-zinc-600">pts</span>
+                  </span>
+                </div>
+              ) : (
+                <p className="mt-2 text-sm text-sky-900">Aun no tienes puntos registrados.</p>
+              )}
+            </div>
+            <div className="rounded-lg border border-emerald-100 bg-emerald-50 px-4 py-3">
+              <p className="text-xs font-semibold uppercase text-emerald-800">Premios ranking</p>
+              <div className="mt-2 grid gap-3 sm:grid-cols-3">
+                <div>
+                  <p className="text-2xl font-semibold text-zinc-950">{ranking.length}</p>
+                  <p className="text-xs text-zinc-600">participantes</p>
+                </div>
+                <div>
+                  <p className="text-2xl font-semibold text-zinc-950">
+                    {rankingPrizePayouts.length}
+                  </p>
+                  <p className="text-xs text-zinc-600">posiciones premiadas</p>
+                </div>
+                <div>
+                  <p className="text-lg font-semibold text-zinc-950">
+                    {formatMoney(confirmedTotalCents, prizeCurrency)}
+                  </p>
+                  <p className="text-xs text-zinc-600">bolsa confirmada</p>
+                </div>
+              </div>
+              {rankingPrizePayouts.length > 0 ? (
+                <ul className="mt-3 grid gap-2">
+                  {rankingPrizePayouts.map((payout) => (
+                    <li
+                      className="flex items-center justify-between gap-3 rounded-md bg-white px-3 py-2 text-sm"
+                      key={`${payout.position}-${payout.description}`}
+                    >
+                      <span className="min-w-0">
+                        <span className="block truncate font-semibold text-zinc-950">
+                          {payout.description || `Posicion ${payout.position}`}
+                        </span>
+                        <span className="text-xs text-zinc-500">
+                          Puesto {payout.position} · {payout.percentage}%
+                        </span>
+                      </span>
+                      <span className="shrink-0 font-semibold text-emerald-800">
+                        {formatMoney(payout.estimated_amount_cents, prizeCurrency)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="mt-3 text-sm text-emerald-900">
+                  Aun no hay premios de ranking configurados.
+                </p>
+              )}
+            </div>
+          </div>
+          <div className="grid gap-4 border-b border-zinc-200 px-5 py-4">
+            <div>
+              <label className="text-sm font-medium text-zinc-800" htmlFor="ranking-search">
+                Buscar participante
+              </label>
+              <input
+                autoComplete="off"
+                className="mt-2 min-h-10 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
+                id="ranking-search"
+                list="ranking-participant-options"
+                placeholder="Escribe nombre o usuario"
+                value={participantSearch}
+                onChange={(event) => updateParticipantSearch(event.target.value)}
+              />
+              <datalist id="ranking-participant-options">
+                {participantOptions.map(({ entry, value }) => (
+                  <option key={entry.user_id} value={value} />
+                ))}
+              </datalist>
+              <div className="mt-3 flex flex-wrap gap-2 text-xs text-zinc-600">
+                <span className="rounded-md bg-zinc-100 px-2 py-1">Busca y selecciona</span>
+                <span className="rounded-md bg-zinc-100 px-2 py-1">Ver puntos</span>
+                <span className="rounded-md bg-zinc-100 px-2 py-1">Solo pronosticos cerrados</span>
+              </div>
+            </div>
+          </div>
+          <div className="grid lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.8fr)]">
           <ol className="divide-y divide-zinc-100">
             {ranking.map((entry) => {
               const isSelected = entry.user_id === selectedUserID;
@@ -2274,7 +2429,46 @@ function RankingPanel({
                 ))}
               </ul>
             ) : null}
+            {selectedEntry ? (
+              <div className="mt-5 border-t border-zinc-200 pt-4">
+                <h3 className="text-sm font-semibold text-zinc-950">Pronosticos cerrados</h3>
+                <p className="mt-1 text-xs text-zinc-500">
+                  Solo se muestran partidos cuyo cierre ya paso.
+                </p>
+                {isLoading ? (
+                  <p className="mt-3 text-sm text-zinc-600">Cargando pronosticos...</p>
+                ) : null}
+                {!isLoading && selectedClosedPredictions?.length === 0 ? (
+                  <p className="mt-3 text-sm leading-6 text-zinc-600">
+                    Este participante no tiene pronosticos cerrados visibles.
+                  </p>
+                ) : null}
+                {!isLoading && selectedClosedPredictions && selectedClosedPredictions.length > 0 ? (
+                  <ul className="mt-3 divide-y divide-zinc-100 rounded-md border border-zinc-200">
+                    {selectedClosedPredictions.map((prediction) => (
+                      <li className="px-3 py-3 text-sm" key={prediction.id}>
+                        <div className="flex items-start justify-between gap-3">
+                          <span className="min-w-0">
+                            <span className="block font-semibold text-zinc-950">
+                              {closedPredictionTitle(prediction)}
+                            </span>
+                            <span className="mt-1 block text-xs text-zinc-500">
+                              {prediction.stage_name || prediction.group_name || "Partido"} -{" "}
+                              {formatMatchDate(prediction.starts_at)}
+                            </span>
+                          </span>
+                          <span className="shrink-0 rounded-md bg-zinc-100 px-2 py-1 text-xs font-semibold text-zinc-800">
+                            {closedPredictionValue(prediction)}
+                          </span>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+            ) : null}
           </div>
+        </div>
         </div>
       )}
     </section>
@@ -3396,6 +3590,22 @@ async function listPointDetailsWithFallback(
   }
 }
 
+async function listClosedPredictionsWithFallback(
+  client: ReturnType<typeof createPollavarClient>,
+  token: string,
+  poolID: string,
+  userID: string,
+) {
+  try {
+    return await client.listClosedPredictions(token, poolID, userID);
+  } catch (error) {
+    if (isMissingEndpointError(error)) {
+      return [];
+    }
+    throw error;
+  }
+}
+
 function isMissingEndpointError(error: unknown) {
   return error instanceof PollavarAPIError && error.status === 404 && error.code === "unknown_error";
 }
@@ -4079,6 +4289,16 @@ function rankingDisplayName(entry: RankingEntry) {
   return entry.user_name || entry.username || entry.user_id;
 }
 
+function rankingSearchLabel(entry: RankingEntry) {
+  const handle = participantHandle(entry);
+  const displayName = rankingDisplayName(entry);
+  return handle === entry.user_id ? displayName : `${displayName} (${handle})`;
+}
+
+function normalizeSearchText(value: string) {
+  return value.trim().toLowerCase();
+}
+
 function buildRankingManualTiebreakerSummary(
   ranking: RankingEntry[],
   decisions: RankingManualTiebreaker[],
@@ -4099,6 +4319,28 @@ function poolDisplayName(pool: Pool | null) {
 
 function participantHandle(entry: RankingEntry) {
   return entry.username ? `@${entry.username}` : entry.user_id;
+}
+
+function closedPredictionTitle(prediction: ClosedPrediction) {
+  return `#${prediction.match_number} ${prediction.home_team_name || "Local"} vs ${
+    prediction.away_team_name || "Visitante"
+  }`;
+}
+
+function closedPredictionValue(prediction: ClosedPrediction) {
+  if (prediction.has_score) {
+    return `${prediction.home_score}-${prediction.away_score}`;
+  }
+  switch (prediction.outcome) {
+    case "home":
+      return "Local";
+    case "draw":
+      return "Empate";
+    case "away":
+      return "Visitante";
+    default:
+      return "Sin dato";
+  }
 }
 
 function poolParticipantDisplayName(participant: Pool["participants"][number]) {

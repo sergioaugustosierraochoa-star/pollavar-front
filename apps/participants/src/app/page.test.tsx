@@ -758,7 +758,12 @@ describe("Participants home", () => {
     expect(within(participantsSection as HTMLElement).getByText("Pago pendiente")).toBeInTheDocument();
     const rankingSection = screen.getByRole("heading", { name: "Ranking general" }).closest("section");
     expect(rankingSection).not.toBeNull();
-    expect(within(rankingSection as HTMLElement).getByText("8")).toBeInTheDocument();
+    expect(within(rankingSection as HTMLElement).getByText("Tu posicion actual")).toBeInTheDocument();
+    expect(within(rankingSection as HTMLElement).getByText("Premios ranking")).toBeInTheDocument();
+    expect(within(rankingSection as HTMLElement).getByText("posiciones premiadas")).toBeInTheDocument();
+    expect(within(rankingSection as HTMLElement).getByText("COP 15.000")).toBeInTheDocument();
+    expect(within(rankingSection as HTMLElement).getAllByText("8").length).toBeGreaterThan(0);
+    expect(within(rankingSection as HTMLElement).getByLabelText("Buscar participante")).toBeInTheDocument();
     expect(
       within(rankingSection as HTMLElement).getByText(
         "@participante - Pago pendiente - Elegible a premio",
@@ -1657,6 +1662,9 @@ async function dashboardFetch(url: RequestInfo | URL, init?: RequestInit) {
   if (value.endsWith("/ranking/user-id/points")) {
     return jsonResponse({ data: pointDetails });
   }
+  if (value.endsWith("/ranking/user-id/closed-predictions")) {
+    return jsonResponse({ data: [] });
+  }
   if (value.endsWith("/prizes/preview")) {
     return jsonResponse({ data: prizePreview });
   }
@@ -1756,6 +1764,9 @@ async function standingsFetch(url: RequestInfo | URL, init?: RequestInit) {
   }
   if (value.endsWith("/ranking/user-id/points")) {
     return jsonResponse({ data: pointDetails });
+  }
+  if (value.endsWith("/ranking/user-id/closed-predictions")) {
+    return jsonResponse({ data: [] });
   }
   if (value.endsWith("/prizes/preview")) {
     return jsonResponse({ data: prizePreview });
