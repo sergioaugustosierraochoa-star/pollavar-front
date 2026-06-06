@@ -926,6 +926,16 @@ export function createPollavarClient(options: PollavarClientOptions = {}) {
         },
       );
     },
+    downloadPaymentsCSV(token: string, poolID: string) {
+      return requestText(
+        fetcher,
+        `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/payments.csv`,
+        {
+          method: "GET",
+          headers: authHeaders(token),
+        },
+      );
+    },
     upsertPayment(token: string, poolID: string, userID: string, input: UpsertPaymentInput) {
       return request<Payment>(
         fetcher,

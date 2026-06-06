@@ -1674,6 +1674,12 @@ describe("createPollavarClient", () => {
   it("loads and updates manual pool payments", async () => {
     const fetcher = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
       const value = String(url);
+      if (value.endsWith("/payments.csv") && init?.method === "GET") {
+        return new Response("pool_id,user_id\npool-id,user-id\n", {
+          status: 200,
+          headers: { "Content-Type": "text/csv" },
+        });
+      }
       if (value.endsWith("/payments") && init?.method === "GET") {
         return jsonResponse({ data: paymentCollection });
       }
@@ -1690,6 +1696,7 @@ describe("createPollavarClient", () => {
     await expect(client.listPayments("token", "pool id")).resolves.toEqual(
       paymentCollection,
     );
+    await expect(client.downloadPaymentsCSV("token", "pool id")).resolves.toContain("user-id");
     await expect(
       client.upsertPayment("token", "pool id", "user id", {
         amount_cents: 5000000,
@@ -1713,6 +1720,16 @@ describe("createPollavarClient", () => {
     );
     expect(fetcher).toHaveBeenNthCalledWith(
       2,
+      "http://api.local/api/v1/pools/pool%20id/payments.csv",
+      {
+        method: "GET",
+        headers: {
+          Authorization: "Bearer token",
+        },
+      },
+    );
+    expect(fetcher).toHaveBeenNthCalledWith(
+      3,
       "http://api.local/api/v1/pools/pool%20id/payments/user%20id",
       {
         method: "PUT",

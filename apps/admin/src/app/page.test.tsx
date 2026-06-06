@@ -769,6 +769,79 @@ describe("Admin home", () => {
     );
   });
 
+  it("filters participants by payment status", async () => {
+    storeSession();
+    vi.stubGlobal("fetch", vi.fn(adminFetch));
+
+    render(<AdminHome />);
+
+    const revenueSection = (await screen.findByRole("heading", {
+      name: "Oficina FC",
+    })).closest("section");
+    expect(revenueSection).not.toBeNull();
+    expect(within(revenueSection as HTMLElement).getByText("@admin")).toBeInTheDocument();
+    expect(within(revenueSection as HTMLElement).getByText("@participante")).toBeInTheDocument();
+
+    fireEvent.change(within(revenueSection as HTMLElement).getByLabelText("Filtrar"), {
+      target: { value: "pending" },
+    });
+
+    expect(within(revenueSection as HTMLElement).queryByText("@admin")).not.toBeInTheDocument();
+    expect(within(revenueSection as HTMLElement).getByText("@participante")).toBeInTheDocument();
+    expect(
+      within(revenueSection as HTMLElement).getByText("1 de 2 participantes"),
+    ).toBeInTheDocument();
+  });
+
+  it("exports payments as CSV from the admin panel", async () => {
+    storeSession();
+    const fetcher = vi.fn(adminFetch);
+    vi.stubGlobal("fetch", fetcher);
+    const click = vi.fn();
+    const createObjectURL = vi.fn(() => "blob:payments");
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal("URL", {
+      ...window.URL,
+      createObjectURL,
+      revokeObjectURL,
+    });
+    const createElement = vi.spyOn(document, "createElement");
+    createElement.mockImplementation((tagName: string) => {
+      const element = document.createElementNS("http://www.w3.org/1999/xhtml", tagName);
+      if (tagName === "a") {
+        Object.defineProperty(element, "click", { value: click });
+      }
+      return element as HTMLElement;
+    });
+
+    render(<AdminHome />);
+
+    const revenueSection = (await screen.findByRole("heading", {
+      name: "Oficina FC",
+    })).closest("section");
+    expect(revenueSection).not.toBeNull();
+
+    fireEvent.click(
+      within(revenueSection as HTMLElement).getByRole("button", { name: "Exportar CSV" }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("status")).toHaveTextContent("Listado de pagos descargado.");
+    });
+    expect(fetcher).toHaveBeenCalledWith(
+      "http://localhost:8080/api/v1/pools/pool-id/payments.csv",
+      expect.objectContaining({
+        method: "GET",
+        headers: {
+          Authorization: "Bearer token",
+        },
+      }),
+    );
+    expect(createObjectURL).toHaveBeenCalled();
+    expect(click).toHaveBeenCalled();
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:payments");
+  });
+
   it("shows configured bye slot labels in official results", async () => {
     storeSession();
     const tournamentWithBye = {
@@ -2169,6 +2242,12 @@ async function adminFetch(url: RequestInfo | URL, init?: RequestInit) {
         confirmed_total_cents: 5000000,
         payments: [confirmedPayment],
       },
+    });
+  }
+  if (value.endsWith("/api/v1/pools/pool-id/payments.csv") && init?.method === "GET") {
+    return new Response("pool_id,user_id\npool-id,admin-id\n", {
+      status: 200,
+      headers: { "Content-Type": "text/csv" },
     });
   }
   if (value.endsWith("/api/v1/pools/pool-id/payments/participant-id") && init?.method === "PUT") {

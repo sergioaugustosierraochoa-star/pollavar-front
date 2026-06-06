@@ -285,6 +285,7 @@ export default function AdminHome() {
   const [predictionStatuses, setPredictionStatuses] = useState<PredictionMatchStatus[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [paymentCurrency, setPaymentCurrency] = useState("COP");
+  const [paymentStatusFilter, setPaymentStatusFilter] = useState<PaymentStatus | "all">("all");
   const [prizePreview, setPrizePreview] = useState<PrizePreview | null>(null);
   const [globalPrizePreview, setGlobalPrizePreview] =
     useState<GlobalPredictionPrizePreview | null>(null);
@@ -340,6 +341,7 @@ export default function AdminHome() {
     defaultTiebreakerDraft(null),
   );
   const [drafts, setDrafts] = useState<PaymentDrafts>({});
+  const [downloadingPayments, setDownloadingPayments] = useState(false);
   const [savingResultMatchID, setSavingResultMatchID] = useState("");
   const [generatingSnapshotMatchID, setGeneratingSnapshotMatchID] = useState("");
   const [loadingAuditMatchID, setLoadingAuditMatchID] = useState("");
@@ -411,6 +413,10 @@ export default function AdminHome() {
     () => paymentTotals(pool?.participants ?? [], paymentsByUserID),
     [pool?.participants, paymentsByUserID],
   );
+  const filteredParticipants = useMemo(
+    () => filterParticipantsByPaymentStatus(pool?.participants ?? [], paymentsByUserID, paymentStatusFilter),
+    [pool?.participants, paymentsByUserID, paymentStatusFilter],
+  );
 
   const signOutAdmin = useCallback(function signOutAdmin() {
     requestID.current += 1;
@@ -426,6 +432,7 @@ export default function AdminHome() {
     setPredictionStatuses([]);
     setPayments([]);
     setPaymentCurrency("COP");
+    setPaymentStatusFilter("all");
     setPrizePreview(null);
     setGlobalPrizePreview(null);
     setPrizeDrafts([]);
@@ -449,6 +456,7 @@ export default function AdminHome() {
     setResultAuditLogsByMatchID({});
     setPredictionSnapshotsByMatchID({});
     setDrafts({});
+    setDownloadingPayments(false);
     setSavingResultMatchID("");
     setGeneratingSnapshotMatchID("");
     setLoadingAuditMatchID("");
@@ -522,6 +530,7 @@ export default function AdminHome() {
         setPredictionStatuses([]);
         setPayments([]);
         setPaymentCurrency("COP");
+        setPaymentStatusFilter("all");
         setPrizePreview(null);
         setGlobalPrizePreview(null);
         setPrizeDrafts([]);
@@ -661,6 +670,7 @@ export default function AdminHome() {
       setPredictionSnapshotsByMatchID({});
       setOfficialStandingAuditLogsByScope({});
       setDrafts(hydratePaymentDrafts(poolDetail, nextPaymentCollection.payments));
+      setDownloadingPayments(false);
       setStatus("ready");
       setMessage(
         canManagePayments(poolDetail, userID)
@@ -1759,6 +1769,33 @@ export default function AdminHome() {
     }
   }
 
+  async function downloadPaymentsCSV() {
+    if (!session || !pool || !canManageSelectedPool || downloadingPayments) {
+      return;
+    }
+
+    setDownloadingPayments(true);
+    setMessage("");
+
+    try {
+      const csv = await createPollavarClient().downloadPaymentsCSV(session.token, pool.id);
+      downloadTextFile(csv, `payments-${fileNamePart(pool.id)}.csv`, "text/csv;charset=utf-8");
+      setMessage("Listado de pagos descargado.");
+    } catch (error) {
+      if (isUnauthorized(error)) {
+        signOutAdmin();
+        return;
+      }
+      if (isForbidden(error)) {
+        setMessage("No tienes permisos para exportar pagos.");
+        return;
+      }
+      setMessage("No pudimos exportar el listado de pagos.");
+    } finally {
+      setDownloadingPayments(false);
+    }
+  }
+
   function updatePrizeDraft(index: number, patch: Partial<PrizeRuleDraft>) {
     setPrizeDrafts((current) =>
       current.map((draft, draftIndex) =>
@@ -2433,19 +2470,53 @@ export default function AdminHome() {
                       {formatMoney(pool.entry_fee_cents, pool.currency)} por entrada
                     </p>
                   </div>
-                  <span
-                    className={`w-fit rounded-md px-2 py-1 text-xs font-medium ${
-                      canManageSelectedPool
-                        ? "bg-emerald-100 text-emerald-800"
-                        : "bg-amber-100 text-amber-800"
-                    }`}
-                  >
-                    {canManageSelectedPool ? "Recaudo habilitado" : "Solo lectura"}
-                  </span>
+                  <div className="flex flex-wrap gap-2">
+                    <label className="flex items-center gap-2 text-xs font-medium text-zinc-700">
+                      <span>Filtrar</span>
+                      <select
+                        className="min-h-9 rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-950"
+                        onChange={(event) =>
+                          setPaymentStatusFilter(event.target.value as PaymentStatus | "all")
+                        }
+                        value={paymentStatusFilter}
+                      >
+                        <option value="all">Todos</option>
+                        {paymentStatuses.map((item) => (
+                          <option key={item.value} value={item.value}>
+                            {item.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <button
+                      className="rounded-md border border-zinc-300 px-3 py-2 text-xs font-medium text-zinc-700 hover:border-zinc-400 disabled:cursor-not-allowed disabled:text-zinc-400"
+                      disabled={!canManageSelectedPool || downloadingPayments}
+                      onClick={() => void downloadPaymentsCSV()}
+                      type="button"
+                    >
+                      {downloadingPayments ? "Descargando" : "Exportar CSV"}
+                    </button>
+                    <span className="rounded-md bg-zinc-100 px-2 py-1 text-xs font-medium text-zinc-700">
+                      {filteredParticipants.length} de {pool.participants.length} participantes
+                    </span>
+                    <span
+                      className={`w-fit rounded-md px-2 py-1 text-xs font-medium ${
+                        canManageSelectedPool
+                          ? "bg-emerald-100 text-emerald-800"
+                          : "bg-amber-100 text-amber-800"
+                      }`}
+                    >
+                      {canManageSelectedPool ? "Recaudo habilitado" : "Solo lectura"}
+                    </span>
+                  </div>
                 </div>
 
                 {pool.participants.length === 0 ? (
                   <div className="p-6 text-sm text-zinc-600">Sin participantes.</div>
+                ) : filteredParticipants.length === 0 ? (
+                  <div className="p-6 text-sm text-zinc-600">
+                    Sin participantes con el estado seleccionado.
+                  </div>
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="min-w-[980px] w-full border-collapse text-left text-sm">
@@ -2460,7 +2531,7 @@ export default function AdminHome() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-zinc-200">
-                        {pool.participants.map((participant) => {
+                        {filteredParticipants.map((participant) => {
                           const payment = paymentsByUserID.get(participant.user_id);
                           const draft = {
                             ...defaultDraft(pool, payment),
@@ -5848,6 +5919,21 @@ function paymentTotals(participants: PoolParticipant[], paymentsByUserID: Map<st
   return { confirmedAmountCents, confirmedCount, pendingCount, rejectedCount };
 }
 
+function filterParticipantsByPaymentStatus(
+  participants: PoolParticipant[],
+  paymentsByUserID: Map<string, Payment>,
+  status: PaymentStatus | "all",
+) {
+  if (status === "all") {
+    return participants;
+  }
+  return participants.filter((participant) => {
+    const paymentStatus =
+      paymentsByUserID.get(participant.user_id)?.status ?? participant.payment_status;
+    return paymentStatus === status;
+  });
+}
+
 function hydratePaymentDrafts(pool: Pool, payments: Payment[]) {
   const paymentsByUserID = indexPayments(payments);
   const drafts: PaymentDrafts = {};
@@ -7156,6 +7242,27 @@ function formatMatchDate(value: string) {
 
 function formatDateTime(value: string) {
   return formatMatchDate(value);
+}
+
+function downloadTextFile(content: string, filename: string, type: string) {
+  const blob = new Blob([content], { type });
+  const url = window.URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.URL.revokeObjectURL(url);
+}
+
+function fileNamePart(value: string) {
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return normalized || "export";
 }
 
 function defaultTiebreakerOrder(tournament: Tournament | null) {
