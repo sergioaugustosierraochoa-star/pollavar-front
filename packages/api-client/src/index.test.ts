@@ -66,6 +66,27 @@ const tournamentSummary: TournamentSummary = {
 const tournament: Tournament = {
   ...tournamentSummary,
   groups: [],
+  advancement_rules: [
+    {
+      id: "rule-1",
+      tournament_id: "fifa-world-cup-2026",
+      from_stage_id: "group-stage",
+      from_stage_name: "Group Stage",
+      to_stage_id: "",
+      to_stage_name: "",
+      rule_type: "top_n_per_group",
+      rank: 0,
+      qualifiers: 2,
+      source_rank: 0,
+      source_match_id: "",
+      source_match_number: 0,
+      target_match_id: "",
+      target_match_number: 0,
+      target_slot: "",
+      priority: 1,
+      label: "Clasifican los dos primeros de cada grupo",
+    },
+  ],
   matches: [
     {
       id: "match-id",

@@ -109,6 +109,7 @@ const tournament = {
       ],
     },
   ],
+  advancement_rules: [],
   matches: [
     {
       id: "match-1",
@@ -180,6 +181,7 @@ const tournament = {
 const standingsTournament = {
   ...tournamentSummary,
   groups: [],
+  advancement_rules: [],
   matches: [
     {
       id: "standing-match-1",

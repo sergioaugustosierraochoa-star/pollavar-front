@@ -98,6 +98,33 @@ export type Tournament = TournamentSummary & {
     teams: Team[];
   }>;
   matches: Match[];
+  advancement_rules: AdvancementRule[];
+};
+
+export type AdvancementRule = {
+  id: string;
+  tournament_id: string;
+  from_stage_id: string;
+  from_stage_name: string;
+  to_stage_id: string;
+  to_stage_name: string;
+  rule_type:
+    | "top_n_per_group"
+    | "best_group_rank"
+    | "ranking_top_n"
+    | "match_winner"
+    | "match_loser"
+    | "bye";
+  rank: number;
+  qualifiers: number;
+  source_rank: number;
+  source_match_id: string;
+  source_match_number: number;
+  target_match_id: string;
+  target_match_number: number;
+  target_slot: "" | "home" | "away";
+  priority: number;
+  label: string;
 };
 
 export type PoolTheme = {

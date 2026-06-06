@@ -102,6 +102,7 @@ const tournament = {
       ],
     },
   ],
+  advancement_rules: [],
   matches: [
     {
       id: "match-id",
