@@ -17,7 +17,9 @@ export default function ParticipantsProfilePage() {
   const [user, setUser] = useState<AuthUser | null>(() => readStoredSession()?.user ?? null);
   const [status, setStatus] = useState("");
   const [saving, setSaving] = useState(false);
+  const [savingProfile, setSavingProfile] = useState(false);
   const [message, setMessage] = useState("");
+  const [profileMessage, setProfileMessage] = useState("");
 
   useEffect(() => {
     if (!session) {
@@ -75,6 +77,33 @@ export default function ParticipantsProfilePage() {
     }
   }
 
+  async function updateProfile(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!session) {
+      setProfileMessage("Inicia sesion para editar tu perfil.");
+      return;
+    }
+    const formData = new FormData(event.currentTarget);
+    setSavingProfile(true);
+    setProfileMessage("");
+    try {
+      const profile = await createPollavarClient().updateProfile(session.token, {
+        name: String(formData.get("name")),
+        username: String(formData.get("username")),
+        email: String(formData.get("email")),
+      });
+      const nextSession = { ...session, user: profile };
+      setSession(nextSession);
+      setUser(profile);
+      persistSession(nextSession);
+      setProfileMessage("Perfil actualizado.");
+    } catch (error) {
+      setProfileMessage(profileErrorMessage(error));
+    } finally {
+      setSavingProfile(false);
+    }
+  }
+
   return (
     <main className="min-h-screen bg-[#f8faf9] px-5 py-6 text-[#191b1f]">
       <section className="mx-auto grid max-w-4xl gap-5">
@@ -108,8 +137,28 @@ export default function ParticipantsProfilePage() {
               <ProfileMetric label="Nombre" value={user.name} />
               <ProfileMetric label="Usuario" value={`@${user.username}`} />
               <ProfileMetric label="Correo" value={user.email} />
-              <ProfileMetric label="Rol" value={roleLabel(user.role)} />
               <ProfileMetric label="Sesion expira" value={formatDateTime(session.expiresAt)} />
+            </section>
+
+            <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
+              <h2 className="text-lg font-semibold text-zinc-950">Datos basicos</h2>
+              <form className="mt-4 grid gap-4" onSubmit={updateProfile}>
+                <TextField defaultValue={user.name} label="Nombre" name="name" />
+                <TextField defaultValue={user.username} label="Usuario" name="username" />
+                <TextField defaultValue={user.email} label="Correo" name="email" type="email" />
+                <button
+                  className="w-fit rounded-md bg-zinc-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:bg-zinc-400"
+                  disabled={savingProfile}
+                  type="submit"
+                >
+                  {savingProfile ? "Guardando" : "Guardar perfil"}
+                </button>
+              </form>
+              {profileMessage ? (
+                <p className="mt-4 rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-700" role="status">
+                  {profileMessage}
+                </p>
+              ) : null}
             </section>
 
             <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
@@ -165,6 +214,32 @@ function PasswordField({ label, name }: { label: string; name: string }) {
   );
 }
 
+function TextField({
+  defaultValue,
+  label,
+  name,
+  type = "text",
+}: {
+  defaultValue: string;
+  label: string;
+  name: string;
+  type?: string;
+}) {
+  return (
+    <label className="grid gap-2 text-sm font-medium text-zinc-700">
+      <span>{label}</span>
+      <input
+        autoComplete={name}
+        className="h-11 rounded-md border border-zinc-300 px-3 text-base text-zinc-950 outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
+        defaultValue={defaultValue}
+        name={name}
+        required
+        type={type}
+      />
+    </label>
+  );
+}
+
 function readStoredSession() {
   if (typeof window === "undefined") {
     return null;
@@ -194,17 +269,6 @@ function clearStoredSession() {
   window.localStorage.removeItem(sessionStorageKey);
 }
 
-function roleLabel(role: string) {
-  switch (role) {
-    case "superadmin":
-      return "Superadmin";
-    case "pool_admin":
-      return "Administrador de polla";
-    default:
-      return "Participante";
-  }
-}
-
 function formatDateTime(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
@@ -221,4 +285,17 @@ function passwordErrorMessage(error: unknown) {
     return "La nueva contrasena debe tener entre 8 y 128 caracteres y ser diferente a la actual.";
   }
   return "No pudimos cambiar la contrasena.";
+}
+
+function profileErrorMessage(error: unknown) {
+  if (error instanceof PollavarAPIError && error.status === 409) {
+    return "Ese usuario o correo ya esta en uso.";
+  }
+  if (error instanceof PollavarAPIError && error.status === 400) {
+    return "Revisa nombre, usuario y correo.";
+  }
+  if (error instanceof PollavarAPIError && error.status === 401) {
+    return "Tu sesion expiro. Inicia sesion nuevamente.";
+  }
+  return "No pudimos actualizar el perfil.";
 }

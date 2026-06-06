@@ -675,6 +675,42 @@ describe("createPollavarClient", () => {
     });
   });
 
+  it("updates the authenticated profile", async () => {
+    const updatedUser = {
+      ...authResult.user,
+      name: "Admin PollaVAR",
+      username: "admin_pollavar",
+      email: "admin.pollavar@example.com",
+    };
+    const fetcher = vi.fn(async () =>
+      jsonResponse({ data: updatedUser }),
+    );
+    const client = createPollavarClient({
+      baseURL: "http://api.local",
+      fetcher,
+    });
+
+    const user = await client.updateProfile("token", {
+      name: "Admin PollaVAR",
+      username: "admin_pollavar",
+      email: "admin.pollavar@example.com",
+    });
+
+    expect(user).toEqual(updatedUser);
+    expect(fetcher).toHaveBeenCalledWith("http://api.local/api/v1/auth/me", {
+      method: "PUT",
+      body: JSON.stringify({
+        name: "Admin PollaVAR",
+        username: "admin_pollavar",
+        email: "admin.pollavar@example.com",
+      }),
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer token",
+      },
+    });
+  });
+
   it("loads tournament resources", async () => {
     const updatedTournament = {
       ...tournament,

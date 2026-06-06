@@ -30,6 +30,12 @@ export type ChangePasswordInput = {
   new_password: string;
 };
 
+export type UpdateProfileInput = {
+  name: string;
+  username: string;
+  email: string;
+};
+
 export type TournamentSummary = {
   id: string;
   name: string;
@@ -907,6 +913,13 @@ export function createPollavarClient(options: PollavarClientOptions = {}) {
         headers: {
           Authorization: `Bearer ${token}`,
         },
+      });
+    },
+    updateProfile(token: string, input: UpdateProfileInput) {
+      return request<AuthUser>(fetcher, `${baseURL}/api/v1/auth/me`, {
+        method: "PUT",
+        body: JSON.stringify(input),
+        headers: authHeaders(token),
       });
     },
     changePassword(token: string, input: ChangePasswordInput) {
