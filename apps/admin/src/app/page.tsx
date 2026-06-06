@@ -2264,19 +2264,29 @@ export default function AdminHome() {
               Administracion de polla
             </h1>
           </div>
-          <nav aria-label="Sesion admin" className="flex flex-wrap items-center gap-2">
-            {session ? (
-              <>
-                <span className="text-sm text-zinc-600">{session.user.name}</span>
-                <button
-                  className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:border-zinc-400"
-                  type="button"
-                  onClick={signOutAdmin}
-                >
-                  Salir
-                </button>
-              </>
-            ) : (
+	          <nav aria-label="Sesion admin" className="flex flex-wrap items-center gap-2">
+	            {session ? (
+	              <details className="relative">
+	                <summary className="flex cursor-pointer list-none items-center gap-3 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-medium text-zinc-700 hover:border-zinc-400">
+	                  <span className="grid size-8 place-items-center rounded-full bg-emerald-100 text-xs font-semibold text-emerald-800">
+	                    {userInitials(session.user.name, session.user.username)}
+	                  </span>
+	                  <span className="max-w-44 truncate">{session.user.name}</span>
+	                </summary>
+	                <div className="absolute right-0 z-20 mt-2 grid min-w-44 overflow-hidden rounded-md border border-zinc-200 bg-white py-1 text-sm shadow-lg">
+	                  <Link className="px-3 py-2 text-zinc-700 hover:bg-zinc-50" href="/profile">
+	                    Mi perfil
+	                  </Link>
+	                  <button
+	                    className="px-3 py-2 text-left text-zinc-700 hover:bg-zinc-50"
+	                    type="button"
+	                    onClick={signOutAdmin}
+	                  >
+	                    Salir
+	                  </button>
+	                </div>
+	              </details>
+	            ) : (
               <>
                 <Link
                   className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:border-zinc-400"
@@ -7927,6 +7937,15 @@ function matchResultScoringModeLabel(mode: MatchResultScoringMode) {
     default:
       return "Exclusivo";
   }
+}
+
+function userInitials(name: string, username: string) {
+  const words = name
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  const initials = words.length > 0 ? words.slice(0, 2).map((word) => word[0]).join("") : username.slice(0, 2);
+  return initials.toUpperCase();
 }
 
 function isUnauthorized(error: unknown) {

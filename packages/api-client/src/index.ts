@@ -25,6 +25,11 @@ export type LoginInput = {
   password: string;
 };
 
+export type ChangePasswordInput = {
+  current_password: string;
+  new_password: string;
+};
+
 export type TournamentSummary = {
   id: string;
   name: string;
@@ -904,6 +909,13 @@ export function createPollavarClient(options: PollavarClientOptions = {}) {
         },
       });
     },
+    changePassword(token: string, input: ChangePasswordInput) {
+      return request<void>(fetcher, `${baseURL}/api/v1/auth/password`, {
+        method: "PUT",
+        body: JSON.stringify(input),
+        headers: authHeaders(token),
+      });
+    },
     listTournaments() {
       return request<TournamentSummary[]>(fetcher, `${baseURL}/api/v1/tournaments`, {
         method: "GET",
@@ -1621,6 +1633,10 @@ async function requestText(fetcher: typeof fetch, url: string, init: RequestInit
 }
 
 async function responsePayload<T>(response: Response): Promise<DataEnvelope<T> | ErrorEnvelope> {
+  if (response.status === 204) {
+    return { data: undefined as T };
+  }
+
   try {
     return (await response.json()) as DataEnvelope<T> | ErrorEnvelope;
   } catch (error) {

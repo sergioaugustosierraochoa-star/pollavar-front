@@ -897,20 +897,37 @@ export default function ParticipantsHome() {
               Mis pronosticos
             </h1>
           </div>
-          {session ? (
-            <div className="flex items-center gap-3 text-sm text-zinc-600">
-              <span>{session.user.username}</span>
-              <button
-                className="rounded-md border border-zinc-300 px-3 py-2 font-medium text-zinc-700 hover:border-zinc-400"
-                onClick={() => {
-                  void loadDashboard(session.token, selectedPoolID);
-                }}
-                type="button"
-              >
-                Actualizar
-              </button>
-            </div>
-          ) : (
+	          {session ? (
+	            <details className="relative">
+	              <summary className="flex cursor-pointer list-none items-center gap-3 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-medium text-zinc-700 hover:border-zinc-400">
+	                <span className="grid size-8 place-items-center rounded-full bg-emerald-100 text-xs font-semibold text-emerald-800">
+	                  {userInitials(session.user.name, session.user.username)}
+	                </span>
+	                <span className="max-w-44 truncate">@{session.user.username}</span>
+	              </summary>
+	              <div className="absolute right-0 z-20 mt-2 grid min-w-44 overflow-hidden rounded-md border border-zinc-200 bg-white py-1 text-sm shadow-lg">
+	                <Link className="px-3 py-2 text-zinc-700 hover:bg-zinc-50" href="/profile">
+	                  Mi perfil
+	                </Link>
+	                <button
+	                  className="px-3 py-2 text-left text-zinc-700 hover:bg-zinc-50"
+	                  onClick={() => {
+	                    void loadDashboard(session.token, selectedPoolID);
+	                  }}
+	                  type="button"
+	                >
+	                  Actualizar
+	                </button>
+	                <button
+	                  className="px-3 py-2 text-left text-zinc-700 hover:bg-zinc-50"
+	                  onClick={signOutParticipant}
+	                  type="button"
+	                >
+	                  Salir
+	                </button>
+	              </div>
+	            </details>
+	          ) : (
             <nav aria-label="Autenticacion participantes" className="flex items-center gap-2">
               <Link
                 className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:border-zinc-400"
@@ -4599,4 +4616,13 @@ function formatMatchDate(value: string) {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(date);
+}
+
+function userInitials(name: string, username: string) {
+  const words = name
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  const initials = words.length > 0 ? words.slice(0, 2).map((word) => word[0]).join("") : username.slice(0, 2);
+  return initials.toUpperCase();
 }

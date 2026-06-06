@@ -650,6 +650,31 @@ describe("createPollavarClient", () => {
     });
   });
 
+  it("changes the authenticated password", async () => {
+    const fetcher = vi.fn(async () => new Response(null, { status: 204 }));
+    const client = createPollavarClient({
+      baseURL: "http://api.local",
+      fetcher,
+    });
+
+    await client.changePassword("token", {
+      current_password: "supersecret",
+      new_password: "newsecret",
+    });
+
+    expect(fetcher).toHaveBeenCalledWith("http://api.local/api/v1/auth/password", {
+      method: "PUT",
+      body: JSON.stringify({
+        current_password: "supersecret",
+        new_password: "newsecret",
+      }),
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer token",
+      },
+    });
+  });
+
   it("loads tournament resources", async () => {
     const updatedTournament = {
       ...tournament,
