@@ -3,6 +3,7 @@
 import {
   PollavarAPIError,
   createPollavarClient,
+  type AuditLog,
   type AuthUser,
   type CreatePoolInput,
   type EffectiveMatchPredictionSettings,
@@ -300,6 +301,10 @@ export default function AdminHome() {
   const [rankingManualAuditLogs, setRankingManualAuditLogs] = useState<
     RankingManualTiebreakerAuditLog[]
   >([]);
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [auditEntityTypeFilter, setAuditEntityTypeFilter] = useState("");
+  const [auditActionFilter, setAuditActionFilter] = useState("");
+  const [recalculationReason, setRecalculationReason] = useState("");
   const [rankingManualOrder, setRankingManualOrder] = useState<string[]>([]);
   const [rankingManualReason, setRankingManualReason] = useState("");
   const [paymentCurrency, setPaymentCurrency] = useState("COP");
@@ -360,6 +365,7 @@ export default function AdminHome() {
   );
   const [drafts, setDrafts] = useState<PaymentDrafts>({});
   const [downloadingPayments, setDownloadingPayments] = useState(false);
+  const [reportsBusy, setReportsBusy] = useState(false);
   const [savingResultMatchID, setSavingResultMatchID] = useState("");
   const [generatingSnapshotMatchID, setGeneratingSnapshotMatchID] = useState("");
   const [loadingAuditMatchID, setLoadingAuditMatchID] = useState("");
@@ -467,6 +473,7 @@ export default function AdminHome() {
     setRankingTiebreakers([]);
     setRankingManualTiebreakers([]);
     setRankingManualAuditLogs([]);
+    setAuditLogs([]);
     setRankingManualOrder([]);
     setRankingManualReason("");
     setGlobalPrizePreview(null);
@@ -1850,6 +1857,107 @@ export default function AdminHome() {
     }
   }
 
+  async function downloadPredictionsReportCSV() {
+    if (!session || !pool || !canManageSelectedPool || reportsBusy) {
+      return;
+    }
+
+    setReportsBusy(true);
+    setMessage("");
+
+    try {
+      const csv = await createPollavarClient().downloadPredictionsReportCSV(session.token, pool.id);
+      downloadTextFile(csv, `predictions-${fileNamePart(pool.id)}.csv`, "text/csv;charset=utf-8");
+      setMessage("Reporte de predicciones descargado.");
+    } catch (error) {
+      if (isUnauthorized(error)) {
+        signOutAdmin();
+        return;
+      }
+      setMessage(isForbidden(error) ? "No tienes permisos para exportar reportes." : "No pudimos exportar predicciones.");
+    } finally {
+      setReportsBusy(false);
+    }
+  }
+
+  async function downloadRankingPaymentsCSV() {
+    if (!session || !pool || !canManageSelectedPool || reportsBusy) {
+      return;
+    }
+
+    setReportsBusy(true);
+    setMessage("");
+
+    try {
+      const csv = await createPollavarClient().downloadRankingPaymentsCSV(session.token, pool.id);
+      downloadTextFile(csv, `ranking-payments-${fileNamePart(pool.id)}.csv`, "text/csv;charset=utf-8");
+      setMessage("Reporte de ranking y pagos descargado.");
+    } catch (error) {
+      if (isUnauthorized(error)) {
+        signOutAdmin();
+        return;
+      }
+      setMessage(isForbidden(error) ? "No tienes permisos para exportar reportes." : "No pudimos exportar ranking y pagos.");
+    } finally {
+      setReportsBusy(false);
+    }
+  }
+
+  async function loadAuditLogs() {
+    if (!session || !pool || !canManageSelectedPool || reportsBusy) {
+      return;
+    }
+
+    setReportsBusy(true);
+    setMessage("");
+
+    try {
+      const logs = await createPollavarClient().listAuditLogs(session.token, pool.id, {
+        entity_type: auditEntityTypeFilter.trim(),
+        action: auditActionFilter.trim(),
+        limit: 100,
+      });
+      setAuditLogs(logs);
+      setMessage("Bitacora actualizada.");
+    } catch (error) {
+      if (isUnauthorized(error)) {
+        signOutAdmin();
+        return;
+      }
+      setMessage(isForbidden(error) ? "No tienes permisos para ver auditoria." : "No pudimos cargar la auditoria.");
+    } finally {
+      setReportsBusy(false);
+    }
+  }
+
+  async function requestPoolRecalculation() {
+    if (!session || !pool || !canManageSelectedPool || reportsBusy || recalculationReason.trim() === "") {
+      return;
+    }
+
+    setReportsBusy(true);
+    setMessage("");
+
+    try {
+      const log = await createPollavarClient().recalculatePool(
+        session.token,
+        pool.id,
+        recalculationReason.trim(),
+      );
+      setAuditLogs((current) => [log, ...current]);
+      setRecalculationReason("");
+      setMessage("Recalculo manual registrado en bitacora.");
+    } catch (error) {
+      if (isUnauthorized(error)) {
+        signOutAdmin();
+        return;
+      }
+      setMessage(isForbidden(error) ? "No tienes permisos para recalcular." : "No pudimos registrar el recalculo.");
+    } finally {
+      setReportsBusy(false);
+    }
+  }
+
   function updatePrizeDraft(index: number, patch: Partial<PrizeRuleDraft>) {
     setPrizeDrafts((current) =>
       current.map((draft, draftIndex) =>
@@ -2897,6 +3005,119 @@ export default function AdminHome() {
                       }
                       preview={globalPrizePreview}
                     />
+                  </div>
+                </div>
+              </section>
+            ) : null}
+
+            {pool ? (
+              <section
+                className="scroll-mt-4 rounded-lg border border-zinc-200 bg-white shadow-sm"
+                id="reportes"
+              >
+                <div className="border-b border-zinc-200 px-5 py-4">
+                  <h2 className="text-lg font-semibold text-zinc-950">Reportes y auditoria</h2>
+                  <p className="text-sm text-zinc-600">
+                    Exportaciones administrativas y bitacora filtrable de la polla.
+                  </p>
+                </div>
+                <div className="grid gap-5 p-5 lg:grid-cols-[0.9fr_1.1fr]">
+                  <div className="space-y-4">
+                    <div className="rounded-lg border border-zinc-200 p-4">
+                      <p className="text-sm font-semibold text-zinc-950">Exportaciones</p>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <button
+                          className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:border-zinc-400 disabled:cursor-not-allowed disabled:text-zinc-400"
+                          disabled={!canManageSelectedPool || reportsBusy}
+                          type="button"
+                          onClick={() => void downloadPredictionsReportCSV()}
+                        >
+                          Predicciones CSV
+                        </button>
+                        <button
+                          className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:border-zinc-400 disabled:cursor-not-allowed disabled:text-zinc-400"
+                          disabled={!canManageSelectedPool || reportsBusy}
+                          type="button"
+                          onClick={() => void downloadRankingPaymentsCSV()}
+                        >
+                          Ranking y pagos CSV
+                        </button>
+                      </div>
+                    </div>
+                    <div className="rounded-lg border border-zinc-200 p-4">
+                      <p className="text-sm font-semibold text-zinc-950">Recalculo manual</p>
+                      <label className="mt-3 block text-xs font-medium text-zinc-700">
+                        Motivo
+                        <textarea
+                          className="mt-1 min-h-20 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-950"
+                          onChange={(event) => setRecalculationReason(event.target.value)}
+                          value={recalculationReason}
+                        />
+                      </label>
+                      <button
+                        className="mt-3 rounded-md bg-zinc-950 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
+                        disabled={
+                          !canManageSelectedPool ||
+                          reportsBusy ||
+                          recalculationReason.trim() === ""
+                        }
+                        type="button"
+                        onClick={() => void requestPoolRecalculation()}
+                      >
+                        Registrar recalculo
+                      </button>
+                    </div>
+                  </div>
+                  <div className="rounded-lg border border-zinc-200">
+                    <div className="space-y-3 border-b border-zinc-200 px-4 py-3">
+                      <p className="text-sm font-semibold text-zinc-950">Bitacora</p>
+                      <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+                        <input
+                          className="min-h-9 rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-950"
+                          onChange={(event) => setAuditEntityTypeFilter(event.target.value)}
+                          placeholder="Tipo de entidad"
+                          value={auditEntityTypeFilter}
+                        />
+                        <input
+                          className="min-h-9 rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-950"
+                          onChange={(event) => setAuditActionFilter(event.target.value)}
+                          placeholder="Accion"
+                          value={auditActionFilter}
+                        />
+                        <button
+                          className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:border-zinc-400 disabled:cursor-not-allowed disabled:text-zinc-400"
+                          disabled={!canManageSelectedPool || reportsBusy}
+                          type="button"
+                          onClick={() => void loadAuditLogs()}
+                        >
+                          Consultar
+                        </button>
+                      </div>
+                    </div>
+                    <div className="max-h-96 divide-y divide-zinc-200 overflow-auto">
+                      {auditLogs.length > 0 ? (
+                        auditLogs.map((log) => (
+                          <div key={log.id} className="px-4 py-3 text-sm">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <p className="font-medium text-zinc-950">{log.action}</p>
+                              <p className="text-xs text-zinc-500">
+                                {formatDateTime(log.created_at)}
+                              </p>
+                            </div>
+                            <p className="mt-1 text-xs text-zinc-600">
+                              {log.entity_type} · {log.actor_name || log.actor_user_id || "Sistema"}
+                            </p>
+                            <pre className="mt-2 max-h-24 overflow-auto rounded-md bg-zinc-50 p-2 text-xs text-zinc-600">
+                              {log.metadata}
+                            </pre>
+                          </div>
+                        ))
+                      ) : (
+                        <p className="px-4 py-3 text-sm text-zinc-600">
+                          Consulta la bitacora para ver los ultimos movimientos.
+                        </p>
+                      )}
+                    </div>
                   </div>
                 </div>
               </section>

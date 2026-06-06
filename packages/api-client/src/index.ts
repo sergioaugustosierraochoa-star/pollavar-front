@@ -453,6 +453,26 @@ export type MatchResultAuditLog = {
   created_at: string;
 };
 
+export type AuditLog = {
+  id: string;
+  actor_user_id: string;
+  actor_name: string;
+  entity_type: string;
+  entity_id: string;
+  action: string;
+  metadata: string;
+  created_at: string;
+};
+
+export type ListAuditLogsInput = {
+  entity_type?: string;
+  action?: string;
+  actor_id?: string;
+  from?: string;
+  to?: string;
+  limit?: number;
+};
+
 export type SaveMatchResultInput = {
   home_score: number;
   away_score: number;
@@ -1072,6 +1092,54 @@ export function createPollavarClient(options: PollavarClientOptions = {}) {
         `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/payments.csv`,
         {
           method: "GET",
+          headers: authHeaders(token),
+        },
+      );
+    },
+    downloadPredictionsReportCSV(token: string, poolID: string) {
+      return requestText(
+        fetcher,
+        `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/reports/predictions.csv`,
+        {
+          method: "GET",
+          headers: authHeaders(token),
+        },
+      );
+    },
+    downloadRankingPaymentsCSV(token: string, poolID: string) {
+      return requestText(
+        fetcher,
+        `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/reports/ranking-payments.csv`,
+        {
+          method: "GET",
+          headers: authHeaders(token),
+        },
+      );
+    },
+    listAuditLogs(token: string, poolID: string, input: ListAuditLogsInput = {}) {
+      const params = new URLSearchParams();
+      for (const [key, value] of Object.entries(input)) {
+        if (value !== undefined && value !== "") {
+          params.set(key, String(value));
+        }
+      }
+      const suffix = params.size > 0 ? `?${params.toString()}` : "";
+      return request<AuditLog[]>(
+        fetcher,
+        `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/audit-logs${suffix}`,
+        {
+          method: "GET",
+          headers: authHeaders(token),
+        },
+      );
+    },
+    recalculatePool(token: string, poolID: string, reason: string) {
+      return request<AuditLog>(
+        fetcher,
+        `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/recalculations`,
+        {
+          method: "POST",
+          body: JSON.stringify({ reason }),
           headers: authHeaders(token),
         },
       );
