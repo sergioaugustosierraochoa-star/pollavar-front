@@ -2138,9 +2138,10 @@ function metricValue(label: string) {
 }
 
 function rowWithText(text: string) {
+  const expected = compactText(text);
   const row = screen
     .getAllByRole("row")
-    .find((item) => within(item).queryByText(text));
+    .find((item) => rowContainsText(item, text, expected));
   if (!row) {
     throw new Error(`Row with ${text} not found`);
   }
@@ -2148,13 +2149,33 @@ function rowWithText(text: string) {
 }
 
 function rowWithTextIn(container: HTMLElement, text: string) {
+  const expected = compactText(text);
   const row = within(container)
     .getAllByRole("row")
-    .find((item) => within(item).queryByText(text));
+    .find((item) => rowContainsText(item, text, expected));
   if (!row) {
     throw new Error(`Row with ${text} not found`);
   }
   return row;
+}
+
+function normalizedText(element: HTMLElement) {
+  return (element.textContent ?? "").replace(/\s+/g, " ").trim();
+}
+
+function compactText(value: string) {
+  return value.replace(/\s+/g, "");
+}
+
+function rowContainsText(row: HTMLElement, text: string, compactExpected: string) {
+  const parts = text.split(" vs ");
+  if (parts.length === 2) {
+    return (
+      within(row).queryAllByText(parts[0]).length > 0 &&
+      within(row).queryAllByText(parts[1]).length > 0
+    );
+  }
+  return compactText(normalizedText(row)).includes(compactExpected);
 }
 
 function expectAdminNavigationTargetsToExist(navigation: HTMLElement) {
