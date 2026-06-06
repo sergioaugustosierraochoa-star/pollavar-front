@@ -154,6 +154,10 @@ export type GenerateKnockoutBracketInput = {
   }>;
 };
 
+export type UpdateTournamentTiebreakersInput = {
+  tiebreakers: TournamentTiebreaker[];
+};
+
 export type GeneratedBracket = {
   matches: Match[];
   advancement_rules: AdvancementRule[];
@@ -819,6 +823,21 @@ export function createPollavarClient(options: PollavarClientOptions = {}) {
           method: "POST",
           headers: authHeaders(token),
           body: JSON.stringify(input),
+        },
+      );
+    },
+    updateTournamentTiebreakers(
+      token: string,
+      tournamentID: string,
+      input: UpdateTournamentTiebreakersInput,
+    ) {
+      return request<Tournament>(
+        fetcher,
+        `${baseURL}/api/v1/tournaments/${encodeURIComponent(tournamentID)}/tiebreakers`,
+        {
+          method: "PUT",
+          body: JSON.stringify(input),
+          headers: authHeaders(token),
         },
       );
     },

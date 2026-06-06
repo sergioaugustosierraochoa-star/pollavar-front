@@ -648,12 +648,20 @@ describe("createPollavarClient", () => {
   });
 
   it("loads tournament resources", async () => {
-    const fetcher = vi.fn(async (url: RequestInfo | URL) => {
-      if (String(url).endsWith("/api/v1/tournaments")) {
+    const updatedTournament = {
+      ...tournament,
+      tiebreakers: ["points", "goals_for"] as Tournament["tiebreakers"],
+    };
+    const fetcher = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      const value = String(url);
+      if (value.endsWith("/api/v1/tournaments")) {
         return jsonResponse({ data: [tournamentSummary] });
       }
-      if (String(url).endsWith("/brackets/generate")) {
+      if (value.endsWith("/brackets/generate")) {
         return jsonResponse({ data: { matches: [tournament.matches[0]], advancement_rules: [tournament.advancement_rules[0]] } });
+      }
+      if (value.endsWith("/tiebreakers") && init?.method === "PUT") {
+        return jsonResponse({ data: updatedTournament });
       }
       return jsonResponse({ data: tournament });
     });
@@ -676,6 +684,11 @@ describe("createPollavarClient", () => {
       matches: [tournament.matches[0]],
       advancement_rules: [tournament.advancement_rules[0]],
     });
+    await expect(
+      client.updateTournamentTiebreakers("token", "tournament id", {
+        tiebreakers: ["points", "goals_for"],
+      }),
+    ).resolves.toEqual(updatedTournament);
 
     expect(fetcher).toHaveBeenNthCalledWith(1, "http://api.local/api/v1/tournaments", {
       method: "GET",
@@ -708,6 +721,20 @@ describe("createPollavarClient", () => {
           match_id_prefix: "round-2-match",
           match_number_start: 3,
           slots: [{ type: "ranking_top_n", source_id: "league-top", rank: 1, label: "Seed #1" }],
+        }),
+      },
+    );
+    expect(fetcher).toHaveBeenNthCalledWith(
+      4,
+      "http://api.local/api/v1/tournaments/tournament%20id/tiebreakers",
+      {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer token",
+        },
+        body: JSON.stringify({
+          tiebreakers: ["points", "goals_for"],
         }),
       },
     );

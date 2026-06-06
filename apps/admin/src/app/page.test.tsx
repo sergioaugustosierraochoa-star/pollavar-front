@@ -927,6 +927,44 @@ describe("Admin home", () => {
     );
   });
 
+  it("updates tournament tiebreakers from the admin panel", async () => {
+    storeSession();
+    const fetcher = vi.fn(adminFetch);
+    vi.stubGlobal("fetch", fetcher);
+
+    render(<AdminHome />);
+
+    const tiebreakersSection = await screen
+      .findByRole("heading", { name: "Desempates del torneo" })
+      .then((heading) => heading.closest("section"));
+    expect(tiebreakersSection).not.toBeNull();
+
+    fireEvent.click(
+      within(tiebreakersSection as HTMLElement).getAllByRole("button", { name: "Bajar" })[0],
+    );
+    fireEvent.click(
+      within(tiebreakersSection as HTMLElement).getByLabelText(/Goles en contra/),
+    );
+    fireEvent.click(
+      within(tiebreakersSection as HTMLElement).getByRole("button", {
+        name: "Guardar desempates",
+      }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("status")).toHaveTextContent("Desempates del torneo actualizados.");
+    });
+    expect(fetcher).toHaveBeenCalledWith(
+      "http://localhost:8080/api/v1/tournaments/fifa-world-cup-2026/tiebreakers",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({
+          tiebreakers: ["goal_difference", "points", "goals_for", "goals_against"],
+        }),
+      }),
+    );
+  });
+
   it("updates official standings and loads their audit log", async () => {
     storeSession();
     const fetcher = vi.fn(adminFetch);
@@ -2121,6 +2159,18 @@ async function adminFetch(url: RequestInfo | URL, init?: RequestInit) {
   }
   if (value.endsWith("/api/v1/pools/pool-id/global-prizes/preview") && init?.method === "GET") {
     return jsonResponse({ data: globalPrizePreview });
+  }
+  if (
+    value.endsWith("/api/v1/tournaments/fifa-world-cup-2026/tiebreakers") &&
+    init?.method === "PUT"
+  ) {
+    const body = JSON.parse(String(init.body)) as { tiebreakers: typeof tournament.tiebreakers };
+    return jsonResponse({
+      data: {
+        ...tournament,
+        tiebreakers: body.tiebreakers,
+      },
+    });
   }
   if (value.endsWith("/api/v1/pools/pool-id/official-standings") && init?.method === "GET") {
     return jsonResponse({ data: officialStandings });

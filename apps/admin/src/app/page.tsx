@@ -43,6 +43,7 @@ import {
   type ScoringRule,
   type Team,
   type Tournament,
+  type TournamentTiebreaker,
   type TournamentSummary,
 } from "@pollavar/api-client";
 import Link from "next/link";
@@ -159,6 +160,7 @@ type OfficialStandingScope = {
   teams: TournamentTeamOption[];
 };
 type OfficialStandingDrafts = Record<string, Record<string, string>>;
+type TournamentTiebreakerDraft = Record<TournamentTiebreaker, boolean>;
 type UnderdogBonusDrafts = Record<
   string,
   {
@@ -190,6 +192,13 @@ type TournamentTeamOption = Team;
 type RefreshPrizePreviewOptions = {
   syncDrafts?: boolean;
 };
+
+const allTournamentTiebreakers: TournamentTiebreaker[] = [
+  "points",
+  "goal_difference",
+  "goals_for",
+  "goals_against",
+];
 type BracketGeneratorDraft = {
   stageID: string;
   stageName: string;
@@ -302,11 +311,18 @@ export default function AdminHome() {
   const [officialStandingAuditLogsByScope, setOfficialStandingAuditLogsByScope] = useState<
     Record<string, OfficialStandingAuditLog[]>
   >({});
+  const [tiebreakerOrder, setTiebreakerOrder] = useState<TournamentTiebreaker[]>(
+    allTournamentTiebreakers,
+  );
+  const [tiebreakerDraft, setTiebreakerDraft] = useState<TournamentTiebreakerDraft>(
+    defaultTiebreakerDraft(null),
+  );
   const [drafts, setDrafts] = useState<PaymentDrafts>({});
   const [savingResultMatchID, setSavingResultMatchID] = useState("");
   const [loadingAuditMatchID, setLoadingAuditMatchID] = useState("");
   const [savingOfficialStandingScope, setSavingOfficialStandingScope] = useState("");
   const [loadingOfficialStandingAuditScope, setLoadingOfficialStandingAuditScope] = useState("");
+  const [savingTiebreakers, setSavingTiebreakers] = useState(false);
   const [savingUserID, setSavingUserID] = useState("");
   const [savingBonusMatchID, setSavingBonusMatchID] = useState("");
   const [savingGlobalDefinitions, setSavingGlobalDefinitions] = useState(false);
@@ -486,6 +502,8 @@ export default function AdminHome() {
         setOfficialStandingDrafts({});
         setOfficialStandingReasons({});
         setOfficialStandingAuditLogsByScope({});
+        setTiebreakerOrder(allTournamentTiebreakers);
+        setTiebreakerDraft(defaultTiebreakerDraft(null));
         setDrafts({});
         setStatus("ready");
         return;
@@ -590,6 +608,8 @@ export default function AdminHome() {
         ),
       );
       setOfficialStandingReasons(defaultOfficialStandingReasons(nextOfficialStandings));
+      setTiebreakerOrder(defaultTiebreakerOrder(tournamentDetail));
+      setTiebreakerDraft(defaultTiebreakerDraft(tournamentDetail));
       setBracketDraft(defaultBracketGeneratorDraft(tournamentDetail));
       setGeneratedBracket(null);
       setResultAuditLogsByMatchID({});
@@ -678,6 +698,26 @@ export default function AdminHome() {
       ...current,
       [scopeKey]: value,
     }));
+  }
+
+  function toggleTournamentTiebreaker(tiebreaker: TournamentTiebreaker, enabled: boolean) {
+    setTiebreakerDraft((current) => ({
+      ...current,
+      [tiebreaker]: enabled,
+    }));
+  }
+
+  function moveTournamentTiebreaker(tiebreaker: TournamentTiebreaker, direction: -1 | 1) {
+    setTiebreakerOrder((current) => {
+      const index = current.indexOf(tiebreaker);
+      const targetIndex = index + direction;
+      if (index < 0 || targetIndex < 0 || targetIndex >= current.length) {
+        return current;
+      }
+      const next = [...current];
+      [next[index], next[targetIndex]] = [next[targetIndex], next[index]];
+      return next;
+    });
   }
 
   function updateUnderdogBonusDraft(
@@ -884,6 +924,49 @@ export default function AdminHome() {
       setMessage("No pudimos generar el bracket.");
     } finally {
       setSavingBracket(false);
+    }
+  }
+
+  async function saveTournamentTiebreakers() {
+    if (!session || !tournament || !canManageSelectedTournamentBrackets) {
+      return;
+    }
+
+    const tiebreakers = tiebreakerOrder.filter((tiebreaker) => tiebreakerDraft[tiebreaker]);
+    if (tiebreakers.length === 0) {
+      setMessage("Revisa que al menos un criterio de desempate este activo.");
+      return;
+    }
+
+    setSavingTiebreakers(true);
+    setMessage("");
+
+    try {
+      const updatedTournament = await createPollavarClient().updateTournamentTiebreakers(
+        session.token,
+        tournament.id,
+        { tiebreakers },
+      );
+      setTournament(updatedTournament);
+      setTiebreakerOrder(defaultTiebreakerOrder(updatedTournament));
+      setTiebreakerDraft(defaultTiebreakerDraft(updatedTournament));
+      setMessage("Desempates del torneo actualizados.");
+    } catch (error) {
+      if (isUnauthorized(error)) {
+        signOutAdmin();
+        return;
+      }
+      if (isForbidden(error)) {
+        setMessage("No tienes permisos para configurar desempates del torneo.");
+        return;
+      }
+      if (error instanceof PollavarAPIError && error.status === 400) {
+        setMessage("Revisa los criterios de desempate del torneo.");
+        return;
+      }
+      setMessage("No pudimos actualizar los desempates del torneo.");
+    } finally {
+      setSavingTiebreakers(false);
     }
   }
 
@@ -1830,6 +1913,18 @@ export default function AdminHome() {
             ) : null}
 
             {pool ? (
+              <TournamentTiebreakersPanel
+                canManage={canManageSelectedTournamentBrackets}
+                draft={tiebreakerDraft}
+                onMove={moveTournamentTiebreaker}
+                onSave={() => void saveTournamentTiebreakers()}
+                onToggle={toggleTournamentTiebreaker}
+                order={tiebreakerOrder}
+                saving={savingTiebreakers}
+              />
+            ) : null}
+
+            {pool ? (
               <BracketGeneratorPanel
                 canManage={canManageSelectedTournamentBrackets}
                 draft={bracketDraft}
@@ -2362,9 +2457,11 @@ function AdminSectionNavigation({ pool }: { pool: Pool }) {
     { href: "#identidad", label: "Identidad" },
     { href: "#pronosticos", label: "Pronosticos" },
     { href: "#overrides", label: "Overrides" },
+    { href: "#desempates-torneo", label: "Desempates" },
     { href: "#brackets", label: "Brackets" },
     { href: "#globales", label: "Globales" },
     { href: "#resultados", label: "Resultados" },
+    { href: "#posiciones-oficiales", label: "Posiciones" },
     { href: "#premios", label: "Premios" },
     { href: "#recaudo", label: "Recaudo" },
   ];
@@ -4130,6 +4227,105 @@ function GlobalResultInput({
         value={draft.valueText}
       />
     </label>
+  );
+}
+
+function TournamentTiebreakersPanel({
+  canManage,
+  draft,
+  onMove,
+  onSave,
+  onToggle,
+  order,
+  saving,
+}: {
+  canManage: boolean;
+  draft: TournamentTiebreakerDraft;
+  onMove: (tiebreaker: TournamentTiebreaker, direction: -1 | 1) => void;
+  onSave: () => void;
+  onToggle: (tiebreaker: TournamentTiebreaker, enabled: boolean) => void;
+  order: TournamentTiebreaker[];
+  saving: boolean;
+}) {
+  const enabledCount = order.filter((tiebreaker) => draft[tiebreaker]).length;
+
+  return (
+    <section
+      className="scroll-mt-4 rounded-lg border border-zinc-200 bg-white shadow-sm"
+      id="desempates-torneo"
+    >
+      <div className="flex flex-col gap-3 border-b border-zinc-200 px-5 py-4 md:flex-row md:items-center md:justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-zinc-950">Desempates del torneo</h2>
+          <p className="text-sm text-zinc-600">
+            Criterios automaticos para ordenar grupos, ligas y rankings generales.
+          </p>
+        </div>
+        <span
+          className={`w-fit rounded-md px-2 py-1 text-xs font-medium ${
+            canManage ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"
+          }`}
+        >
+          {canManage ? "Configurable" : "Solo lectura"}
+        </span>
+      </div>
+
+      <div className="grid gap-3 p-5">
+        {order.map((tiebreaker, index) => (
+          <div
+            className="grid gap-3 rounded-md border border-zinc-200 p-3 sm:grid-cols-[1fr_auto] sm:items-center"
+            key={tiebreaker}
+          >
+            <label className="flex items-center gap-3 text-sm font-medium text-zinc-800">
+              <input
+                checked={draft[tiebreaker]}
+                className="h-4 w-4"
+                disabled={!canManage || saving}
+                onChange={(event) => onToggle(tiebreaker, event.target.checked)}
+                type="checkbox"
+              />
+              <span>
+                <span className="font-semibold text-zinc-950">{index + 1}. </span>
+                {tiebreakerLabel(tiebreaker)}
+              </span>
+            </label>
+            <div className="flex gap-2">
+              <button
+                className="rounded-md border border-zinc-300 px-2 py-1 text-xs font-medium text-zinc-700 disabled:cursor-not-allowed disabled:text-zinc-400"
+                disabled={!canManage || saving || index === 0}
+                onClick={() => onMove(tiebreaker, -1)}
+                type="button"
+              >
+                Subir
+              </button>
+              <button
+                className="rounded-md border border-zinc-300 px-2 py-1 text-xs font-medium text-zinc-700 disabled:cursor-not-allowed disabled:text-zinc-400"
+                disabled={!canManage || saving || index === order.length - 1}
+                onClick={() => onMove(tiebreaker, 1)}
+                type="button"
+              >
+                Bajar
+              </button>
+            </div>
+          </div>
+        ))}
+
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            className="rounded-md bg-zinc-950 px-3 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-zinc-300"
+            disabled={!canManage || saving}
+            onClick={onSave}
+            type="button"
+          >
+            {saving ? "Guardando..." : "Guardar desempates"}
+          </button>
+          <span className="text-xs text-zinc-500">
+            {enabledCount} criterio{enabledCount === 1 ? "" : "s"} activo
+            {enabledCount === 1 ? "" : "s"}.
+          </span>
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -6422,6 +6618,21 @@ function formatMatchDate(value: string) {
 
 function formatDateTime(value: string) {
   return formatMatchDate(value);
+}
+
+function defaultTiebreakerOrder(tournament: Tournament | null) {
+  const configured = tournament?.tiebreakers ?? [];
+  return [
+    ...configured,
+    ...allTournamentTiebreakers.filter((tiebreaker) => !configured.includes(tiebreaker)),
+  ];
+}
+
+function defaultTiebreakerDraft(tournament: Tournament | null) {
+  const configured = new Set(tournament?.tiebreakers ?? []);
+  return Object.fromEntries(
+    allTournamentTiebreakers.map((tiebreaker) => [tiebreaker, configured.has(tiebreaker)]),
+  ) as TournamentTiebreakerDraft;
 }
 
 function tiebreakerLabel(tiebreaker: Tournament["tiebreakers"][number]) {
