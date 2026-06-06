@@ -1115,6 +1115,16 @@ export function createPollavarClient(options: PollavarClientOptions = {}) {
         },
       );
     },
+    generatePredictionSnapshot(token: string, poolID: string, matchID: string) {
+      return request<PredictionSnapshot>(
+        fetcher,
+        `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/matches/${encodeURIComponent(matchID)}/prediction-snapshot`,
+        {
+          method: "POST",
+          headers: authHeaders(token),
+        },
+      );
+    },
     downloadPredictionSnapshotCSV(token: string, poolID: string, matchID: string) {
       return requestText(
         fetcher,

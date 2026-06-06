@@ -215,6 +215,43 @@ const predictionStatuses = [
   },
 ];
 
+const predictionSnapshot = {
+  id: "snapshot-id",
+  pool_id: "pool-id",
+  match_id: "match-id",
+  generated_at: "2026-06-01T20:00:00Z",
+  row_count: 2,
+  checksum: "abcdef1234567890",
+  entries: [
+    {
+      id: "snapshot-entry-admin",
+      snapshot_id: "snapshot-id",
+      prediction_id: "prediction-admin",
+      user_id: "admin-id",
+      participant_name: "Admin",
+      has_prediction: true,
+      home_score: 2,
+      away_score: 1,
+      outcome: "home",
+      predicted_at: "2026-06-01T12:00:00Z",
+      updated_at: "2026-06-01T12:00:00Z",
+    },
+    {
+      id: "snapshot-entry-participant",
+      snapshot_id: "snapshot-id",
+      prediction_id: "",
+      user_id: "participant-id",
+      participant_name: "Participante",
+      has_prediction: false,
+      home_score: null,
+      away_score: null,
+      outcome: "",
+      predicted_at: null,
+      updated_at: null,
+    },
+  ],
+};
+
 const matchResultAuditLog = {
   id: "audit-id",
   pool_id: "pool-id",
@@ -1036,6 +1073,40 @@ describe("Admin home", () => {
       "http://localhost:8080/api/v1/pools/pool-id/match-results/match-id/audit-logs",
       expect.objectContaining({
         method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer token",
+        },
+      }),
+    );
+  });
+
+  it("generates closed prediction snapshots from the admin results panel", async () => {
+    storeSession();
+    const fetcher = vi.fn(adminFetch);
+    vi.stubGlobal("fetch", fetcher);
+
+    render(<AdminHome />);
+
+    const resultsSection = (await screen.findByRole("heading", {
+      name: "Resultados oficiales",
+    })).closest("section");
+    expect(resultsSection).not.toBeNull();
+    const matchRow = rowWithTextIn(resultsSection as HTMLElement, "Mexico vs Canada");
+
+    fireEvent.click(within(matchRow).getByRole("button", { name: "Generar snapshot" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("status")).toHaveTextContent(
+        "Snapshot de pronosticos generado.",
+      );
+    });
+    expect(within(matchRow).getByText("2 participantes")).toBeInTheDocument();
+    expect(within(matchRow).getByText("Checksum abcdef1234")).toBeInTheDocument();
+    expect(fetcher).toHaveBeenCalledWith(
+      "http://localhost:8080/api/v1/pools/pool-id/matches/match-id/prediction-snapshot",
+      expect.objectContaining({
+        method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: "Bearer token",
@@ -2064,6 +2135,12 @@ async function adminFetch(url: RequestInfo | URL, init?: RequestInit) {
   }
   if (value.endsWith("/api/v1/pools/pool-id/predictions/statuses")) {
     return jsonResponse({ data: predictionStatuses });
+  }
+  if (
+    value.endsWith("/api/v1/pools/pool-id/matches/match-id/prediction-snapshot") &&
+    init?.method === "POST"
+  ) {
+    return jsonResponse({ data: predictionSnapshot });
   }
   if (value.endsWith("/api/v1/pools/pool-id/match-results/match-id") && init?.method === "PUT") {
     const body = JSON.parse(String(init.body)) as Record<string, unknown>;

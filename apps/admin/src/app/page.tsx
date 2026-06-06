@@ -37,6 +37,7 @@ import {
   type PredictionSettingsOverrideInput,
   type PredictionSettingsOverrideScope,
   type PredictionMode,
+  type PredictionSnapshot,
   type PredictionSettingsSource,
   type PredictionMatchStatus,
   type PrizePreview,
@@ -319,6 +320,9 @@ export default function AdminHome() {
   const [resultAuditLogsByMatchID, setResultAuditLogsByMatchID] = useState<
     Record<string, MatchResultAuditLog[]>
   >({});
+  const [predictionSnapshotsByMatchID, setPredictionSnapshotsByMatchID] = useState<
+    Record<string, PredictionSnapshot>
+  >({});
   const [officialStandings, setOfficialStandings] = useState<OfficialStanding[]>([]);
   const [officialStandingDrafts, setOfficialStandingDrafts] = useState<OfficialStandingDrafts>(
     {},
@@ -337,6 +341,7 @@ export default function AdminHome() {
   );
   const [drafts, setDrafts] = useState<PaymentDrafts>({});
   const [savingResultMatchID, setSavingResultMatchID] = useState("");
+  const [generatingSnapshotMatchID, setGeneratingSnapshotMatchID] = useState("");
   const [loadingAuditMatchID, setLoadingAuditMatchID] = useState("");
   const [savingOfficialStandingScope, setSavingOfficialStandingScope] = useState("");
   const [loadingOfficialStandingAuditScope, setLoadingOfficialStandingAuditScope] = useState("");
@@ -442,8 +447,10 @@ export default function AdminHome() {
     setEffectiveMatchSettings([]);
     setResultDrafts({});
     setResultAuditLogsByMatchID({});
+    setPredictionSnapshotsByMatchID({});
     setDrafts({});
     setSavingResultMatchID("");
+    setGeneratingSnapshotMatchID("");
     setLoadingAuditMatchID("");
     setSavingUserID("");
     setSavingBonusMatchID("");
@@ -473,6 +480,7 @@ export default function AdminHome() {
     setStatus("loading");
     setMessage("");
     setSavingResultMatchID("");
+    setGeneratingSnapshotMatchID("");
     setLoadingAuditMatchID("");
     setSavingUserID("");
     setSavingBonusMatchID("");
@@ -532,6 +540,7 @@ export default function AdminHome() {
         setEffectiveMatchSettings([]);
         setResultDrafts({});
         setResultAuditLogsByMatchID({});
+        setPredictionSnapshotsByMatchID({});
         setOfficialStandings([]);
         setOfficialStandingDrafts({});
         setOfficialStandingReasons({});
@@ -649,6 +658,7 @@ export default function AdminHome() {
       setMatchSlotOverrideDrafts(hydrateMatchSlotOverrideDrafts(tournamentDetail?.matches ?? []));
       setGeneratedBracket(null);
       setResultAuditLogsByMatchID({});
+      setPredictionSnapshotsByMatchID({});
       setOfficialStandingAuditLogsByScope({});
       setDrafts(hydratePaymentDrafts(poolDetail, nextPaymentCollection.payments));
       setStatus("ready");
@@ -1373,6 +1383,49 @@ export default function AdminHome() {
       setMessage("No pudimos actualizar el resultado oficial.");
     } finally {
       setSavingResultMatchID("");
+    }
+  }
+
+  async function generatePredictionSnapshot(match: Match) {
+    if (
+      !session ||
+      !pool ||
+      !canManageSelectedPoolResults ||
+      generatingSnapshotMatchID === match.id
+    ) {
+      return;
+    }
+
+    setGeneratingSnapshotMatchID(match.id);
+    setMessage("");
+
+    try {
+      const snapshot = await createPollavarClient().generatePredictionSnapshot(
+        session.token,
+        pool.id,
+        match.id,
+      );
+      setPredictionSnapshotsByMatchID((current) => ({
+        ...current,
+        [match.id]: snapshot,
+      }));
+      setMessage("Snapshot de pronosticos generado.");
+    } catch (error) {
+      if (isUnauthorized(error)) {
+        signOutAdmin();
+        return;
+      }
+      if (isForbidden(error)) {
+        setMessage("No tienes permisos para generar snapshots.");
+        return;
+      }
+      if (error instanceof PollavarAPIError && error.code === "prediction_open") {
+        setMessage("El partido todavia no cerro para pronosticos.");
+        return;
+      }
+      setMessage("No pudimos generar el snapshot de pronosticos.");
+    } finally {
+      setGeneratingSnapshotMatchID("");
     }
   }
 
@@ -2153,7 +2206,9 @@ export default function AdminHome() {
                 bonusDrafts={underdogBonusDrafts}
                 canManage={canManageSelectedPoolResults}
                 groups={resultGroups}
+                generatingSnapshotMatchID={generatingSnapshotMatchID}
                 loadingAuditMatchID={loadingAuditMatchID}
+                onGenerateSnapshot={(match) => void generatePredictionSnapshot(match)}
                 onSaveBonus={(match) => void saveUnderdogBonus(match)}
                 onLoadAudit={(matchID) => void loadMatchResultAudit(matchID)}
                 onSave={(match) => void saveMatchResult(match)}
@@ -2163,6 +2218,7 @@ export default function AdminHome() {
                 resultDrafts={resultDrafts}
                 savingBonusMatchID={savingBonusMatchID}
                 savingMatchID={savingResultMatchID}
+                snapshotsByMatchID={predictionSnapshotsByMatchID}
                 statusesByMatch={predictionStatusesByMatch}
               />
             ) : null}
@@ -4937,7 +4993,9 @@ function ResultsPanel({
   bonusDrafts,
   canManage,
   groups,
+  generatingSnapshotMatchID,
   loadingAuditMatchID,
+  onGenerateSnapshot,
   onSaveBonus,
   onLoadAudit,
   onSave,
@@ -4947,13 +5005,16 @@ function ResultsPanel({
   resultDrafts,
   savingBonusMatchID,
   savingMatchID,
+  snapshotsByMatchID,
   statusesByMatch,
 }: {
   auditLogsByMatchID: Record<string, MatchResultAuditLog[]>;
   bonusDrafts: UnderdogBonusDrafts;
   canManage: boolean;
   groups: ResultMatchGroup[];
+  generatingSnapshotMatchID: string;
   loadingAuditMatchID: string;
+  onGenerateSnapshot: (match: Match) => void;
   onSaveBonus: (match: Match) => void;
   onLoadAudit: (matchID: string) => void;
   onSave: (match: Match) => void;
@@ -4963,6 +5024,7 @@ function ResultsPanel({
   resultDrafts: ResultDrafts;
   savingBonusMatchID: string;
   savingMatchID: string;
+  snapshotsByMatchID: Record<string, PredictionSnapshot>;
   statusesByMatch: Map<string, PredictionMatchStatus>;
 }) {
   const matches = groups.flatMap((group) => group.matches);
@@ -5012,13 +5074,14 @@ function ResultsPanel({
                 </p>
               </div>
               <div className="overflow-x-auto">
-                <table className="min-w-[1220px] w-full border-collapse text-left text-sm">
+                <table className="min-w-[1360px] w-full border-collapse text-left text-sm">
                   <thead className="bg-white text-xs uppercase text-zinc-500">
                     <tr>
                       <th className="px-4 py-3 font-semibold">Partido</th>
                       <th className="px-4 py-3 font-semibold">Estado</th>
                       <th className="px-4 py-3 font-semibold">Sorpresa</th>
                       <th className="px-4 py-3 font-semibold">Marcador</th>
+                      <th className="px-4 py-3 font-semibold">Snapshot</th>
                       <th className="px-4 py-3 font-semibold">Auditoria</th>
                       <th className="px-4 py-3 font-semibold">Acciones</th>
                     </tr>
@@ -5041,7 +5104,9 @@ function ResultsPanel({
                       const awayName = matchTeamName(match, "away", status);
                       const isSaving = savingMatchID === match.id;
                       const isSavingBonus = savingBonusMatchID === match.id;
+                      const isGeneratingSnapshot = generatingSnapshotMatchID === match.id;
                       const isLoadingAudit = loadingAuditMatchID === match.id;
+                      const snapshot = snapshotsByMatchID[match.id];
                       const bonusDraft = {
                         ...defaultUnderdogBonusDraft(),
                         ...bonusDrafts[match.id],
@@ -5191,6 +5256,36 @@ function ResultsPanel({
                                   value={draft.away}
                                 />
                               </label>
+                            </div>
+                          </td>
+                          <td className="px-4 py-4">
+                            <div className="grid gap-2">
+                              {snapshot ? (
+                                <div>
+                                  <p className="text-xs font-semibold text-zinc-950">
+                                    {snapshot.row_count} participantes
+                                  </p>
+                                  <p className="mt-1 text-xs text-zinc-500">
+                                    Checksum {snapshot.checksum.slice(0, 10)}
+                                  </p>
+                                </div>
+                              ) : (
+                                <p className="text-xs text-zinc-500">
+                                  Genera una evidencia inmutable despues del cierre.
+                                </p>
+                              )}
+                              <button
+                                className="rounded-md border border-zinc-300 px-3 py-2 text-xs font-medium text-zinc-700 hover:border-zinc-400 disabled:cursor-not-allowed disabled:text-zinc-400"
+                                disabled={!canManage || !closed || isGeneratingSnapshot}
+                                onClick={() => onGenerateSnapshot(match)}
+                                type="button"
+                              >
+                                {isGeneratingSnapshot
+                                  ? "Generando"
+                                  : snapshot
+                                    ? "Consultar snapshot"
+                                    : "Generar snapshot"}
+                              </button>
                             </div>
                           </td>
                           <td className="px-4 py-4">

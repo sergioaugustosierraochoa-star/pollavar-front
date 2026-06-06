@@ -873,6 +873,9 @@ describe("createPollavarClient", () => {
       predictionSnapshot,
     );
     await expect(
+      client.generatePredictionSnapshot("token", "pool id", "match id"),
+    ).resolves.toEqual(predictionSnapshot);
+    await expect(
       client.downloadPredictionSnapshotCSV("token", "pool id", "match id"),
     ).resolves.toContain("snapshot-id");
     await expect(client.listRanking("token", "pool id")).resolves.toEqual([
@@ -1024,6 +1027,17 @@ describe("createPollavarClient", () => {
     );
     expect(fetcher).toHaveBeenNthCalledWith(
       7,
+      "http://api.local/api/v1/pools/pool%20id/matches/match%20id/prediction-snapshot",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer token",
+        },
+      },
+    );
+    expect(fetcher).toHaveBeenNthCalledWith(
+      8,
       "http://api.local/api/v1/pools/pool%20id/matches/match%20id/prediction-snapshot.csv",
       {
         method: "GET",
@@ -1033,7 +1047,7 @@ describe("createPollavarClient", () => {
       },
     );
     expect(fetcher).toHaveBeenNthCalledWith(
-      8,
+      9,
       "http://api.local/api/v1/pools/pool%20id/ranking",
       {
         method: "GET",
@@ -1044,7 +1058,7 @@ describe("createPollavarClient", () => {
       },
     );
     expect(fetcher).toHaveBeenNthCalledWith(
-      9,
+      10,
       "http://api.local/api/v1/pools/pool%20id/ranking/user%20id/points",
       {
         method: "GET",
@@ -1055,7 +1069,7 @@ describe("createPollavarClient", () => {
       },
     );
     expect(fetcher).toHaveBeenNthCalledWith(
-      10,
+      11,
       "http://api.local/api/v1/pools/pool%20id/scoring-rules",
       {
         method: "GET",
@@ -1066,7 +1080,7 @@ describe("createPollavarClient", () => {
       },
     );
     expect(fetcher).toHaveBeenNthCalledWith(
-      11,
+      12,
       "http://api.local/api/v1/pools/pool%20id/scoring-rules",
       {
         method: "PUT",
@@ -1083,7 +1097,7 @@ describe("createPollavarClient", () => {
       },
     );
     expect(fetcher).toHaveBeenNthCalledWith(
-      12,
+      13,
       "http://api.local/api/v1/pools/pool%20id/predictions/match%20id",
       {
         method: "PUT",
@@ -1095,7 +1109,7 @@ describe("createPollavarClient", () => {
       },
     );
     expect(fetcher).toHaveBeenNthCalledWith(
-      14,
+      15,
       "http://api.local/api/v1/pools/pool%20id/standing-predictions/group%20a",
       {
         method: "PUT",
