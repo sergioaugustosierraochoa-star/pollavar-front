@@ -68,9 +68,27 @@ export type Match = {
   away_team?: Team | null;
   home_slot: string;
   away_slot: string;
+  home_slot_config: MatchSlot;
+  away_slot_config: MatchSlot;
   starts_at: string;
   venue: string;
   status: string;
+};
+
+export type MatchSlot = {
+  type:
+    | ""
+    | "team"
+    | "seed"
+    | "group_position"
+    | "best_group_rank"
+    | "match_winner"
+    | "match_loser"
+    | "bye"
+    | "placeholder";
+  source_id: string;
+  rank: number;
+  label: string;
 };
 
 export type Tournament = TournamentSummary & {

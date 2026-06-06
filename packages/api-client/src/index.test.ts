@@ -86,6 +86,8 @@ const tournament: Tournament = {
       },
       home_slot: "MEX",
       away_slot: "RSA",
+      home_slot_config: { type: "team", source_id: "MEX", rank: 0, label: "MEX" },
+      away_slot_config: { type: "team", source_id: "RSA", rank: 0, label: "RSA" },
       starts_at: "2026-06-11T19:00:00Z",
       venue: "Mexico City Stadium",
       status: "scheduled",
