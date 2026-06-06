@@ -3,7 +3,6 @@
 import {
   PollavarAPIError,
   createPollavarClient,
-  type AuthUser,
   type CreatePoolInput,
   type EffectiveMatchPredictionSettings,
   type GeneratedBracket,
@@ -56,14 +55,7 @@ import {
 } from "@pollavar/api-client";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-
-const sessionStorageKey = "pollavar.admin.session";
-
-type AuthSession = {
-  token: string;
-  expiresAt: string;
-  user: AuthUser;
-};
+import { readStoredSession, redirectToLogin, signOut, type AuthSession } from "./session";
 
 type DashboardStatus = "checking" | "signed-out" | "loading" | "ready" | "error";
 type PaymentDrafts = Record<
@@ -456,7 +448,7 @@ export default function AdminHome() {
 
   const signOutAdmin = useCallback(function signOutAdmin() {
     requestID.current += 1;
-    clearStoredSession();
+    signOut();
     setSession(null);
     setStatus("signed-out");
     setMessage("");
@@ -765,6 +757,7 @@ export default function AdminHome() {
       }
       if (!storedSession) {
         setStatus("signed-out");
+        redirectToLogin();
         return;
       }
 
@@ -5955,39 +5948,6 @@ function Metric({ label, value }: { label: string; value: string }) {
       <p className="mt-1 text-base font-semibold text-zinc-950">{value}</p>
     </div>
   );
-}
-
-function readStoredSession() {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  const rawSession = window.localStorage.getItem(sessionStorageKey);
-  if (!rawSession) {
-    return null;
-  }
-
-  try {
-    const parsed = JSON.parse(rawSession) as AuthSession;
-    if (!parsed.token || !parsed.expiresAt || !parsed.user?.id) {
-      clearStoredSession();
-      return null;
-    }
-    if (Date.parse(parsed.expiresAt) <= Date.now()) {
-      clearStoredSession();
-      return null;
-    }
-    return parsed;
-  } catch {
-    clearStoredSession();
-    return null;
-  }
-}
-
-function clearStoredSession() {
-  if (typeof window !== "undefined") {
-    window.localStorage.removeItem(sessionStorageKey);
-  }
 }
 
 function canManagePayments(pool: Pool, userID: string) {

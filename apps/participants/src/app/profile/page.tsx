@@ -3,14 +3,13 @@
 import { PollavarAPIError, createPollavarClient, type AuthUser } from "@pollavar/api-client";
 import Link from "next/link";
 import { type FormEvent, useEffect, useState } from "react";
-
-const sessionStorageKey = "pollavar.participants.session";
-
-type AuthSession = {
-  token: string;
-  expiresAt: string;
-  user: AuthUser;
-};
+import {
+  clearStoredSession,
+  persistSession,
+  readStoredSession,
+  redirectToLogin,
+  type AuthSession,
+} from "../session";
 
 export default function ParticipantsProfilePage() {
   const [session, setSession] = useState<AuthSession | null>(() => readStoredSession());
@@ -23,6 +22,7 @@ export default function ParticipantsProfilePage() {
 
   useEffect(() => {
     if (!session) {
+      redirectToLogin();
       return;
     }
 
@@ -38,6 +38,7 @@ export default function ParticipantsProfilePage() {
         setSession(null);
         setUser(null);
         setStatus("Tu sesion ya no es valida. Inicia sesion nuevamente.");
+        redirectToLogin();
       });
   }, [session]);
 
@@ -70,6 +71,7 @@ export default function ParticipantsProfilePage() {
       setUser(null);
       setStatus("Contrasena actualizada. Inicia sesion nuevamente.");
       setMessage("");
+      redirectToLogin();
     } catch (error) {
       setMessage(passwordErrorMessage(error));
     } finally {
@@ -238,35 +240,6 @@ function TextField({
       />
     </label>
   );
-}
-
-function readStoredSession() {
-  if (typeof window === "undefined") {
-    return null;
-  }
-  const rawSession = window.localStorage.getItem(sessionStorageKey);
-  if (!rawSession) {
-    return null;
-  }
-  try {
-    const session = JSON.parse(rawSession) as AuthSession;
-    if (!session.token || !session.expiresAt || !session.user?.id || Date.parse(session.expiresAt) <= Date.now()) {
-      clearStoredSession();
-      return null;
-    }
-    return session;
-  } catch {
-    clearStoredSession();
-    return null;
-  }
-}
-
-function persistSession(session: AuthSession) {
-  window.localStorage.setItem(sessionStorageKey, JSON.stringify(session));
-}
-
-function clearStoredSession() {
-  window.localStorage.removeItem(sessionStorageKey);
 }
 
 function formatDateTime(value: string) {

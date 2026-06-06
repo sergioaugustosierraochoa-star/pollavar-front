@@ -1,12 +1,9 @@
 "use client";
 
-import {
-  createPollavarClient,
-  serializeAuthSession,
-  type AuthResult,
-} from "@pollavar/api-client";
+import { createPollavarClient } from "@pollavar/api-client";
 import Link from "next/link";
 import { type FormEvent, useState } from "react";
+import { persistSession } from "./session";
 
 type AuthMode = "login" | "register";
 type SubmitStatus = "idle" | "submitting" | "success" | "error";
@@ -22,7 +19,6 @@ type AuthFormProps = {
 export function AuthForm({
   appName,
   mode,
-  storageKey,
   alternateHref,
   alternateLabel,
 }: AuthFormProps) {
@@ -52,7 +48,7 @@ export function AuthForm({
             password: String(formData.get("password")),
           });
 
-      persistSession(storageKey, result);
+      persistSession(result);
       setStatus("success");
       setMessage(`Sesion lista para ${result.user.username}.`);
     } catch {
@@ -151,8 +147,4 @@ function Field({
       />
     </label>
   );
-}
-
-function persistSession(storageKey: string, result: AuthResult) {
-  window.localStorage.setItem(storageKey, serializeAuthSession(result));
 }

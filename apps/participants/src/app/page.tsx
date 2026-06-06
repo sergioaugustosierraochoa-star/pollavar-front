@@ -32,21 +32,7 @@ import {
 } from "@pollavar/api-client";
 import Link from "next/link";
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-
-const sessionStorageKey = "pollavar.participants.session";
-
-type AuthSession = {
-  token: string;
-  expiresAt: string;
-  user: {
-    id: string;
-    name: string;
-    username: string;
-    email: string;
-    role: string;
-    created_at: string;
-  };
-};
+import { readStoredSession, redirectToLogin, signOut, type AuthSession } from "./session";
 
 type DashboardStatus = "checking" | "signed-out" | "loading" | "ready" | "error";
 type ScoreDrafts = Record<string, { home: string; away: string; outcome: MatchOutcome | "" }>;
@@ -207,7 +193,7 @@ export default function ParticipantsHome() {
 
   const signOutParticipant = useCallback(function signOutParticipant() {
     dashboardRequestID.current += 1;
-    clearStoredSession();
+    signOut();
     setSession(null);
     setStatus("signed-out");
     setMessage("");
@@ -456,6 +442,7 @@ export default function ParticipantsHome() {
 
       if (!storedSession) {
         setStatus("signed-out");
+        redirectToLogin();
         return;
       }
 
@@ -3270,53 +3257,6 @@ function Metric({ label, value }: { label: string; value: string }) {
       <p className="mt-1 text-lg font-semibold text-zinc-950">{value}</p>
     </div>
   );
-}
-
-function readStoredSession() {
-  const rawSession = window.localStorage.getItem(sessionStorageKey);
-  if (!rawSession) {
-    return null;
-  }
-
-  try {
-    const storedSession = JSON.parse(rawSession) as unknown;
-    if (!isAuthSession(storedSession) || isSessionExpired(storedSession)) {
-      clearStoredSession();
-      return null;
-    }
-
-    return storedSession;
-  } catch {
-    clearStoredSession();
-    return null;
-  }
-}
-
-function clearStoredSession() {
-  window.localStorage.removeItem(sessionStorageKey);
-}
-
-function isAuthSession(value: unknown): value is AuthSession {
-  if (!isRecord(value) || !isRecord(value.user)) {
-    return false;
-  }
-
-  return (
-    typeof value.token === "string" &&
-    value.token.trim() !== "" &&
-    typeof value.expiresAt === "string" &&
-    typeof value.user.id === "string" &&
-    typeof value.user.username === "string"
-  );
-}
-
-function isSessionExpired(session: AuthSession) {
-  const expiresAt = Date.parse(session.expiresAt);
-  return Number.isNaN(expiresAt) || expiresAt <= Date.now();
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
 }
 
 function isUnauthorizedError(error: unknown) {
