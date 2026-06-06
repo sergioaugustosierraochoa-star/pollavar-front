@@ -220,6 +220,18 @@ export type PoolParticipant = {
 
 export type RankingTiePolicy = "split_equal" | "automatic" | "manual";
 
+export type PoolPermissions = {
+  can_manage_pool: boolean;
+  can_manage_payments: boolean;
+  can_manage_prize_rules: boolean;
+  can_manage_scoring_rules: boolean;
+  can_manage_prediction_settings: boolean;
+  can_manage_theme: boolean;
+  can_manage_results: boolean;
+  can_manage_underdog_bonuses: boolean;
+  can_manage_global_predictions: boolean;
+};
+
 export type Pool = {
   id: string;
   tournament_id: string;
@@ -237,6 +249,7 @@ export type Pool = {
   created_at: string;
   updated_at: string;
   current_user_role: PoolRole;
+  permissions: PoolPermissions;
   theme: PoolTheme;
   participants: PoolParticipant[];
 };

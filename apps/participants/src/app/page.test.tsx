@@ -32,6 +32,17 @@ const pool = {
   created_at: "2026-05-27T01:00:00Z",
   updated_at: "2026-05-27T01:00:00Z",
   current_user_role: "participant",
+  permissions: {
+    can_manage_pool: false,
+    can_manage_payments: false,
+    can_manage_prize_rules: false,
+    can_manage_scoring_rules: false,
+    can_manage_prediction_settings: false,
+    can_manage_theme: false,
+    can_manage_results: false,
+    can_manage_underdog_bonuses: false,
+    can_manage_global_predictions: false,
+  },
   theme: {
     id: "theme-id",
     pool_id: "pool-id",

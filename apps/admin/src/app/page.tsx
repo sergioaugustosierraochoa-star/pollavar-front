@@ -5951,24 +5951,24 @@ function Metric({ label, value }: { label: string; value: string }) {
   );
 }
 
-function canManagePayments(pool: Pool, userID: string) {
-  return pool.current_user_role === "pool_admin" || pool.collection_responsible_user_id === userID;
+function canManagePayments(pool: Pool, _userID: string) {
+  return pool.permissions?.can_manage_payments ?? false;
 }
 
 function canManagePrizeRules(pool: Pool) {
-  return pool.current_user_role === "pool_admin";
+  return pool.permissions?.can_manage_prize_rules ?? false;
 }
 
 function canManagePredictionSettings(pool: Pool) {
-  return pool.current_user_role === "pool_admin";
+  return pool.permissions?.can_manage_prediction_settings ?? false;
 }
 
 function canManageTheme(pool: Pool) {
-  return pool.current_user_role === "pool_admin";
+  return pool.permissions?.can_manage_theme ?? false;
 }
 
 function canManageResults(pool: Pool) {
-  return pool.current_user_role === "pool_admin";
+  return pool.permissions?.can_manage_results ?? false;
 }
 
 function canManageTournamentBrackets(user: AuthUser) {

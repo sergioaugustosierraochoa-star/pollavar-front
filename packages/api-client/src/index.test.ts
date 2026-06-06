@@ -136,6 +136,17 @@ const pool: Pool = {
   created_at: "2026-05-27T01:00:00Z",
   updated_at: "2026-05-27T01:00:00Z",
   current_user_role: "pool_admin",
+  permissions: {
+    can_manage_pool: true,
+    can_manage_payments: true,
+    can_manage_prize_rules: true,
+    can_manage_scoring_rules: true,
+    can_manage_prediction_settings: true,
+    can_manage_theme: true,
+    can_manage_results: true,
+    can_manage_underdog_bonuses: true,
+    can_manage_global_predictions: true,
+  },
   theme: {
     id: "theme-id",
     pool_id: "pool-id",

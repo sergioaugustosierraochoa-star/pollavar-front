@@ -44,6 +44,17 @@ const pool = {
   created_at: "2026-05-27T01:00:00Z",
   updated_at: "2026-05-27T01:00:00Z",
   current_user_role: "pool_admin",
+  permissions: {
+    can_manage_pool: true,
+    can_manage_payments: true,
+    can_manage_prize_rules: true,
+    can_manage_scoring_rules: true,
+    can_manage_prediction_settings: true,
+    can_manage_theme: true,
+    can_manage_results: true,
+    can_manage_underdog_bonuses: true,
+    can_manage_global_predictions: true,
+  },
   theme: {
     id: "theme-id",
     pool_id: "pool-id",
@@ -408,6 +419,18 @@ const globalPrizePreview = {
       ],
     },
   ],
+};
+
+const readOnlyPermissions = {
+  can_manage_pool: false,
+  can_manage_payments: false,
+  can_manage_prize_rules: false,
+  can_manage_scoring_rules: false,
+  can_manage_prediction_settings: false,
+  can_manage_theme: false,
+  can_manage_results: false,
+  can_manage_underdog_bonuses: false,
+  can_manage_global_predictions: false,
 };
 
 const scoringRules = [
@@ -2015,11 +2038,13 @@ describe("Admin home", () => {
         return jsonResponse({ data: tournament });
       }
       if (value.endsWith("/api/v1/pools")) {
-        return jsonResponse({ data: [{ ...pool, current_user_role: "participant" }] });
+        return jsonResponse({
+          data: [{ ...pool, current_user_role: "participant", permissions: readOnlyPermissions }],
+        });
       }
       if (value.endsWith("/api/v1/pools/pool-id")) {
         return jsonResponse({
-          data: { ...pool, current_user_role: "participant" },
+          data: { ...pool, current_user_role: "participant", permissions: readOnlyPermissions },
         });
       }
       if (value.endsWith("/api/v1/pools/pool-id/predictions/statuses")) {
