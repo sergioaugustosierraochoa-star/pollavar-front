@@ -3752,8 +3752,8 @@ function ResultsPanel({
                       );
                       const auditLogs = auditLogsByMatchID[match.id] ?? [];
                       const latestAuditLog = auditLogs[0] ?? null;
-                      const homeName = matchTeamName(match, "home");
-                      const awayName = matchTeamName(match, "away");
+                      const homeName = matchTeamName(match, "home", status);
+                      const awayName = matchTeamName(match, "away", status);
                       const isSaving = savingMatchID === match.id;
                       const isSavingBonus = savingBonusMatchID === match.id;
                       const isLoadingAudit = loadingAuditMatchID === match.id;
@@ -3877,7 +3877,7 @@ function ResultsPanel({
                           <td className="px-4 py-4">
                             <div className="grid grid-cols-2 gap-2">
                               <label className="grid gap-1 text-xs font-medium text-zinc-600">
-                                <span>{matchTeamShortName(match, "home")}</span>
+                                <span>{matchTeamShortName(match, "home", status)}</span>
                                 <input
                                   aria-label={`Goles ${homeName}`}
                                   className="min-h-10 w-20 rounded-md border border-zinc-300 px-3 py-2 text-sm font-semibold"
@@ -3892,7 +3892,7 @@ function ResultsPanel({
                                 />
                               </label>
                               <label className="grid gap-1 text-xs font-medium text-zinc-600">
-                                <span>{matchTeamShortName(match, "away")}</span>
+                                <span>{matchTeamShortName(match, "away", status)}</span>
                                 <input
                                   aria-label={`Goles ${awayName}`}
                                   className="min-h-10 w-20 rounded-md border border-zinc-300 px-3 py-2 text-sm font-semibold"
@@ -4231,18 +4231,18 @@ function isMatchClosedForResults(
   return Date.now() >= closeAt;
 }
 
-function matchTeamName(match: Match, side: "home" | "away") {
+function matchTeamName(match: Match, side: "home" | "away", status?: PredictionMatchStatus) {
   if (side === "home") {
-    return match.home_team?.name ?? match.home_slot;
+    return status?.resolved_home_team?.name ?? match.home_team?.name ?? match.home_slot;
   }
-  return match.away_team?.name ?? match.away_slot;
+  return status?.resolved_away_team?.name ?? match.away_team?.name ?? match.away_slot;
 }
 
-function matchTeamShortName(match: Match, side: "home" | "away") {
+function matchTeamShortName(match: Match, side: "home" | "away", status?: PredictionMatchStatus) {
   if (side === "home") {
-    return match.home_team?.short_name ?? match.home_slot;
+    return status?.resolved_home_team?.short_name ?? match.home_team?.short_name ?? match.home_slot;
   }
-  return match.away_team?.short_name ?? match.away_slot;
+  return status?.resolved_away_team?.short_name ?? match.away_team?.short_name ?? match.away_slot;
 }
 
 function resultStatusLabel(status: PredictionMatchStatus | undefined, closed: boolean) {

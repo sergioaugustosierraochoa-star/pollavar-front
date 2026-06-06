@@ -364,6 +364,8 @@ export type PredictionMatchStatus = {
   scored: boolean;
   points: number;
   official_result?: MatchResult | null;
+  resolved_home_team?: Team | null;
+  resolved_away_team?: Team | null;
 };
 
 export type PredictionSnapshotEntry = {

@@ -2451,8 +2451,10 @@ function MatchPredictionForm({
       ? isMatchClosed(match, predictionCloseHoursBefore)
       : false;
   const closed = localClosed || predictionStatus?.closed === true;
-  const homeName = match.home_team?.name ?? match.home_slot;
-  const awayName = match.away_team?.name ?? match.away_slot;
+  const homeTeam = predictionStatus?.resolved_home_team ?? match.home_team;
+  const awayTeam = predictionStatus?.resolved_away_team ?? match.away_team;
+  const homeName = homeTeam?.name ?? match.home_slot;
+  const awayName = awayTeam?.name ?? match.away_slot;
   const statusCode =
     predictionStatus?.status ?? (closed ? "closed" : prediction ? "complete" : "pending");
   const officialResult = predictionStatus?.official_result;
@@ -2493,11 +2495,11 @@ function MatchPredictionForm({
           />
         ) : (
           <ScorePredictionControl
-            awayLabel={match.away_team?.short_name ?? match.away_slot}
+            awayLabel={awayTeam?.short_name ?? match.away_slot}
             awayName={awayName}
             closed={closed}
             draft={draft}
-            homeLabel={match.home_team?.short_name ?? match.home_slot}
+            homeLabel={homeTeam?.short_name ?? match.home_slot}
             homeName={homeName}
             matchID={match.id}
             onUpdateDraft={onUpdateDraft}
