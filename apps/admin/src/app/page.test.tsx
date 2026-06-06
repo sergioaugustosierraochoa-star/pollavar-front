@@ -275,6 +275,7 @@ const globalPrizePreview = {
 
 const scoringRules = [
   { code: "exact_score", points: 5, enabled: true },
+  { code: "score_difference", points: 2, enabled: true },
   { code: "match_result", points: 3, enabled: true },
   { code: "group_position_exact", points: 2, enabled: true },
   { code: "underdog_bonus", points: 2, enabled: false },

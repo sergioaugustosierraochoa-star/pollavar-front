@@ -54,6 +54,7 @@ type GlobalPredictionDrafts = Record<
 type TournamentTeamOption = Tournament["groups"][number]["teams"][number];
 const defaultScoringRules: ScoringRule[] = [
   { code: "exact_score", points: 5, enabled: true },
+  { code: "score_difference", points: 2, enabled: true },
   { code: "match_result", points: 3, enabled: true },
   { code: "group_position_exact", points: 2, enabled: true },
   { code: "underdog_bonus", points: 2, enabled: false },
@@ -3732,6 +3733,8 @@ function scoringRuleLabel(code: ScoringRule["code"]) {
   switch (code) {
     case "exact_score":
       return "Marcador exacto";
+    case "score_difference":
+      return "Diferencia correcta";
     case "match_result":
       return "Resultado correcto";
     case "group_position_exact":

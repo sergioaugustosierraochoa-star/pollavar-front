@@ -4615,6 +4615,7 @@ function scoringRulesWithUnderdog(
 function scoringRulesWithDefaults(rules: ScoringRule[]) {
   const defaults: ScoringRule[] = [
     { code: "exact_score", points: 5, enabled: true },
+    { code: "score_difference", points: 2, enabled: true },
     { code: "match_result", points: 3, enabled: true },
     { code: "group_position_exact", points: 2, enabled: true },
     { code: "underdog_bonus", points: 2, enabled: false },
@@ -4629,6 +4630,7 @@ function scoringRulesWithDefaults(rules: ScoringRule[]) {
 function scoringRulesInDefaultOrder(rulesByCode: Map<ScoringRule["code"], ScoringRule>) {
   return [
     rulesByCode.get("exact_score"),
+    rulesByCode.get("score_difference"),
     rulesByCode.get("match_result"),
     rulesByCode.get("group_position_exact"),
     rulesByCode.get("underdog_bonus"),
