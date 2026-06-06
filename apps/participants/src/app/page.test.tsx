@@ -114,6 +114,9 @@ const tournament = {
       id: "match-1",
       tournament_id: "fifa-world-cup-2026",
       stage_id: "group-stage",
+      stage_name: "Group Stage",
+      stage_type: "group",
+      stage_round_size: 0,
       group_id: "group-a",
       group_name: "A",
       match_number: 1,
@@ -134,6 +137,9 @@ const tournament = {
       id: "match-2",
       tournament_id: "fifa-world-cup-2026",
       stage_id: "group-stage",
+      stage_name: "Group Stage",
+      stage_type: "group",
+      stage_round_size: 0,
       group_id: "group-b",
       group_name: "B",
       match_number: 2,
@@ -150,6 +156,24 @@ const tournament = {
       venue: "Toronto Stadium",
       status: "scheduled",
     },
+    {
+      id: "third-place-match",
+      tournament_id: "fifa-world-cup-2026",
+      stage_id: "third-place",
+      stage_name: "Third place",
+      stage_type: "placement",
+      stage_round_size: 2,
+      group_id: "",
+      group_name: "",
+      match_number: 3,
+      home_team: { id: "BRA", name: "Brazil", short_name: "BRA", country_code: "BRA" },
+      away_team: { id: "JPN", name: "Japan", short_name: "JPN", country_code: "JPN" },
+      home_slot: "BRA",
+      away_slot: "JPN",
+      starts_at: "2099-07-18T19:00:00Z",
+      venue: "Third Place Stadium",
+      status: "scheduled",
+    },
   ],
 };
 
@@ -161,6 +185,9 @@ const standingsTournament = {
       id: "standing-match-1",
       tournament_id: "fifa-world-cup-2026",
       stage_id: "regular-season",
+      stage_name: "Regular season",
+      stage_type: "league",
+      stage_round_size: 0,
       group_id: "",
       group_name: "",
       match_number: 1,
@@ -176,6 +203,9 @@ const standingsTournament = {
       id: "standing-match-2",
       tournament_id: "fifa-world-cup-2026",
       stage_id: "regular-season",
+      stage_name: "Regular season",
+      stage_type: "league",
+      stage_round_size: 0,
       group_id: "",
       group_name: "",
       match_number: 2,
@@ -191,6 +221,9 @@ const standingsTournament = {
       id: "standing-match-3",
       tournament_id: "fifa-world-cup-2026",
       stage_id: "regular-season",
+      stage_name: "Regular season",
+      stage_type: "league",
+      stage_round_size: 0,
       group_id: "",
       group_name: "",
       match_number: 3,
@@ -206,6 +239,9 @@ const standingsTournament = {
       id: "standing-match-4",
       tournament_id: "fifa-world-cup-2026",
       stage_id: "regular-season",
+      stage_name: "Regular season",
+      stage_type: "league",
+      stage_round_size: 0,
       group_id: "",
       group_name: "",
       match_number: 4,
@@ -221,10 +257,10 @@ const standingsTournament = {
 };
 
 const summary = {
-  total_matches: 2,
+  total_matches: 3,
   predicted_matches: 1,
-  missing_matches: 1,
-  open_matches: 2,
+  missing_matches: 2,
+  open_matches: 3,
   closed_matches: 0,
   scored_matches: 1,
 };
@@ -262,6 +298,16 @@ const predictionStatuses = [
   },
   {
     match_id: "match-2",
+    prediction_id: "",
+    status: "pending",
+    has_prediction: false,
+    closed: false,
+    has_official_result: false,
+    scored: false,
+    points: 0,
+  },
+  {
+    match_id: "third-place-match",
     prediction_id: "",
     status: "pending",
     has_prediction: false,
@@ -723,11 +769,14 @@ describe("Participants home", () => {
     expect(within(clarificationsSection as HTMLElement).getAllByText(/Hasta/).length).toBeGreaterThan(0);
     const groupA = screen.getByRole("heading", { name: "Grupo A" }).closest("section");
     const groupB = screen.getByRole("heading", { name: "Grupo B" }).closest("section");
+    const thirdPlace = screen.getByRole("heading", { name: "Tercer puesto" }).closest("section");
     expect(groupA).not.toBeNull();
     expect(groupB).not.toBeNull();
+    expect(thirdPlace).not.toBeNull();
     expect(within(groupA as HTMLElement).getByText("Fase de grupos")).toBeInTheDocument();
     expect(within(groupA as HTMLElement).getByText("1/1")).toBeInTheDocument();
     expect(within(groupB as HTMLElement).getByText("0/1")).toBeInTheDocument();
+    expect(within(thirdPlace as HTMLElement).queryByText("Final")).not.toBeInTheDocument();
     const groupATable = within(groupA as HTMLElement).getByRole("table");
     expect(
       within(groupATable).getByRole("row", {

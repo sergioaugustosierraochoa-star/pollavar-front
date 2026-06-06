@@ -107,6 +107,9 @@ const tournament = {
       id: "match-id",
       tournament_id: "fifa-world-cup-2026",
       stage_id: "group-stage",
+      stage_name: "Group Stage",
+      stage_type: "group",
+      stage_round_size: 0,
       group_id: "group-a",
       group_name: "A",
       match_number: 1,
@@ -122,6 +125,9 @@ const tournament = {
       id: "match-result-id",
       tournament_id: "fifa-world-cup-2026",
       stage_id: "group-stage",
+      stage_name: "Group Stage",
+      stage_type: "group",
+      stage_round_size: 0,
       group_id: "group-a",
       group_name: "A",
       match_number: 2,
@@ -131,6 +137,24 @@ const tournament = {
       away_slot: "PAN",
       starts_at: "2026-06-02T19:00:00Z",
       venue: "Estadio demo",
+      status: "scheduled",
+    },
+    {
+      id: "third-place-match",
+      tournament_id: "fifa-world-cup-2026",
+      stage_id: "third-place",
+      stage_name: "Third place",
+      stage_type: "placement",
+      stage_round_size: 2,
+      group_id: "",
+      group_name: "",
+      match_number: 3,
+      home_team: { id: "team-brazil", name: "Brazil", short_name: "BRA", country_code: "BRA" },
+      away_team: { id: "team-japan", name: "Japan", short_name: "JPN", country_code: "JPN" },
+      home_slot: "BRA",
+      away_slot: "JPN",
+      starts_at: "2026-07-18T19:00:00Z",
+      venue: "Estadio tercer puesto",
       status: "scheduled",
     },
   ],
@@ -533,7 +557,7 @@ describe("Admin home", () => {
     );
     expectAdminNavigationTargetsToExist(adminNavigation);
     expect(screen.getByRole("heading", { name: "Resultados oficiales" })).toBeInTheDocument();
-    expect(screen.getByText("1 de 2 partidos con marcador final.")).toBeInTheDocument();
+    expect(screen.getByText("1 de 3 partidos con marcador final.")).toBeInTheDocument();
     const officialResultsSection = screen
       .getByRole("heading", { name: "Resultados oficiales" })
       .closest("section");
@@ -809,6 +833,11 @@ describe("Admin home", () => {
       .getAllByRole("row")
       .find((row) => within(row).queryByText("Fase de grupos"));
     expect(stageRow).toBeTruthy();
+    const placementRow = within(overridesSection as HTMLElement)
+      .getAllByRole("row")
+      .find((row) => within(row).queryByText("Third place"));
+    expect(placementRow).toBeTruthy();
+    expect(within(placementRow as HTMLElement).queryByText("Final")).not.toBeInTheDocument();
 
     fireEvent.change(within(stageRow as HTMLElement).getByLabelText("Modo Fase de grupos"), {
       target: { value: "outcome" },

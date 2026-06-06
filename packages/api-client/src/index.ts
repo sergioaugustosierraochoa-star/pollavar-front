@@ -58,6 +58,9 @@ export type Match = {
   id: string;
   tournament_id: string;
   stage_id: string;
+  stage_name: string;
+  stage_type: string;
+  stage_round_size: number;
   group_id: string;
   group_name: string;
   match_number: number;

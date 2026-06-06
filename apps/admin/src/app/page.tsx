@@ -4146,7 +4146,8 @@ function groupMatchesForResults(matches: Match[]) {
 
   for (const match of sortedMatches) {
     const groupID = match.group_id || match.stage_id || "matches";
-    const groupName = match.group_name ? `Grupo ${match.group_name}` : stageLabel(match.stage_id);
+    const stageName = stageLabel(match);
+    const groupName = match.group_name ? `Grupo ${match.group_name}` : stageName;
     const existingGroup = groupsByID.get(groupID);
     if (existingGroup) {
       existingGroup.matches.push(match);
@@ -4156,7 +4157,7 @@ function groupMatchesForResults(matches: Match[]) {
     groupsByID.set(groupID, {
       id: groupID,
       title: groupName,
-      subtitle: stageLabel(match.stage_id),
+      subtitle: stageName,
       matches: [match],
     });
   }
@@ -4164,8 +4165,15 @@ function groupMatchesForResults(matches: Match[]) {
   return Array.from(groupsByID.values());
 }
 
-function stageLabel(stageID: string) {
-  const normalized = stageID.replace(/[-_]+/g, " ").trim();
+function stageLabel(match: Pick<Match, "stage_id" | "stage_name" | "stage_type" | "stage_round_size">) {
+  const stageType = match.stage_type.toLowerCase();
+  if (stageType === "knockout" && match.stage_round_size > 2) {
+    return `Ronda de ${match.stage_round_size}`;
+  }
+  if (stageType === "knockout" && match.stage_round_size === 2) {
+    return "Final";
+  }
+  const normalized = (match.stage_name || match.stage_id).replace(/[-_]+/g, " ").trim();
   if (!normalized) {
     return "Partidos";
   }
@@ -4344,7 +4352,7 @@ function predictionSettingsScopeRowsForMatches(matches: Match[]) {
           scopeType: "stage",
           stageID,
           matchID: "",
-          title: stageLabel(stageID),
+          title: stageLabel(match),
           subtitle: "",
           matchIDs: [match.id],
         });
@@ -4359,7 +4367,7 @@ function predictionSettingsScopeRowsForMatches(matches: Match[]) {
       stageID,
       matchID: match.id,
       title: `${homeName} vs ${awayName}`,
-      subtitle: `Partido ${match.match_number} - ${stageLabel(stageID)}`,
+      subtitle: `Partido ${match.match_number} - ${stageLabel(match)}`,
       matchIDs: [match.id],
     });
   }

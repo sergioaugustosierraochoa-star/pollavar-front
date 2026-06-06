@@ -3290,13 +3290,21 @@ function hasStandingContext(match: Match) {
   const groupName = match.group_name.trim();
   const groupID = match.group_id.toLowerCase();
   const stageID = match.stage_id.toLowerCase();
+  const stageName = match.stage_name.toLowerCase();
+  const stageType = match.stage_type.toLowerCase();
   return (
     groupName !== "" ||
     groupID.includes("group") ||
+    stageType === "group" ||
+    stageType === "league" ||
     stageID.includes("group") ||
     stageID.includes("league") ||
     stageID.includes("regular") ||
-    stageID.includes("round-robin")
+    stageID.includes("round-robin") ||
+    stageName.includes("group") ||
+    stageName.includes("league") ||
+    stageName.includes("regular") ||
+    stageName.includes("round robin")
   );
 }
 
@@ -3375,19 +3383,27 @@ function predictionGroupTitle(match: Match) {
     return `Grupo ${groupName}`;
   }
 
-  return formatStageName(match.stage_id);
+  return formatStageName(match);
 }
 
 function predictionGroupSubtitle(match: Match) {
   if (match.group_name.trim()) {
-    return formatStageName(match.stage_id);
+    return formatStageName(match);
   }
 
   return "Ronda";
 }
 
-function formatStageName(stageID: string) {
-  const normalizedStage = stageID.toLowerCase();
+function formatStageName(match: Pick<Match, "stage_id" | "stage_name" | "stage_type" | "stage_round_size">) {
+  const stageType = match.stage_type.toLowerCase();
+  if (stageType === "knockout" && match.stage_round_size > 2) {
+    return `Ronda de ${match.stage_round_size}`;
+  }
+  if (stageType === "knockout" && match.stage_round_size === 2) {
+    return "Final";
+  }
+  const source = match.stage_name || match.stage_id;
+  const normalizedStage = source.toLowerCase();
   if (normalizedStage.includes("group")) {
     return "Fase de grupos";
   }
@@ -3410,7 +3426,7 @@ function formatStageName(stageID: string) {
     return "Final";
   }
 
-  return toTitleCase(stageID.replace(/[-_]+/g, " "));
+  return toTitleCase(source.replace(/[-_]+/g, " "));
 }
 
 function normalizeGroupPart(value: string) {
