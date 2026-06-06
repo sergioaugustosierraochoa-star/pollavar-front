@@ -51,7 +51,7 @@ describe("Participants auth form", () => {
       expiresAt: "2026-05-28T01:00:00Z",
       user: authPayload.data.user,
     });
-    expect(fetcher).toHaveBeenCalledWith("http://localhost:8080/api/v1/auth/login", {
+    expect(fetcher).toHaveBeenCalledWith("/api/v1/auth/login", {
       method: "POST",
       body: JSON.stringify({
         identifier: "participante@example.com",
@@ -96,7 +96,7 @@ describe("Participants auth form", () => {
 
     expect(window.localStorage.getItem("pollavar.participants.session")).toBeNull();
     expect(fetcher).toHaveBeenCalledWith(
-      "http://localhost:8080/api/v1/auth/register",
+      "/api/v1/auth/register",
       {
         method: "POST",
         body: JSON.stringify({

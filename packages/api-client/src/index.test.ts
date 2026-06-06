@@ -581,37 +581,7 @@ describe("createPollavarClient", () => {
     );
   });
 
-  it("logs in using the default API URL from the environment", async () => {
-    vi.stubEnv("NEXT_PUBLIC_API_URL", "http://env-api.local");
-    const fetcher = vi.fn(async () => jsonResponse({ data: authResult }));
-    vi.stubGlobal("fetch", fetcher);
-    const client = createPollavarClient();
-
-    const result = await client.login({
-      identifier: "admin@example.com",
-      password: "supersecret",
-    });
-
-    expect(result.token).toBe("token");
-    expect(fetcher).toHaveBeenCalledWith(
-      "http://env-api.local/api/v1/auth/login",
-      {
-        method: "POST",
-        body: JSON.stringify({
-          identifier: "admin@example.com",
-          password: "supersecret",
-        }),
-        headers: {
-          "Content-Type": "application/json",
-        },
-      },
-    );
-    vi.unstubAllEnvs();
-    vi.unstubAllGlobals();
-  });
-
-  it("uses localhost when the environment URL is absent", async () => {
-    vi.stubEnv("NEXT_PUBLIC_API_URL", "");
+  it("uses the BFF route by default", async () => {
     const fetcher = vi.fn(async () => jsonResponse({ data: authResult }));
     vi.stubGlobal("fetch", fetcher);
     const client = createPollavarClient();
@@ -622,10 +592,9 @@ describe("createPollavarClient", () => {
     });
 
     expect(fetcher).toHaveBeenCalledWith(
-      "http://localhost:8080/api/v1/auth/login",
+      "/api/v1/auth/login",
       expect.objectContaining({ method: "POST" }),
     );
-    vi.unstubAllEnvs();
     vi.unstubAllGlobals();
   });
 

@@ -1683,7 +1683,7 @@ async function responsePayload<T>(response: Response): Promise<DataEnvelope<T> |
 }
 
 function defaultAPIURL() {
-  return process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
+  return "";
 }
 
 function normalizeBaseURL(value: string) {

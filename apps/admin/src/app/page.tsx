@@ -3,6 +3,7 @@
 import {
   PollavarAPIError,
   createPollavarClient,
+  type AuthUser,
   type CreatePoolInput,
   type EffectiveMatchPredictionSettings,
   type GeneratedBracket,

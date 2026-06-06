@@ -716,7 +716,7 @@ describe("Admin home", () => {
     expect(metricValue("Recaudo confirmado")).toHaveTextContent("COP 100.000");
 
     expect(fetcher).toHaveBeenCalledWith(
-      "http://localhost:8080/api/v1/pools/pool-id/payments/participant-id",
+      "/api/v1/pools/pool-id/payments/participant-id",
       expect.objectContaining({
         method: "PUT",
         body: JSON.stringify({
@@ -733,7 +733,7 @@ describe("Admin home", () => {
       }),
     );
     expect(fetcher).toHaveBeenCalledWith(
-      "http://localhost:8080/api/v1/pools/pool-id/global-results/global_top_scorer/aliases",
+      "/api/v1/pools/pool-id/global-results/global_top_scorer/aliases",
       expect.objectContaining({
         method: "PUT",
         body: JSON.stringify({
@@ -746,7 +746,7 @@ describe("Admin home", () => {
       }),
     );
     expect(fetcher).toHaveBeenCalledWith(
-      "http://localhost:8080/api/v1/tournaments/fifa-world-cup-2026/brackets/generate",
+      "/api/v1/tournaments/fifa-world-cup-2026/brackets/generate",
       expect.objectContaining({
         method: "POST",
         body: JSON.stringify({
@@ -831,7 +831,7 @@ describe("Admin home", () => {
       expect(screen.getByRole("status")).toHaveTextContent("Listado de pagos descargado.");
     });
     expect(fetcher).toHaveBeenCalledWith(
-      "http://localhost:8080/api/v1/pools/pool-id/payments.csv",
+      "/api/v1/pools/pool-id/payments.csv",
       expect.objectContaining({
         method: "GET",
         headers: {
@@ -922,7 +922,7 @@ describe("Admin home", () => {
       expect(screen.getByRole("status")).toHaveTextContent("Polla creada.");
     });
     expect(fetcher).toHaveBeenCalledWith(
-      "http://localhost:8080/api/v1/pools",
+      "/api/v1/pools",
       expect.objectContaining({
         method: "POST",
         body: JSON.stringify({
@@ -960,7 +960,7 @@ describe("Admin home", () => {
       expect(screen.getByRole("alert")).toHaveTextContent("Revisa la configuracion del bracket.");
     });
     expect(fetcher).not.toHaveBeenCalledWith(
-      "http://localhost:8080/api/v1/tournaments/fifa-world-cup-2026/brackets/generate",
+      "/api/v1/tournaments/fifa-world-cup-2026/brackets/generate",
       expect.anything(),
     );
   });
@@ -997,7 +997,7 @@ describe("Admin home", () => {
       expect(screen.getByRole("status")).toHaveTextContent("Cruce actualizado.");
     });
     expect(fetcher).toHaveBeenCalledWith(
-      "http://localhost:8080/api/v1/tournaments/fifa-world-cup-2026/matches/generated-match-id/slots",
+      "/api/v1/tournaments/fifa-world-cup-2026/matches/generated-match-id/slots",
       expect.objectContaining({
         method: "PUT",
         body: JSON.stringify({
@@ -1031,7 +1031,7 @@ describe("Admin home", () => {
       expect(screen.getByRole("status")).toHaveTextContent("Bracket generado.");
     });
     expect(fetcher).toHaveBeenCalledWith(
-      "http://localhost:8080/api/v1/tournaments/fifa-world-cup-2026/brackets/generate",
+      "/api/v1/tournaments/fifa-world-cup-2026/brackets/generate",
       expect.objectContaining({
         method: "POST",
         body: JSON.stringify({
@@ -1130,7 +1130,7 @@ describe("Admin home", () => {
     expect(within(existingResultRow).getByLabelText("Goles Panama")).toHaveValue(0);
 
     expect(fetcher).toHaveBeenCalledWith(
-      "http://localhost:8080/api/v1/pools/pool-id/match-results/match-id",
+      "/api/v1/pools/pool-id/match-results/match-id",
       expect.objectContaining({
         method: "PUT",
         body: JSON.stringify({
@@ -1145,7 +1145,7 @@ describe("Admin home", () => {
       }),
     );
     expect(fetcher).toHaveBeenCalledWith(
-      "http://localhost:8080/api/v1/pools/pool-id/match-results/match-id/audit-logs",
+      "/api/v1/pools/pool-id/match-results/match-id/audit-logs",
       expect.objectContaining({
         method: "GET",
         headers: {
@@ -1179,7 +1179,7 @@ describe("Admin home", () => {
     expect(within(matchRow).getByText("2 participantes")).toBeInTheDocument();
     expect(within(matchRow).getByText("Checksum abcdef1234")).toBeInTheDocument();
     expect(fetcher).toHaveBeenCalledWith(
-      "http://localhost:8080/api/v1/pools/pool-id/matches/match-id/prediction-snapshot",
+      "/api/v1/pools/pool-id/matches/match-id/prediction-snapshot",
       expect.objectContaining({
         method: "POST",
         headers: {
@@ -1218,7 +1218,7 @@ describe("Admin home", () => {
       expect(screen.getByRole("status")).toHaveTextContent("Desempates del torneo actualizados.");
     });
     expect(fetcher).toHaveBeenCalledWith(
-      "http://localhost:8080/api/v1/tournaments/fifa-world-cup-2026/tiebreakers",
+      "/api/v1/tournaments/fifa-world-cup-2026/tiebreakers",
       expect.objectContaining({
         method: "PUT",
         body: JSON.stringify({
@@ -1263,7 +1263,7 @@ describe("Admin home", () => {
       expect(screen.getByRole("status")).toHaveTextContent("Posiciones oficiales actualizadas.");
     });
     expect(fetcher).toHaveBeenCalledWith(
-      "http://localhost:8080/api/v1/pools/pool-id/official-standings",
+      "/api/v1/pools/pool-id/official-standings",
       expect.objectContaining({
         method: "PUT",
         body: JSON.stringify({
@@ -1288,7 +1288,7 @@ describe("Admin home", () => {
       expect(screen.getByText("Historial reciente")).toBeInTheDocument();
     });
     expect(fetcher).toHaveBeenCalledWith(
-      "http://localhost:8080/api/v1/pools/pool-id/official-standings/audit-logs?stage_id=group-stage&group_id=group-a",
+      "/api/v1/pools/pool-id/official-standings/audit-logs?stage_id=group-stage&group_id=group-a",
       expect.objectContaining({ method: "GET" }),
     );
   });
@@ -1327,7 +1327,7 @@ describe("Admin home", () => {
       "Revisa que todas las posiciones oficiales esten completas y sin repetir.",
     );
     expect(fetcher).not.toHaveBeenCalledWith(
-      "http://localhost:8080/api/v1/pools/pool-id/official-standings",
+      "/api/v1/pools/pool-id/official-standings",
       expect.objectContaining({ method: "PUT" }),
     );
   });
@@ -1379,7 +1379,7 @@ describe("Admin home", () => {
       expect(screen.getByRole("status")).toHaveTextContent("Posiciones oficiales actualizadas.");
     });
     expect(fetcher).toHaveBeenCalledWith(
-      "http://localhost:8080/api/v1/pools/pool-id/official-standings",
+      "/api/v1/pools/pool-id/official-standings",
       expect.objectContaining({
         method: "PUT",
         body: JSON.stringify({
@@ -1418,7 +1418,7 @@ describe("Admin home", () => {
     });
 
     expect(fetcher).toHaveBeenCalledWith(
-      "http://localhost:8080/api/v1/pools/pool-id/prize-rules",
+      "/api/v1/pools/pool-id/prize-rules",
       expect.objectContaining({
         method: "PUT",
         body: JSON.stringify({
@@ -1459,7 +1459,7 @@ describe("Admin home", () => {
     expect(screen.getByText("Local / empate / visitante - Acumulativo")).toBeInTheDocument();
 
     expect(fetcher).toHaveBeenCalledWith(
-      "http://localhost:8080/api/v1/pools/pool-id/prediction-settings",
+      "/api/v1/pools/pool-id/prediction-settings",
       expect.objectContaining({
         method: "PUT",
         body: JSON.stringify({
@@ -1525,7 +1525,7 @@ describe("Admin home", () => {
       );
     });
     expect(fetcher).toHaveBeenCalledWith(
-      "http://localhost:8080/api/v1/pools/pool-id/prediction-settings-overrides",
+      "/api/v1/pools/pool-id/prediction-settings-overrides",
       expect.objectContaining({
         method: "PUT",
         body: JSON.stringify({
@@ -1605,7 +1605,7 @@ describe("Admin home", () => {
     });
 
     expect(fetcher).toHaveBeenCalledWith(
-      "http://localhost:8080/api/v1/pools/pool-id/global-prediction-definitions",
+      "/api/v1/pools/pool-id/global-prediction-definitions",
       expect.objectContaining({
         method: "PUT",
         body: JSON.stringify({
@@ -1694,7 +1694,7 @@ describe("Admin home", () => {
       }),
     );
     expect(fetcher).toHaveBeenCalledWith(
-      "http://localhost:8080/api/v1/pools/pool-id/global-prediction-templates/global_best_defense",
+      "/api/v1/pools/pool-id/global-prediction-templates/global_best_defense",
       expect.objectContaining({
         method: "PUT",
         body: JSON.stringify({
@@ -1717,7 +1717,7 @@ describe("Admin home", () => {
       }),
     );
     expect(fetcher).toHaveBeenCalledWith(
-      "http://localhost:8080/api/v1/pools/pool-id/global-results/global_champion",
+      "/api/v1/pools/pool-id/global-results/global_champion",
       expect.objectContaining({
         method: "PUT",
         body: JSON.stringify({
@@ -1799,7 +1799,7 @@ describe("Admin home", () => {
       expect(screen.getByRole("status")).toHaveTextContent("Resultado global actualizado.");
     });
     expect(fetcher).toHaveBeenCalledWith(
-      "http://localhost:8080/api/v1/pools/pool-id/global-results/custom_final_extra_time",
+      "/api/v1/pools/pool-id/global-results/custom_final_extra_time",
       expect.objectContaining({
         method: "PUT",
         body: JSON.stringify({
@@ -1879,7 +1879,7 @@ describe("Admin home", () => {
     expect(screen.getAllByText("Mundialistas").length).toBeGreaterThan(0);
 
     expect(fetcher).toHaveBeenCalledWith(
-      "http://localhost:8080/api/v1/pools/pool-id/theme",
+      "/api/v1/pools/pool-id/theme",
       expect.objectContaining({
         method: "PUT",
         body: JSON.stringify({
@@ -1970,7 +1970,7 @@ describe("Admin home", () => {
       "Revisa los porcentajes de premios. Deben sumar 100%.",
     );
     expect(fetcher).not.toHaveBeenCalledWith(
-      "http://localhost:8080/api/v1/pools/pool-id/prize-rules",
+      "/api/v1/pools/pool-id/prize-rules",
       expect.objectContaining({ method: "PUT" }),
     );
   });
@@ -2036,7 +2036,7 @@ describe("Admin home", () => {
       expect(button).toBeDisabled();
     }
     expect(fetcher).not.toHaveBeenCalledWith(
-      "http://localhost:8080/api/v1/pools/pool-id/payments",
+      "/api/v1/pools/pool-id/payments",
       expect.anything(),
     );
   });

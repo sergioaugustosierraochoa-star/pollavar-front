@@ -782,7 +782,7 @@ describe("Participants home", () => {
       ).toBeInTheDocument();
     });
     expect(fetcher).toHaveBeenCalledWith(
-      "http://localhost:8080/api/v1/pools/pool-id/ranking/user-id/points",
+      "/api/v1/pools/pool-id/ranking/user-id/points",
       expect.objectContaining({
         method: "GET",
         headers: {
@@ -821,7 +821,7 @@ describe("Participants home", () => {
     expect(within(groupB as HTMLElement).getAllByText("Incompleto")).toHaveLength(2);
     expect(screen.getByRole("button", { name: "Actualizar" })).toBeInTheDocument();
     expect(fetcher).toHaveBeenCalledWith(
-      "http://localhost:8080/api/v1/pools",
+      "/api/v1/pools",
       expect.objectContaining({
         method: "GET",
         headers: {
@@ -860,7 +860,7 @@ describe("Participants home", () => {
       expect(screen.getByRole("status")).toHaveTextContent("Te uniste a la polla.");
     });
     expect(fetcher).toHaveBeenCalledWith(
-      "http://localhost:8080/api/v1/pools/join",
+      "/api/v1/pools/join",
       expect.objectContaining({
         method: "POST",
         body: JSON.stringify({ invite_code: "ABC123" }),
@@ -926,7 +926,7 @@ describe("Participants home", () => {
     expect(screen.getByText("Solo resultado")).toBeInTheDocument();
     expect(screen.getByText("Visitante")).toBeInTheDocument();
     expect(fetcher).toHaveBeenCalledWith(
-      "http://localhost:8080/api/v1/pools/pool-id/matches/match-1/prediction-snapshot",
+      "/api/v1/pools/pool-id/matches/match-1/prediction-snapshot",
       expect.objectContaining({
         method: "GET",
         headers: {
@@ -994,7 +994,7 @@ describe("Participants home", () => {
     expect(createObjectURL).toHaveBeenCalledWith(expect.any(Blob));
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:prediction-snapshot");
     expect(fetcher).toHaveBeenCalledWith(
-      "http://localhost:8080/api/v1/pools/pool-id/matches/match-1/prediction-snapshot.csv",
+      "/api/v1/pools/pool-id/matches/match-1/prediction-snapshot.csv",
       expect.objectContaining({
         method: "GET",
         headers: {
@@ -1110,7 +1110,7 @@ describe("Participants home", () => {
       expect(screen.getByRole("status")).toHaveTextContent("Orden de posiciones guardado.");
     });
     expect(fetcher).toHaveBeenCalledWith(
-      "http://localhost:8080/api/v1/pools/pool-id/standing-predictions/prediction-group-regular-season-general",
+      "/api/v1/pools/pool-id/standing-predictions/prediction-group-regular-season-general",
       expect.objectContaining({
         method: "PUT",
         body: JSON.stringify({ team_ids: ["ALP", "GAM", "BET", "DEL"] }),
@@ -1282,7 +1282,7 @@ describe("Participants home", () => {
       expect(screen.getByRole("status")).toHaveTextContent("Pronostico guardado.");
     });
     expect(fetcher).toHaveBeenCalledWith(
-      "http://localhost:8080/api/v1/pools/pool-id/predictions/match-2",
+      "/api/v1/pools/pool-id/predictions/match-2",
       expect.objectContaining({
         method: "PUT",
         body: JSON.stringify({ home_score: 1, away_score: 0 }),
@@ -1316,7 +1316,7 @@ describe("Participants home", () => {
       expect(screen.getByRole("status")).toHaveTextContent("Pronostico global guardado.");
     });
     expect(fetcher).toHaveBeenCalledWith(
-      "http://localhost:8080/api/v1/pools/pool-id/global-predictions/global_champion",
+      "/api/v1/pools/pool-id/global-predictions/global_champion",
       expect.objectContaining({
         method: "PUT",
         body: JSON.stringify({ value_text: "CAN" }),
@@ -1369,7 +1369,7 @@ describe("Participants home", () => {
       expect(screen.getByRole("status")).toHaveTextContent("Pronostico global guardado.");
     });
     expect(fetcher).toHaveBeenCalledWith(
-      "http://localhost:8080/api/v1/pools/pool-id/global-predictions/custom_final_extra_time",
+      "/api/v1/pools/pool-id/global-predictions/custom_final_extra_time",
       expect.objectContaining({
         method: "PUT",
         body: JSON.stringify({ value_number: 1 }),
@@ -1419,7 +1419,7 @@ describe("Participants home", () => {
       expect(screen.getByRole("status")).toHaveTextContent("Pronostico guardado.");
     });
     expect(fetcher).toHaveBeenCalledWith(
-      "http://localhost:8080/api/v1/pools/pool-id/predictions/match-2",
+      "/api/v1/pools/pool-id/predictions/match-2",
       expect.objectContaining({
         method: "PUT",
         body: JSON.stringify({ outcome: "away" }),
@@ -1469,7 +1469,7 @@ describe("Participants home", () => {
       expect(screen.getByRole("status")).toHaveTextContent("Pronostico guardado.");
     });
     expect(fetcher).toHaveBeenCalledWith(
-      "http://localhost:8080/api/v1/pools/pool-id/predictions/match-2",
+      "/api/v1/pools/pool-id/predictions/match-2",
       expect.objectContaining({
         method: "PUT",
         body: JSON.stringify({ outcome: "away" }),
