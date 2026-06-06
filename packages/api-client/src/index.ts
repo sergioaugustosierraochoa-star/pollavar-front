@@ -82,6 +82,7 @@ export type MatchSlot = {
     | "seed"
     | "group_position"
     | "best_group_rank"
+    | "ranking_top_n"
     | "match_winner"
     | "match_loser"
     | "bye"
