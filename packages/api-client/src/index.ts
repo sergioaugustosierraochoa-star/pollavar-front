@@ -554,6 +554,32 @@ export type UpdateRankingTiebreakersInput = {
   tiebreakers: RankingTiebreakerInput[];
 };
 
+export type RankingManualTiebreaker = {
+  id: string;
+  pool_id: string;
+  user_id: string;
+  priority: number;
+  reason: string;
+  updated_by: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type RankingManualTiebreakerAuditLog = {
+  id: string;
+  pool_id: string;
+  actor_id: string;
+  reason: string;
+  previous: RankingManualTiebreaker[];
+  current: RankingManualTiebreaker[];
+  created_at: string;
+};
+
+export type UpdateRankingManualTiebreakersInput = {
+  reason: string;
+  decisions: { user_id: string }[];
+};
+
 export type PointEventDetail = {
   pool_id: string;
   user_id: string;
@@ -1042,6 +1068,41 @@ export function createPollavarClient(options: PollavarClientOptions = {}) {
         {
           method: "PUT",
           body: JSON.stringify(input),
+          headers: authHeaders(token),
+        },
+      );
+    },
+    listRankingManualTiebreakers(token: string, poolID: string) {
+      return request<RankingManualTiebreaker[]>(
+        fetcher,
+        `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/ranking-manual-tiebreakers`,
+        {
+          method: "GET",
+          headers: authHeaders(token),
+        },
+      );
+    },
+    updateRankingManualTiebreakers(
+      token: string,
+      poolID: string,
+      input: UpdateRankingManualTiebreakersInput,
+    ) {
+      return request<RankingManualTiebreaker[]>(
+        fetcher,
+        `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/ranking-manual-tiebreakers`,
+        {
+          method: "PUT",
+          body: JSON.stringify(input),
+          headers: authHeaders(token),
+        },
+      );
+    },
+    listRankingManualTiebreakerAuditLogs(token: string, poolID: string) {
+      return request<RankingManualTiebreakerAuditLog[]>(
+        fetcher,
+        `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/ranking-manual-tiebreakers/audit-logs`,
+        {
+          method: "GET",
           headers: authHeaders(token),
         },
       );

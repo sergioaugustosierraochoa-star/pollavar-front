@@ -42,6 +42,8 @@ import {
   type PredictionMatchStatus,
   type PrizePreview,
   type RankingEntry,
+  type RankingManualTiebreaker,
+  type RankingManualTiebreakerAuditLog,
   type RankingTiePolicy,
   type RankingTiebreaker,
   type RankingTiebreakerCode,
@@ -299,6 +301,14 @@ export default function AdminHome() {
   const [payments, setPayments] = useState<Payment[]>([]);
   const [ranking, setRanking] = useState<RankingEntry[]>([]);
   const [rankingTiebreakers, setRankingTiebreakers] = useState<RankingTiebreaker[]>([]);
+  const [rankingManualTiebreakers, setRankingManualTiebreakers] = useState<
+    RankingManualTiebreaker[]
+  >([]);
+  const [rankingManualAuditLogs, setRankingManualAuditLogs] = useState<
+    RankingManualTiebreakerAuditLog[]
+  >([]);
+  const [rankingManualOrder, setRankingManualOrder] = useState<string[]>([]);
+  const [rankingManualReason, setRankingManualReason] = useState("");
   const [paymentCurrency, setPaymentCurrency] = useState("COP");
   const [paymentStatusFilter, setPaymentStatusFilter] = useState<PaymentStatus | "all">("all");
   const [prizePreview, setPrizePreview] = useState<PrizePreview | null>(null);
@@ -376,6 +386,7 @@ export default function AdminHome() {
   const [savingPrizes, setSavingPrizes] = useState(false);
   const [savingRankingTiePolicy, setSavingRankingTiePolicy] = useState(false);
   const [savingRankingTiebreakers, setSavingRankingTiebreakers] = useState(false);
+  const [savingRankingManualTiebreakers, setSavingRankingManualTiebreakers] = useState(false);
   const [creatingPool, setCreatingPool] = useState(false);
   const [savingBracket, setSavingBracket] = useState(false);
   const [savingMatchSlotOverrideID, setSavingMatchSlotOverrideID] = useState("");
@@ -438,6 +449,10 @@ export default function AdminHome() {
     () => buildRankingPrizePayouts(prizePreview, ranking),
     [prizePreview, ranking],
   );
+  const rankingManualEntries = useMemo(
+    () => buildRankingManualEntries(ranking, rankingManualOrder),
+    [ranking, rankingManualOrder],
+  );
 
   const signOutAdmin = useCallback(function signOutAdmin() {
     requestID.current += 1;
@@ -457,6 +472,10 @@ export default function AdminHome() {
     setPaymentStatusFilter("all");
     setPrizePreview(null);
     setRankingTiebreakers([]);
+    setRankingManualTiebreakers([]);
+    setRankingManualAuditLogs([]);
+    setRankingManualOrder([]);
+    setRankingManualReason("");
     setGlobalPrizePreview(null);
     setPrizeDrafts([]);
     setScoringRules([]);
@@ -496,6 +515,7 @@ export default function AdminHome() {
     setSavingPrizes(false);
     setSavingRankingTiePolicy(false);
     setSavingRankingTiebreakers(false);
+    setSavingRankingManualTiebreakers(false);
     setCreatingPool(false);
     setSavingMatchSlotOverrideID("");
     setCreatePoolDraft(defaultCreatePoolDraft(null));
@@ -609,6 +629,8 @@ export default function AdminHome() {
         nextPrizePreview,
         nextRanking,
         nextRankingTiebreakers,
+        nextRankingManualTiebreakers,
+        nextRankingManualAuditLogs,
         nextGlobalPrizePreview,
         nextPredictionStatuses,
         tournamentDetail,
@@ -625,6 +647,8 @@ export default function AdminHome() {
         client.getPrizePreview(token, poolDetail.id),
         listRankingWithFallback(client, token, poolDetail.id),
         listRankingTiebreakersWithFallback(client, token, poolDetail.id),
+        listRankingManualTiebreakersWithFallback(client, token, poolDetail.id),
+        listRankingManualTiebreakerAuditLogsWithFallback(client, token, poolDetail.id),
         client.getGlobalPredictionPrizePreview(token, poolDetail.id),
         client.listPredictionStatuses(token, poolDetail.id),
         tournamentRequest,
@@ -661,6 +685,10 @@ export default function AdminHome() {
       setPayments(nextPaymentCollection.payments);
       setRanking(nextRanking);
       setRankingTiebreakers(nextRankingTiebreakers);
+      setRankingManualTiebreakers(nextRankingManualTiebreakers);
+      setRankingManualAuditLogs(nextRankingManualAuditLogs);
+      setRankingManualOrder(buildRankingManualOrder(nextRanking, nextRankingManualTiebreakers));
+      setRankingManualReason(nextRankingManualTiebreakers[0]?.reason ?? "");
       setPaymentCurrency(nextPaymentCollection.currency || poolDetail.currency || "COP");
       setPrizePreview(nextPrizePreview);
       setGlobalPrizePreview(nextGlobalPrizePreview);
@@ -1991,6 +2019,64 @@ export default function AdminHome() {
     }
   }
 
+  function moveRankingManualTiebreaker(userID: string, direction: -1 | 1) {
+    setRankingManualOrder((current) => {
+      const index = current.indexOf(userID);
+      const nextIndex = index + direction;
+      if (index < 0 || nextIndex < 0 || nextIndex >= current.length) {
+        return current;
+      }
+      const next = [...current];
+      const [moved] = next.splice(index, 1);
+      next.splice(nextIndex, 0, moved);
+      return next;
+    });
+  }
+
+  async function saveRankingManualTiebreakers() {
+    if (!session || !pool || !canManageSelectedPoolPrizes) {
+      return;
+    }
+    if (rankingManualOrder.length === 0 || rankingManualReason.trim() === "") {
+      setMessage("Selecciona el orden manual y registra un motivo.");
+      return;
+    }
+
+    setSavingRankingManualTiebreakers(true);
+    setMessage("");
+
+    try {
+      const client = createPollavarClient();
+      const nextDecisions = await client.updateRankingManualTiebreakers(session.token, pool.id, {
+        reason: rankingManualReason.trim(),
+        decisions: rankingManualOrder.map((userID) => ({ user_id: userID })),
+      });
+      const nextRanking = await listRankingWithFallback(client, session.token, pool.id);
+      const nextAuditLogs = await listRankingManualTiebreakerAuditLogsWithFallback(
+        client,
+        session.token,
+        pool.id,
+      );
+      setRankingManualTiebreakers(nextDecisions);
+      setRanking(nextRanking);
+      setRankingManualOrder(buildRankingManualOrder(nextRanking, nextDecisions));
+      setRankingManualAuditLogs(nextAuditLogs);
+      setMessage("Desempate manual actualizado.");
+    } catch (error) {
+      if (isUnauthorized(error)) {
+        signOutAdmin();
+        return;
+      }
+      if (isForbidden(error)) {
+        setMessage("No tienes permisos para configurar desempates.");
+        return;
+      }
+      setMessage("No pudimos actualizar el desempate manual.");
+    } finally {
+      setSavingRankingManualTiebreakers(false);
+    }
+  }
+
   async function savePredictionSettings() {
     if (!session || !pool || !canManageSelectedPoolPredictionSettings) {
       return;
@@ -2539,6 +2625,109 @@ export default function AdminHome() {
                                 </div>
                               </div>
                             ))}
+                        </div>
+                      </div>
+                    ) : null}
+                    {pool.ranking_tie_policy === "manual" ? (
+                      <div className="mb-4 rounded-lg border border-zinc-200">
+                        <div className="flex flex-col gap-2 border-b border-zinc-200 px-4 py-3 md:flex-row md:items-center md:justify-between">
+                          <div>
+                            <p className="text-sm font-semibold text-zinc-950">
+                              Desempate manual
+                            </p>
+                            <p className="text-xs text-zinc-500">
+                              Ordena participantes empatados y guarda el motivo de la decision.
+                            </p>
+                          </div>
+                          <button
+                            className="w-fit rounded-md bg-zinc-950 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
+                            disabled={
+                              !canManageSelectedPoolPrizes ||
+                              savingRankingManualTiebreakers ||
+                              rankingManualEntries.length === 0
+                            }
+                            type="button"
+                            onClick={() => void saveRankingManualTiebreakers()}
+                          >
+                            Guardar orden
+                          </button>
+                        </div>
+                        <div className="grid gap-3 p-4">
+                          <label
+                            className="text-sm font-medium text-zinc-800"
+                            htmlFor="ranking-manual-reason"
+                          >
+                            Motivo
+                          </label>
+                          <input
+                            id="ranking-manual-reason"
+                            className="min-h-10 rounded-md border border-zinc-300 px-3 py-2 text-sm"
+                            disabled={
+                              !canManageSelectedPoolPrizes || savingRankingManualTiebreakers
+                            }
+                            value={rankingManualReason}
+                            onChange={(event) => setRankingManualReason(event.target.value)}
+                          />
+                          {rankingManualEntries.length > 0 ? (
+                            <div className="divide-y divide-zinc-200 rounded-lg border border-zinc-200">
+                              {rankingManualEntries.map((entry, index) => (
+                                <div
+                                  className="grid gap-3 px-4 py-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-center"
+                                  key={entry.user_id}
+                                >
+                                  <div>
+                                    <p className="text-sm font-semibold text-zinc-950">
+                                      {index + 1}. {rankingDisplayName(entry)}
+                                    </p>
+                                    <p className="text-xs text-zinc-500">
+                                      {entry.points} pts · posicion actual {entry.position}
+                                    </p>
+                                  </div>
+                                  <div className="flex gap-2">
+                                    <button
+                                      className="rounded-md border border-zinc-300 px-3 py-2 text-xs font-medium text-zinc-700 hover:border-zinc-400 disabled:cursor-not-allowed disabled:text-zinc-400"
+                                      disabled={
+                                        !canManageSelectedPoolPrizes ||
+                                        savingRankingManualTiebreakers ||
+                                        index === 0
+                                      }
+                                      type="button"
+                                      onClick={() =>
+                                        moveRankingManualTiebreaker(entry.user_id, -1)
+                                      }
+                                    >
+                                      Subir
+                                    </button>
+                                    <button
+                                      className="rounded-md border border-zinc-300 px-3 py-2 text-xs font-medium text-zinc-700 hover:border-zinc-400 disabled:cursor-not-allowed disabled:text-zinc-400"
+                                      disabled={
+                                        !canManageSelectedPoolPrizes ||
+                                        savingRankingManualTiebreakers ||
+                                        index === rankingManualEntries.length - 1
+                                      }
+                                      type="button"
+                                      onClick={() =>
+                                        moveRankingManualTiebreaker(entry.user_id, 1)
+                                      }
+                                    >
+                                      Bajar
+                                    </button>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="rounded-lg bg-zinc-50 px-4 py-3 text-sm text-zinc-600">
+                              No hay empates actuales para resolver.
+                            </p>
+                          )}
+                          {rankingManualAuditLogs.length > 0 ? (
+                            <div className="rounded-lg bg-zinc-50 px-4 py-3 text-xs text-zinc-600">
+                              Ultima decision:{" "}
+                              {rankingManualTiebreakers[0]?.reason ||
+                                rankingManualAuditLogs[0].reason}
+                            </div>
+                          ) : null}
                         </div>
                       </div>
                     ) : null}
@@ -7523,6 +7712,36 @@ function rankingDisplayName(entry: RankingEntry) {
   return entry.user_name || entry.username || entry.user_id;
 }
 
+function tiedRankingEntries(ranking: RankingEntry[]) {
+  const countsByPoints = new Map<number, number>();
+  for (const entry of ranking) {
+    countsByPoints.set(entry.points, (countsByPoints.get(entry.points) ?? 0) + 1);
+  }
+  return ranking.filter((entry) => (countsByPoints.get(entry.points) ?? 0) > 1);
+}
+
+function buildRankingManualOrder(
+  ranking: RankingEntry[],
+  decisions: RankingManualTiebreaker[],
+) {
+  const tiedUserIDs = new Set(tiedRankingEntries(ranking).map((entry) => entry.user_id));
+  const decidedUserIDs = [...decisions]
+    .sort((left, right) => left.priority - right.priority)
+    .map((decision) => decision.user_id)
+    .filter((userID) => tiedUserIDs.has(userID));
+  const pendingUserIDs = tiedRankingEntries(ranking)
+    .map((entry) => entry.user_id)
+    .filter((userID) => !decidedUserIDs.includes(userID));
+  return [...decidedUserIDs, ...pendingUserIDs];
+}
+
+function buildRankingManualEntries(ranking: RankingEntry[], order: string[]) {
+  const entriesByUserID = new Map(ranking.map((entry) => [entry.user_id, entry]));
+  return order
+    .map((userID) => entriesByUserID.get(userID))
+    .filter((entry): entry is RankingEntry => Boolean(entry));
+}
+
 function formatMatchDate(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
@@ -7600,6 +7819,44 @@ async function listRankingTiebreakersWithFallback(
   try {
     const tiebreakers = await client.listRankingTiebreakers(token, poolID);
     return Array.isArray(tiebreakers) ? tiebreakers : [];
+  } catch (error) {
+    if (
+      error instanceof PollavarAPIError &&
+      (error.status === 401 || error.status === 403 || error.status === 404)
+    ) {
+      return [];
+    }
+    throw error;
+  }
+}
+
+async function listRankingManualTiebreakersWithFallback(
+  client: ReturnType<typeof createPollavarClient>,
+  token: string,
+  poolID: string,
+) {
+  try {
+    const decisions = await client.listRankingManualTiebreakers(token, poolID);
+    return Array.isArray(decisions) ? decisions : [];
+  } catch (error) {
+    if (
+      error instanceof PollavarAPIError &&
+      (error.status === 401 || error.status === 403 || error.status === 404)
+    ) {
+      return [];
+    }
+    throw error;
+  }
+}
+
+async function listRankingManualTiebreakerAuditLogsWithFallback(
+  client: ReturnType<typeof createPollavarClient>,
+  token: string,
+  poolID: string,
+) {
+  try {
+    const logs = await client.listRankingManualTiebreakerAuditLogs(token, poolID);
+    return Array.isArray(logs) ? logs : [];
   } catch (error) {
     if (
       error instanceof PollavarAPIError &&

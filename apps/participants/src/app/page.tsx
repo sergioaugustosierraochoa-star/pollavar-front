@@ -21,6 +21,7 @@ import {
   type PoolTheme,
   type PrizePreview,
   type RankingEntry,
+  type RankingManualTiebreaker,
   type RankingTiebreaker,
   type RankingTiebreakerCode,
   type ScoringRule,
@@ -83,6 +84,7 @@ type LoadedPoolData = {
   underdogBonuses: MatchUnderdogBonus[];
   ranking: RankingEntry[];
   rankingTiebreakers: RankingTiebreaker[];
+  rankingManualTiebreakers: RankingManualTiebreaker[];
   prizePreview: PrizePreview;
   globalPrizePreview: GlobalPredictionPrizePreview;
   tournamentDetail: Tournament | null;
@@ -144,6 +146,9 @@ export default function ParticipantsHome() {
   const [snapshotMessages, setSnapshotMessages] = useState<Record<string, string>>({});
   const [ranking, setRanking] = useState<RankingEntry[]>([]);
   const [rankingTiebreakers, setRankingTiebreakers] = useState<RankingTiebreaker[]>([]);
+  const [rankingManualTiebreakers, setRankingManualTiebreakers] = useState<
+    RankingManualTiebreaker[]
+  >([]);
   const [prizePreview, setPrizePreview] = useState<PrizePreview | null>(null);
   const [globalPrizePreview, setGlobalPrizePreview] =
     useState<GlobalPredictionPrizePreview | null>(null);
@@ -217,6 +222,7 @@ export default function ParticipantsHome() {
     setSnapshotMessages({});
     setRanking([]);
     setRankingTiebreakers([]);
+    setRankingManualTiebreakers([]);
     setPrizePreview(null);
     setGlobalPrizePreview(null);
     setScoringRules([]);
@@ -267,6 +273,7 @@ export default function ParticipantsHome() {
       loadedUnderdogBonuses,
       ranking,
       loadedRankingTiebreakers,
+      loadedRankingManualTiebreakers,
       prizePreview,
       globalPrizePreview,
       tournamentDetail,
@@ -284,6 +291,7 @@ export default function ParticipantsHome() {
       listMatchUnderdogBonusesWithFallback(client, token, activePool.id),
       listRankingWithFallback(client, token, activePool.id),
       listRankingTiebreakersWithFallback(client, token, activePool.id),
+      listRankingManualTiebreakersWithFallback(client, token, activePool.id),
       getPrizePreviewWithFallback(client, token, activePool.id),
       getGlobalPrizePreviewWithFallback(client, token, activePool.id),
       tournamentRequest,
@@ -303,6 +311,7 @@ export default function ParticipantsHome() {
       underdogBonuses: loadedUnderdogBonuses,
       ranking,
       rankingTiebreakers: loadedRankingTiebreakers,
+      rankingManualTiebreakers: loadedRankingManualTiebreakers,
       prizePreview,
       globalPrizePreview,
       tournamentDetail,
@@ -351,6 +360,7 @@ export default function ParticipantsHome() {
         setSnapshotMessages({});
         setRanking([]);
         setRankingTiebreakers([]);
+        setRankingManualTiebreakers([]);
         setPrizePreview(null);
         setGlobalPrizePreview(null);
         setScoringRules([]);
@@ -386,6 +396,7 @@ export default function ParticipantsHome() {
       setSnapshotMessages({});
       setRanking(loadedPoolData.ranking);
       setRankingTiebreakers(loadedPoolData.rankingTiebreakers);
+      setRankingManualTiebreakers(loadedPoolData.rankingManualTiebreakers);
       setPrizePreview(loadedPoolData.prizePreview);
       setGlobalPrizePreview(loadedPoolData.globalPrizePreview);
       setScoringRules(loadedPoolData.scoringRules);
@@ -950,6 +961,7 @@ export default function ParticipantsHome() {
             pointDetailsMessage={pointDetailsMessage}
             prizePreview={prizePreview}
             ranking={ranking}
+            rankingManualTiebreakers={rankingManualTiebreakers}
             rankingTiebreakers={rankingTiebreakers}
             scoringRules={scoringRules}
             globalDrafts={globalDrafts}
@@ -1069,6 +1081,7 @@ function Dashboard({
   pointDetailsMessage,
   prizePreview,
   ranking,
+  rankingManualTiebreakers,
   rankingTiebreakers,
   scoringRules,
   saveMessage,
@@ -1121,6 +1134,7 @@ function Dashboard({
   pointDetailsMessage: string;
   prizePreview: PrizePreview | null;
   ranking: RankingEntry[];
+  rankingManualTiebreakers: RankingManualTiebreaker[];
   rankingTiebreakers: RankingTiebreaker[];
   scoringRules: ScoringRule[];
   saveMessage: string;
@@ -1217,6 +1231,7 @@ function Dashboard({
           globalPreview={globalPrizePreview}
           preview={prizePreview}
           ranking={ranking}
+          rankingManualTiebreakers={rankingManualTiebreakers}
           rankingTiebreakers={rankingTiebreakers}
         />
         <GlobalPredictionsPanel
@@ -1485,11 +1500,13 @@ function PrizePanel({
   globalPreview,
   preview,
   ranking,
+  rankingManualTiebreakers,
   rankingTiebreakers,
 }: {
   globalPreview: GlobalPredictionPrizePreview | null;
   preview: PrizePreview | null;
   ranking: RankingEntry[];
+  rankingManualTiebreakers: RankingManualTiebreaker[];
   rankingTiebreakers: RankingTiebreaker[];
 }) {
   const payouts = preview?.payouts ?? [];
@@ -1502,6 +1519,10 @@ function PrizePanel({
   const activeTiebreakers = safeRankingTiebreakers
     .filter((tiebreaker) => tiebreaker.enabled)
     .sort((left, right) => left.priority - right.priority);
+  const manualTiebreakerSummary = buildRankingManualTiebreakerSummary(
+    ranking,
+    rankingManualTiebreakers,
+  );
 
   if (payouts.length === 0 && globalPrizes.length === 0) {
     return (
@@ -1533,6 +1554,11 @@ function PrizePanel({
           {activeTiebreakers
             .map((tiebreaker) => rankingTiebreakerLabels[tiebreaker.code])
             .join(" · ")}
+        </div>
+      ) : null}
+      {preview?.ranking_tie_policy === "manual" ? (
+        <div className="border-b border-zinc-200 px-5 py-3 text-xs text-zinc-600">
+          Desempate manual: {manualTiebreakerSummary || "pendiente de decision"}
         </div>
       ) : null}
       {payouts.length > 0 ? (
@@ -3296,6 +3322,22 @@ async function listRankingTiebreakersWithFallback(
   }
 }
 
+async function listRankingManualTiebreakersWithFallback(
+  client: ReturnType<typeof createPollavarClient>,
+  token: string,
+  poolID: string,
+) {
+  try {
+    const decisions = await client.listRankingManualTiebreakers(token, poolID);
+    return Array.isArray(decisions) ? decisions : [];
+  } catch (error) {
+    if (isMissingEndpointError(error)) {
+      return [];
+    }
+    throw error;
+  }
+}
+
 async function getPrizePreviewWithFallback(
   client: ReturnType<typeof createPollavarClient>,
   token: string,
@@ -4035,6 +4077,20 @@ function splitCents(amountCents: number, parts: number) {
 
 function rankingDisplayName(entry: RankingEntry) {
   return entry.user_name || entry.username || entry.user_id;
+}
+
+function buildRankingManualTiebreakerSummary(
+  ranking: RankingEntry[],
+  decisions: RankingManualTiebreaker[],
+) {
+  const entriesByUserID = new Map(ranking.map((entry) => [entry.user_id, entry]));
+  return [...decisions]
+    .sort((left, right) => left.priority - right.priority)
+    .map((decision) => {
+      const entry = entriesByUserID.get(decision.user_id);
+      return entry ? rankingDisplayName(entry) : decision.user_id;
+    })
+    .join(" · ");
 }
 
 function poolDisplayName(pool: Pool | null) {
