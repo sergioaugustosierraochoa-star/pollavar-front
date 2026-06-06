@@ -11,7 +11,6 @@ type SubmitStatus = "idle" | "submitting" | "success" | "error";
 type AuthFormProps = {
   appName: string;
   mode: AuthMode;
-  storageKey: string;
   alternateHref: string;
   alternateLabel: string;
 };
@@ -109,6 +108,14 @@ export function AuthForm({
               {alternateLabel}
             </Link>
           </div>
+          {!isRegister ? (
+            <Link
+              className="mt-4 inline-flex text-sm font-medium text-zinc-600 hover:text-zinc-950"
+              href="/forgot-password"
+            >
+              Olvide mi contrasena
+            </Link>
+          ) : null}
 
           {message ? (
             <p

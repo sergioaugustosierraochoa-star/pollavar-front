@@ -30,6 +30,15 @@ export type ChangePasswordInput = {
   new_password: string;
 };
 
+export type RequestPasswordResetInput = {
+  identifier: string;
+};
+
+export type ResetPasswordInput = {
+  token: string;
+  new_password: string;
+};
+
 export type UpdateProfileInput = {
   name: string;
   username: string;
@@ -927,6 +936,18 @@ export function createPollavarClient(options: PollavarClientOptions = {}) {
         method: "PUT",
         body: JSON.stringify(input),
         headers: authHeaders(token),
+      });
+    },
+    requestPasswordReset(input: RequestPasswordResetInput) {
+      return request<void>(fetcher, `${baseURL}/api/v1/auth/password-reset`, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+    resetPassword(input: ResetPasswordInput) {
+      return request<void>(fetcher, `${baseURL}/api/v1/auth/password-reset`, {
+        method: "PUT",
+        body: JSON.stringify(input),
       });
     },
     listTournaments() {

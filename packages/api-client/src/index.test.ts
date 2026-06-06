@@ -711,6 +711,32 @@ describe("createPollavarClient", () => {
     });
   });
 
+  it("requests and confirms a password reset", async () => {
+    const fetcher = vi.fn(async () => new Response(null, { status: 204 }));
+    const client = createPollavarClient({
+      baseURL: "http://api.local",
+      fetcher,
+    });
+
+    await client.requestPasswordReset({ identifier: "admin@example.com" });
+    await client.resetPassword({ token: "reset-token", new_password: "newsecret" });
+
+    expect(fetcher).toHaveBeenNthCalledWith(1, "http://api.local/api/v1/auth/password-reset", {
+      method: "POST",
+      body: JSON.stringify({ identifier: "admin@example.com" }),
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
+    expect(fetcher).toHaveBeenNthCalledWith(2, "http://api.local/api/v1/auth/password-reset", {
+      method: "PUT",
+      body: JSON.stringify({ token: "reset-token", new_password: "newsecret" }),
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
+  });
+
   it("loads tournament resources", async () => {
     const updatedTournament = {
       ...tournament,

@@ -5,7 +5,6 @@ export default function AdminRegisterPage() {
     <AuthForm
       appName="PollaVAR Admin"
       mode="register"
-      storageKey="pollavar.admin.session"
       alternateHref="/login"
       alternateLabel="Iniciar sesion"
     />

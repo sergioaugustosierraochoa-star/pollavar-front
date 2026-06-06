@@ -5,7 +5,6 @@ export default function ParticipantsLoginPage() {
     <AuthForm
       appName="PollaVAR Participantes"
       mode="login"
-      storageKey="pollavar.participants.session"
       alternateHref="/register"
       alternateLabel="Crear cuenta"
     />
