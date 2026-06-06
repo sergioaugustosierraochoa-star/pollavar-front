@@ -21,6 +21,8 @@ import {
   type PoolTheme,
   type PrizePreview,
   type RankingEntry,
+  type RankingTiebreaker,
+  type RankingTiebreakerCode,
   type ScoringRule,
   type StandingPrediction,
   type Tournament,
@@ -59,6 +61,14 @@ const defaultScoringRules: ScoringRule[] = [
   { code: "group_position_exact", points: 2, enabled: true },
   { code: "underdog_bonus", points: 2, enabled: false },
 ];
+const rankingTiebreakerLabels: Record<RankingTiebreakerCode, string> = {
+  exact_score: "Marcadores exactos",
+  match_result: "Resultados correctos",
+  group_position_exact: "Posiciones exactas",
+  underdog_bonus: "Bonus sorpresa",
+  global_points: "Predicciones globales",
+  total_event_count: "Total de aciertos",
+};
 type LoadedPoolData = {
   poolDetail: Pool;
   predictionSummary: PredictionSummary;
@@ -72,6 +82,7 @@ type LoadedPoolData = {
   effectiveMatchSettings: EffectiveMatchPredictionSettings[];
   underdogBonuses: MatchUnderdogBonus[];
   ranking: RankingEntry[];
+  rankingTiebreakers: RankingTiebreaker[];
   prizePreview: PrizePreview;
   globalPrizePreview: GlobalPredictionPrizePreview;
   tournamentDetail: Tournament | null;
@@ -132,6 +143,7 @@ export default function ParticipantsHome() {
   const [snapshotDownloadingMatchID, setSnapshotDownloadingMatchID] = useState("");
   const [snapshotMessages, setSnapshotMessages] = useState<Record<string, string>>({});
   const [ranking, setRanking] = useState<RankingEntry[]>([]);
+  const [rankingTiebreakers, setRankingTiebreakers] = useState<RankingTiebreaker[]>([]);
   const [prizePreview, setPrizePreview] = useState<PrizePreview | null>(null);
   const [globalPrizePreview, setGlobalPrizePreview] =
     useState<GlobalPredictionPrizePreview | null>(null);
@@ -204,6 +216,7 @@ export default function ParticipantsHome() {
     setSnapshotDownloadingMatchID("");
     setSnapshotMessages({});
     setRanking([]);
+    setRankingTiebreakers([]);
     setPrizePreview(null);
     setGlobalPrizePreview(null);
     setScoringRules([]);
@@ -253,6 +266,7 @@ export default function ParticipantsHome() {
       loadedEffectiveMatchSettings,
       loadedUnderdogBonuses,
       ranking,
+      loadedRankingTiebreakers,
       prizePreview,
       globalPrizePreview,
       tournamentDetail,
@@ -269,6 +283,7 @@ export default function ParticipantsHome() {
       listEffectiveMatchPredictionSettingsWithFallback(client, token, activePool.id),
       listMatchUnderdogBonusesWithFallback(client, token, activePool.id),
       listRankingWithFallback(client, token, activePool.id),
+      listRankingTiebreakersWithFallback(client, token, activePool.id),
       getPrizePreviewWithFallback(client, token, activePool.id),
       getGlobalPrizePreviewWithFallback(client, token, activePool.id),
       tournamentRequest,
@@ -287,6 +302,7 @@ export default function ParticipantsHome() {
       effectiveMatchSettings: loadedEffectiveMatchSettings,
       underdogBonuses: loadedUnderdogBonuses,
       ranking,
+      rankingTiebreakers: loadedRankingTiebreakers,
       prizePreview,
       globalPrizePreview,
       tournamentDetail,
@@ -334,6 +350,7 @@ export default function ParticipantsHome() {
         setSnapshotDownloadingMatchID("");
         setSnapshotMessages({});
         setRanking([]);
+        setRankingTiebreakers([]);
         setPrizePreview(null);
         setGlobalPrizePreview(null);
         setScoringRules([]);
@@ -368,6 +385,7 @@ export default function ParticipantsHome() {
       setSnapshotDownloadingMatchID("");
       setSnapshotMessages({});
       setRanking(loadedPoolData.ranking);
+      setRankingTiebreakers(loadedPoolData.rankingTiebreakers);
       setPrizePreview(loadedPoolData.prizePreview);
       setGlobalPrizePreview(loadedPoolData.globalPrizePreview);
       setScoringRules(loadedPoolData.scoringRules);
@@ -932,6 +950,7 @@ export default function ParticipantsHome() {
             pointDetailsMessage={pointDetailsMessage}
             prizePreview={prizePreview}
             ranking={ranking}
+            rankingTiebreakers={rankingTiebreakers}
             scoringRules={scoringRules}
             globalDrafts={globalDrafts}
             globalPredictionDefinitions={globalPredictionDefinitions}
@@ -1050,6 +1069,7 @@ function Dashboard({
   pointDetailsMessage,
   prizePreview,
   ranking,
+  rankingTiebreakers,
   scoringRules,
   saveMessage,
   savingGlobalDefinitionCode,
@@ -1101,6 +1121,7 @@ function Dashboard({
   pointDetailsMessage: string;
   prizePreview: PrizePreview | null;
   ranking: RankingEntry[];
+  rankingTiebreakers: RankingTiebreaker[];
   scoringRules: ScoringRule[];
   saveMessage: string;
   savingGlobalDefinitionCode: string;
@@ -1192,7 +1213,12 @@ function Dashboard({
           scoringRules={scoringRules}
           summary={summary}
         />
-        <PrizePanel globalPreview={globalPrizePreview} preview={prizePreview} ranking={ranking} />
+        <PrizePanel
+          globalPreview={globalPrizePreview}
+          preview={prizePreview}
+          ranking={ranking}
+          rankingTiebreakers={rankingTiebreakers}
+        />
         <GlobalPredictionsPanel
           definitions={globalPredictionDefinitions}
           drafts={globalDrafts}
@@ -1459,10 +1485,12 @@ function PrizePanel({
   globalPreview,
   preview,
   ranking,
+  rankingTiebreakers,
 }: {
   globalPreview: GlobalPredictionPrizePreview | null;
   preview: PrizePreview | null;
   ranking: RankingEntry[];
+  rankingTiebreakers: RankingTiebreaker[];
 }) {
   const payouts = preview?.payouts ?? [];
   const rankingPayouts = buildRankingPrizePayouts(preview, ranking);
@@ -1470,6 +1498,10 @@ function PrizePanel({
   const currency = preview?.currency ?? globalPreview?.currency ?? "COP";
   const confirmedTotalCents =
     preview?.confirmed_total_cents ?? globalPreview?.confirmed_total_cents ?? 0;
+  const safeRankingTiebreakers = Array.isArray(rankingTiebreakers) ? rankingTiebreakers : [];
+  const activeTiebreakers = safeRankingTiebreakers
+    .filter((tiebreaker) => tiebreaker.enabled)
+    .sort((left, right) => left.priority - right.priority);
 
   if (payouts.length === 0 && globalPrizes.length === 0) {
     return (
@@ -1495,6 +1527,14 @@ function PrizePanel({
           {payouts.length} ranking · {globalPrizes.length} globales
         </span>
       </div>
+      {preview?.ranking_tie_policy === "automatic" && activeTiebreakers.length > 0 ? (
+        <div className="border-b border-zinc-200 px-5 py-3 text-xs text-zinc-600">
+          Desempate automatico:{" "}
+          {activeTiebreakers
+            .map((tiebreaker) => rankingTiebreakerLabels[tiebreaker.code])
+            .join(" · ")}
+        </div>
+      ) : null}
       {payouts.length > 0 ? (
         <div className="grid divide-y divide-zinc-200 md:grid-cols-2 md:divide-x md:divide-y-0">
           {rankingPayouts.map((payout) => (
@@ -3232,6 +3272,22 @@ async function listRankingWithFallback(
 ) {
   try {
     return await client.listRanking(token, poolID);
+  } catch (error) {
+    if (isMissingEndpointError(error)) {
+      return [];
+    }
+    throw error;
+  }
+}
+
+async function listRankingTiebreakersWithFallback(
+  client: ReturnType<typeof createPollavarClient>,
+  token: string,
+  poolID: string,
+) {
+  try {
+    const tiebreakers = await client.listRankingTiebreakers(token, poolID);
+    return Array.isArray(tiebreakers) ? tiebreakers : [];
   } catch (error) {
     if (isMissingEndpointError(error)) {
       return [];

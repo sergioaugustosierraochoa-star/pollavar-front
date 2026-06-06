@@ -315,6 +315,7 @@ const rankingEntry: RankingEntry = {
   username: "admin",
   points: 8,
   event_count: 2,
+  rule_counts: { exact_score: 1 },
   payment_status: "confirmed",
   prize_eligible: true,
   participant: {

@@ -2503,6 +2503,9 @@ async function adminFetch(url: RequestInfo | URL, init?: RequestInit) {
   if (value.endsWith("/api/v1/pools/pool-id/global-prizes/preview") && init?.method === "GET") {
     return jsonResponse({ data: globalPrizePreview });
   }
+  if (value.endsWith("/api/v1/pools/pool-id/ranking-tiebreakers") && init?.method === "GET") {
+    return jsonResponse({ data: [] });
+  }
   if (
     value.endsWith("/api/v1/tournaments/fifa-world-cup-2026/tiebreakers") &&
     init?.method === "PUT"

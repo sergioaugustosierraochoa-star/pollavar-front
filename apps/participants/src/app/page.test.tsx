@@ -1190,6 +1190,9 @@ describe("Participants home", () => {
       if (value.endsWith("/ranking")) {
         return jsonResponse({ data: rankingEntries });
       }
+      if (value.endsWith("/ranking-tiebreakers")) {
+        return jsonResponse({ data: [] });
+      }
       if (value.endsWith("/prizes/preview")) {
         return jsonResponse({ data: prizePreview });
       }
@@ -1639,6 +1642,9 @@ async function dashboardFetch(url: RequestInfo | URL, init?: RequestInit) {
   if (value.endsWith("/ranking")) {
     return jsonResponse({ data: rankingEntries });
   }
+  if (value.endsWith("/ranking-tiebreakers")) {
+    return jsonResponse({ data: [] });
+  }
   if (value.endsWith("/ranking/user-id/points")) {
     return jsonResponse({ data: pointDetails });
   }
@@ -1732,6 +1738,9 @@ async function standingsFetch(url: RequestInfo | URL, init?: RequestInit) {
   }
   if (value.endsWith("/ranking")) {
     return jsonResponse({ data: rankingEntries });
+  }
+  if (value.endsWith("/ranking-tiebreakers")) {
+    return jsonResponse({ data: [] });
   }
   if (value.endsWith("/ranking/user-id/points")) {
     return jsonResponse({ data: pointDetails });

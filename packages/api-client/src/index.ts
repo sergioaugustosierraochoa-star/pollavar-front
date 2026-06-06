@@ -521,9 +521,37 @@ export type RankingEntry = {
   username: string;
   points: number;
   event_count: number;
+  rule_counts: Record<string, number>;
   payment_status: string;
   prize_eligible: boolean;
   participant: PoolParticipant;
+};
+
+export type RankingTiebreakerCode =
+  | "exact_score"
+  | "match_result"
+  | "group_position_exact"
+  | "underdog_bonus"
+  | "global_points"
+  | "total_event_count";
+
+export type RankingTiebreaker = {
+  id: string;
+  pool_id: string;
+  code: RankingTiebreakerCode;
+  priority: number;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type RankingTiebreakerInput = {
+  code: RankingTiebreakerCode;
+  enabled: boolean;
+};
+
+export type UpdateRankingTiebreakersInput = {
+  tiebreakers: RankingTiebreakerInput[];
 };
 
 export type PointEventDetail = {
@@ -989,6 +1017,31 @@ export function createPollavarClient(options: PollavarClientOptions = {}) {
         {
           method: "PUT",
           body: JSON.stringify({ policy }),
+          headers: authHeaders(token),
+        },
+      );
+    },
+    listRankingTiebreakers(token: string, poolID: string) {
+      return request<RankingTiebreaker[]>(
+        fetcher,
+        `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/ranking-tiebreakers`,
+        {
+          method: "GET",
+          headers: authHeaders(token),
+        },
+      );
+    },
+    updateRankingTiebreakers(
+      token: string,
+      poolID: string,
+      input: UpdateRankingTiebreakersInput,
+    ) {
+      return request<RankingTiebreaker[]>(
+        fetcher,
+        `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/ranking-tiebreakers`,
+        {
+          method: "PUT",
+          body: JSON.stringify(input),
           headers: authHeaders(token),
         },
       );
