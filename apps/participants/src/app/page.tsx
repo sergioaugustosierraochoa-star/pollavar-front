@@ -2453,8 +2453,8 @@ function MatchPredictionForm({
   const closed = localClosed || predictionStatus?.closed === true;
   const homeTeam = predictionStatus?.resolved_home_team ?? match.home_team;
   const awayTeam = predictionStatus?.resolved_away_team ?? match.away_team;
-  const homeName = homeTeam?.name ?? match.home_slot;
-  const awayName = awayTeam?.name ?? match.away_slot;
+  const homeName = homeTeam?.name ?? matchSlotLabel(match, "home");
+  const awayName = awayTeam?.name ?? matchSlotLabel(match, "away");
   const statusCode =
     predictionStatus?.status ?? (closed ? "closed" : prediction ? "complete" : "pending");
   const officialResult = predictionStatus?.official_result;
@@ -2495,11 +2495,11 @@ function MatchPredictionForm({
           />
         ) : (
           <ScorePredictionControl
-            awayLabel={awayTeam?.short_name ?? match.away_slot}
+            awayLabel={awayTeam?.short_name ?? matchSlotLabel(match, "away")}
             awayName={awayName}
             closed={closed}
             draft={draft}
-            homeLabel={homeTeam?.short_name ?? match.home_slot}
+            homeLabel={homeTeam?.short_name ?? matchSlotLabel(match, "home")}
             homeName={homeName}
             matchID={match.id}
             onUpdateDraft={onUpdateDraft}
@@ -3356,6 +3356,12 @@ function compareStandingRows(first: SuggestedStandingRow, second: SuggestedStand
 
 function matchTeamKey(team: Match["home_team"], slot: string) {
   return team?.id || slot;
+}
+
+function matchSlotLabel(match: Match, side: "home" | "away") {
+  const slotConfig = side === "home" ? match.home_slot_config : match.away_slot_config;
+  const fallbackSlot = side === "home" ? match.home_slot : match.away_slot;
+  return slotConfig.label || fallbackSlot;
 }
 
 function matchTeamName(team: Match["home_team"], slot: string) {

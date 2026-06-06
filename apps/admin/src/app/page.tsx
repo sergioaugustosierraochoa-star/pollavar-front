@@ -4233,16 +4233,26 @@ function isMatchClosedForResults(
 
 function matchTeamName(match: Match, side: "home" | "away", status?: PredictionMatchStatus) {
   if (side === "home") {
-    return status?.resolved_home_team?.name ?? match.home_team?.name ?? match.home_slot;
+    return status?.resolved_home_team?.name ?? match.home_team?.name ?? matchSlotLabel(match, "home");
   }
-  return status?.resolved_away_team?.name ?? match.away_team?.name ?? match.away_slot;
+  return status?.resolved_away_team?.name ?? match.away_team?.name ?? matchSlotLabel(match, "away");
 }
 
 function matchTeamShortName(match: Match, side: "home" | "away", status?: PredictionMatchStatus) {
   if (side === "home") {
-    return status?.resolved_home_team?.short_name ?? match.home_team?.short_name ?? match.home_slot;
+    return (
+      status?.resolved_home_team?.short_name ?? match.home_team?.short_name ?? matchSlotLabel(match, "home")
+    );
   }
-  return status?.resolved_away_team?.short_name ?? match.away_team?.short_name ?? match.away_slot;
+  return (
+    status?.resolved_away_team?.short_name ?? match.away_team?.short_name ?? matchSlotLabel(match, "away")
+  );
+}
+
+function matchSlotLabel(match: Match, side: "home" | "away") {
+  const slotConfig = side === "home" ? match.home_slot_config : match.away_slot_config;
+  const fallbackSlot = side === "home" ? match.home_slot : match.away_slot;
+  return slotConfig.label || fallbackSlot;
 }
 
 function resultStatusLabel(status: PredictionMatchStatus | undefined, closed: boolean) {
