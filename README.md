@@ -6,6 +6,7 @@ Frontend de PollaVAR en Next.js. Este repositorio contiene dos aplicaciones fisi
 apps/admin             Aplicacion para administradores de pollas
 apps/participants      Aplicacion para participantes
 packages/api-client    Cliente compartido para consumir la API/BFF
+packages/ui            Componentes visuales compartidos
 ```
 
 ## Stack
@@ -149,6 +150,8 @@ La app de participantes permite:
 ## Paquete Compartido
 
 `packages/api-client` contiene tipos y funciones para consumir la API desde ambas apps. Centralizar el cliente evita duplicar endpoints y mantiene consistencia entre admin y participantes.
+
+`packages/ui` contiene componentes compartidos. Por ejemplo, `TeamBadge` renderiza equipos con esta prioridad: logo/escudo, bandera por ISO-2, o iniciales con colores.
 
 ## Calidad Y Pruebas
 

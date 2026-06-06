@@ -82,6 +82,10 @@ export type Team = {
   name: string;
   short_name: string;
   country_code: string;
+  logo_url?: string;
+  primary_color?: string;
+  secondary_color?: string;
+  kind?: "national_team" | "club" | "custom" | "";
 };
 
 export type Match = {

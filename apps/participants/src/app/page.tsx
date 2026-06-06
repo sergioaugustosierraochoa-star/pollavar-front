@@ -33,6 +33,7 @@ import {
 import Link from "next/link";
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { readStoredSession, redirectToLogin, signOut, type AuthSession } from "./session";
+import { TeamBadge } from "@pollavar/ui";
 
 type DashboardStatus = "checking" | "signed-out" | "loading" | "ready" | "error";
 type ScoreDrafts = Record<string, { home: string; away: string; outcome: MatchOutcome | "" }>;
@@ -2864,9 +2865,9 @@ function MatchPredictionForm({
         <div>
           <p className="text-xs font-medium text-zinc-500">Partido {match.match_number}</p>
           <div className="mt-1 flex flex-wrap items-center gap-2 text-sm font-semibold text-zinc-950">
-            <span>{homeName}</span>
+            <TeamBadge label={homeName} team={homeTeam} />
             <span className="text-zinc-400">vs</span>
-            <span>{awayName}</span>
+            <TeamBadge label={awayName} team={awayTeam} />
           </div>
           <p className="mt-1 text-xs text-zinc-500">
             {formatMatchDate(match.starts_at)} - {match.venue}

@@ -58,6 +58,7 @@ import {
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { readStoredSession, redirectToLogin, signOut, type AuthSession } from "./session";
+import { TeamBadge } from "@pollavar/ui";
 
 type DashboardStatus = "checking" | "signed-out" | "loading" | "ready" | "error";
 type PaymentDrafts = Record<
@@ -5838,6 +5839,8 @@ function ResultsPanel({
                       );
                       const auditLogs = auditLogsByMatchID[match.id] ?? [];
                       const latestAuditLog = auditLogs[0] ?? null;
+                      const homeTeam = status?.resolved_home_team ?? match.home_team;
+                      const awayTeam = status?.resolved_away_team ?? match.away_team;
                       const homeName = matchTeamName(match, "home", status);
                       const awayName = matchTeamName(match, "away", status);
                       const isSaving = savingMatchID === match.id;
@@ -5856,9 +5859,11 @@ function ResultsPanel({
                             <p className="text-xs font-medium text-zinc-500">
                               Partido {match.match_number}
                             </p>
-                            <p className="mt-1 font-semibold text-zinc-950">
-                              {homeName} vs {awayName}
-                            </p>
+                            <div className="mt-1 flex flex-wrap items-center gap-2 font-semibold text-zinc-950">
+                              <TeamBadge label={homeName} team={homeTeam} />
+                              <span className="text-zinc-400">vs</span>
+                              <TeamBadge label={awayName} team={awayTeam} />
+                            </div>
                             <p className="mt-1 text-xs text-zinc-500">
                               {formatMatchDate(match.starts_at)} - {match.venue}
                             </p>
