@@ -3,6 +3,7 @@
 import {
   PollavarAPIError,
   createPollavarClient,
+  type AdvancementRule,
   type AuditLog,
   type AuthUser,
   type CreatePoolInput,
@@ -56,7 +57,15 @@ import {
   type TournamentSummary,
 } from "@pollavar/api-client";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import { readStoredSession, redirectToLogin, signOut, type AuthSession } from "./session";
 import { TeamBadge } from "@pollavar/ui";
 
@@ -125,6 +134,12 @@ type ResultMatchGroup = {
   id: string;
   title: string;
   subtitle: string;
+  matches: Match[];
+};
+type TournamentStageMatchGroup = {
+  key: string;
+  title: string;
+  stageType: string;
   matches: Match[];
 };
 type PredictionSettingsDraft = {
@@ -289,6 +304,7 @@ const rankingTiebreakerLabels: Record<RankingTiebreakerCode, string> = {
 
 type AdminSectionID =
   | "resumen"
+  | "torneo"
   | "tema"
   | "pronosticos"
   | "overrides"
@@ -317,6 +333,8 @@ export default function AdminHome() {
   const [selectedPoolID, setSelectedPoolID] = useState("");
   const [activeAdminSection, setActiveAdminSection] =
     useState<AdminSectionID>("resumen");
+  const [showCreatePoolPanel, setShowCreatePoolPanel] = useState(false);
+  const [switchingPoolID, setSwitchingPoolID] = useState("");
   const [pool, setPool] = useState<Pool | null>(null);
   const [tournament, setTournament] = useState<Tournament | null>(null);
   const [predictionStatuses, setPredictionStatuses] = useState<PredictionMatchStatus[]>([]);
@@ -426,7 +444,54 @@ export default function AdminHome() {
   const [createPoolDraft, setCreatePoolDraft] = useState<CreatePoolDraft>(
     defaultCreatePoolDraft(null),
   );
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
   const requestID = useRef(0);
+  const statusRef = useRef<DashboardStatus>("checking");
+  const selectedPoolIDRef = useRef("");
+  const userMenuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    statusRef.current = status;
+  }, [status]);
+
+  useEffect(() => {
+    selectedPoolIDRef.current = selectedPoolID;
+  }, [selectedPoolID]);
+
+  useEffect(() => {
+    if (!userMenuOpen) {
+      return;
+    }
+
+    function closeMenuOnOutsideInteraction(event: PointerEvent) {
+      const target = event.target;
+      if (target instanceof Node && userMenuRef.current?.contains(target)) {
+        return;
+      }
+      setUserMenuOpen(false);
+    }
+
+    function closeMenuOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setUserMenuOpen(false);
+      }
+    }
+
+    document.addEventListener("pointerdown", closeMenuOnOutsideInteraction);
+    document.addEventListener("keydown", closeMenuOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeMenuOnOutsideInteraction);
+      document.removeEventListener("keydown", closeMenuOnEscape);
+    };
+  }, [userMenuOpen]);
+
+  useEffect(() => {
+    if (status !== "ready" || message === "") {
+      return;
+    }
+    const timeoutID = window.setTimeout(() => setMessage(""), 4000);
+    return () => window.clearTimeout(timeoutID);
+  }, [message, status]);
 
   const predictionStatusesByMatch = useMemo(
     () => indexPredictionStatuses(predictionStatuses),
@@ -441,8 +506,12 @@ export default function AdminHome() {
     [tournament],
   );
   const predictionSettingsScopeRows = useMemo(
-    () => predictionSettingsScopeRowsForMatches(tournament?.matches ?? []),
-    [tournament?.matches],
+    () =>
+      predictionSettingsScopeRowsForMatches(
+        tournament?.matches ?? [],
+        predictionStatusesByMatch,
+      ),
+    [predictionStatusesByMatch, tournament?.matches],
   );
   const effectiveMatchSettingsByMatch = useMemo(
     () => indexEffectiveMatchSettings(effectiveMatchSettings),
@@ -500,6 +569,7 @@ export default function AdminHome() {
 
   const signOutAdmin = useCallback(function signOutAdmin() {
     requestID.current += 1;
+    setUserMenuOpen(false);
     signOut();
     setSession(null);
     setStatus("signed-out");
@@ -564,6 +634,7 @@ export default function AdminHome() {
     setCreatingPool(false);
     setSavingMatchSlotOverrideID("");
     setCreatePoolDraft(defaultCreatePoolDraft(null));
+    redirectToLogin();
   }, []);
 
   const loadDashboard = useCallback(async function loadDashboard(
@@ -574,8 +645,14 @@ export default function AdminHome() {
     const nextRequestID = requestID.current + 1;
     requestID.current = nextRequestID;
     const isLatestRequest = () => requestID.current === nextRequestID;
+    const softLoad = statusRef.current === "ready";
 
-    setStatus("loading");
+    if (softLoad) {
+      setSwitchingPoolID(preferredPoolID ?? selectedPoolIDRef.current);
+    } else {
+      setStatus("loading");
+      setSwitchingPoolID("");
+    }
     setMessage("");
     setSavingResultMatchID("");
     setGeneratingSnapshotMatchID("");
@@ -606,15 +683,16 @@ export default function AdminHome() {
       if (!isLatestRequest()) {
         return;
       }
+      setSwitchingPoolID("");
 
       setPools(poolList);
       setTournaments(tournamentList);
       setCreatePoolDraft((current) =>
         current.tournamentSlug ? current : defaultCreatePoolDraft(tournamentList[0] ?? null),
       );
-      setSelectedPoolID(activePool?.id ?? "");
 
       if (!activePool) {
+        setSelectedPoolID("");
         setPool(null);
         setTournament(null);
         setPredictionStatuses([]);
@@ -723,7 +801,9 @@ export default function AdminHome() {
       if (!isLatestRequest()) {
         return;
       }
+      setSwitchingPoolID("");
 
+      setSelectedPoolID(poolDetail.id);
       setPool(poolDetail);
       setTournament(tournamentDetail);
       setPredictionStatuses(nextPredictionStatuses);
@@ -786,6 +866,7 @@ export default function AdminHome() {
       if (!isLatestRequest()) {
         return;
       }
+      setSwitchingPoolID("");
       if (isUnauthorized(error)) {
         signOutAdmin();
         return;
@@ -1837,6 +1918,10 @@ export default function AdminHome() {
       setMessage("Revisa el valor del pago.");
       return;
     }
+    if (nextStatus === "confirmed" && amountCents < pool.entry_fee_cents) {
+      setMessage("Solo puedes confirmar cuando el saldo este en cero.");
+      return;
+    }
 
     setSavingUserID(userID);
     setMessage("");
@@ -2381,6 +2466,7 @@ export default function AdminHome() {
     try {
       const createdPool = await createPollavarClient().createPool(session.token, input);
       await loadDashboard(session.token, session.user.id, createdPool.id);
+      setShowCreatePoolPanel(false);
       setMessage("Polla creada.");
     } catch (error) {
       if (isUnauthorized(error)) {
@@ -2401,53 +2487,94 @@ export default function AdminHome() {
     }
   }
 
+  const adminTheme = adminVisualTheme(pool?.theme);
+  const adminShellStyle: CSSProperties = {
+    "--pollavar-primary": "#10B981",
+    "--pollavar-primary-soft": "rgba(16, 185, 129, 0.1)",
+    "--pollavar-secondary": adminTheme.secondaryColor,
+    "--pollavar-secondary-soft": themeColorAlpha(adminTheme.secondaryColor, 0.12),
+    "--pollavar-accent": adminTheme.accentColor,
+    "--pollavar-accent-soft": themeColorAlpha(adminTheme.accentColor, 0.1),
+    background: "#f8fafc",
+  } as CSSProperties;
+
   return (
-    <main className="min-h-screen bg-[#f7f8fb] text-[#191b1f]">
-      <header className="border-b border-zinc-200 bg-white">
+    <main className="min-h-screen text-[#0f172a]" style={adminShellStyle}>
+      <header
+        className="border-b text-white shadow-sm"
+        style={{
+          background: "#0f172a",
+          borderColor: themeColorAlpha(adminTheme.primaryColor, 0.35),
+        }}
+      >
         <div className="mx-auto flex max-w-7xl flex-col gap-4 px-5 py-4 md:flex-row md:items-center md:justify-between">
-          <div>
-            <p className="text-sm font-medium text-emerald-700">PollaVAR Admin</p>
-            <h1 className="text-2xl font-semibold tracking-normal text-zinc-950">
-              Administracion de polla
-            </h1>
-          </div>
-	          <nav aria-label="Sesion admin" className="flex flex-wrap items-center gap-2">
-	            {session ? (
-	              <details className="relative">
-	                <summary className="flex cursor-pointer list-none items-center gap-3 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-medium text-zinc-700 hover:border-zinc-400">
-	                  <span className="grid size-8 place-items-center rounded-full bg-emerald-100 text-xs font-semibold text-emerald-800">
-	                    {userInitials(session.user.name, session.user.username)}
-	                  </span>
-	                  <span className="max-w-44 truncate">{session.user.name}</span>
-	                </summary>
-	                <div className="absolute right-0 z-20 mt-2 grid min-w-44 overflow-hidden rounded-md border border-zinc-200 bg-white py-1 text-sm shadow-lg">
-	                  <Link className="px-3 py-2 text-zinc-700 hover:bg-zinc-50" href="/profile">
-	                    Mi perfil
-	                  </Link>
-	                  <button
-	                    className="px-3 py-2 text-left text-zinc-700 hover:bg-zinc-50"
-	                    type="button"
-	                    onClick={signOutAdmin}
-	                  >
-	                    Salir
-	                  </button>
-	                </div>
-	              </details>
-	            ) : (
-              <>
-                <Link
-                  className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:border-zinc-400"
-                  href="/login"
+          <Link className="flex min-w-0 items-center gap-3" href="/">
+            <span
+              className="truncate text-lg font-semibold tracking-normal"
+              style={{ color: adminTheme.primaryColor }}
+            >
+              PollaVAR
+            </span>
+            <span className="rounded-md bg-white/10 px-2 py-1 text-xs font-medium text-white/80">
+              Panel administrativo
+            </span>
+          </Link>
+          <nav aria-label="Sesion admin" className="flex flex-wrap items-center gap-2">
+            {session ? (
+              <div className="relative" ref={userMenuRef}>
+                <button
+                  aria-expanded={userMenuOpen}
+                  aria-haspopup="menu"
+                  className="flex cursor-pointer items-center gap-3 rounded-md px-2 py-1 text-sm font-medium text-white outline-none transition hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-cyan-300/60"
+                  onClick={() => setUserMenuOpen((open) => !open)}
+                  type="button"
                 >
-                  Entrar
-                </Link>
-                <Link
-                  className="rounded-md bg-zinc-950 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800"
-                  href="/register"
-                >
-                  Crear cuenta
-                </Link>
-              </>
+                  <span
+                    className="grid size-9 shrink-0 place-items-center rounded-full text-xs font-semibold"
+                    style={{ backgroundColor: adminTheme.primaryColor, color: "#ffffff" }}
+                  >
+                    {userInitials(session.user.name, session.user.username)}
+                  </span>
+                  <span className="min-w-0 max-w-40 truncate">{session.user.name}</span>
+                </button>
+                {userMenuOpen ? (
+                  <div className="absolute right-0 z-20 mt-3 grid min-w-52 overflow-hidden rounded-lg border border-zinc-200 bg-white py-2 text-sm text-zinc-700 shadow-xl ring-1 ring-zinc-950/5">
+                    <Link
+                      className="flex items-center gap-3 px-4 py-3 hover:bg-zinc-100"
+                      href="/profile"
+                      onClick={() => setUserMenuOpen(false)}
+                    >
+                      <span aria-hidden="true" className="grid size-5 place-items-center">
+                        <svg fill="none" height="18" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24" width="18">
+                          <path d="M20 21a8 8 0 0 0-16 0" />
+                          <circle cx="12" cy="7" r="4" />
+                        </svg>
+                      </span>
+                      Mi perfil
+                    </Link>
+                    <button
+                      className="flex items-center gap-3 px-4 py-3 text-left hover:bg-zinc-100"
+                      type="button"
+                      onClick={signOutAdmin}
+                    >
+                      <span aria-hidden="true" className="grid size-5 place-items-center">
+                        <svg fill="none" height="18" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24" width="18">
+                          <path d="M12 2v10" />
+                          <path d="M18.4 6.6a9 9 0 1 1-12.8 0" />
+                        </svg>
+                      </span>
+                      Salir
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            ) : (
+              <Link
+                className="rounded-md border border-white/25 bg-white/10 px-3 py-2 text-sm font-medium text-white backdrop-blur hover:bg-white/15"
+                href="/login"
+              >
+                Entrar
+              </Link>
             )}
           </nav>
         </div>
@@ -2461,13 +2588,13 @@ export default function AdminHome() {
         {status === "signed-out" ? <SignedOutPanel /> : null}
 
         {status === "error" ? (
-          <section className="rounded-lg border border-rose-200 bg-white p-6 shadow-sm">
-            <p role="alert" className="text-sm font-medium text-rose-700">
+          <section className="pollavar-card p-6">
+            <p role="alert" className="text-sm font-medium text-amber-700">
               {message}
             </p>
             {session ? (
               <button
-                className="mt-4 rounded-md bg-zinc-950 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800"
+                className="pollavar-primary-action mt-4 px-3 py-2 text-sm"
                 type="button"
                 onClick={() => void loadDashboard(session.token, session.user.id, selectedPoolID)}
               >
@@ -2479,45 +2606,56 @@ export default function AdminHome() {
 
         {status === "ready" && session ? (
           <div className="space-y-6">
+            <div className="pollavar-card flex flex-col gap-3 px-5 py-4 md:flex-row md:items-center md:justify-between">
+              <div>
+                <p className="text-sm font-semibold text-[#0f172a]">Acciones globales</p>
+                <p className="text-sm text-slate-500">
+                  Crea otra polla o selecciona una existente para administrarla.
+                </p>
+              </div>
+              <button
+                className="pollavar-primary-action w-fit px-3 py-2 text-sm"
+                onClick={() => setShowCreatePoolPanel(true)}
+                type="button"
+              >
+                Crear nueva polla
+              </button>
+            </div>
+            {showCreatePoolPanel ? (
+              <CreatePoolModal
+                canCreate={tournaments.length > 0}
+                onClose={() => setShowCreatePoolPanel(false)}
+                onCreate={() => void createPool()}
+                saving={creatingPool}
+              >
+                <CreatePoolPanel
+                  draft={createPoolDraft}
+                  onChange={updateCreatePoolDraft}
+                  saving={creatingPool}
+                  tournaments={tournaments}
+                />
+              </CreatePoolModal>
+            ) : null}
+            {message ? (
+              <AdminToast
+                message={message}
+                onDismiss={() => setMessage("")}
+                type={adminToastType(message)}
+              />
+            ) : null}
             <PoolThemeOverview
               onSelectPool={(nextPoolID) => {
-                setSelectedPoolID(nextPoolID);
                 setActiveAdminSection("resumen");
+                setShowCreatePoolPanel(false);
                 void loadDashboard(session.token, session.user.id, nextPoolID);
               }}
               paymentCurrency={paymentCurrency}
               pool={pool}
               pools={pools}
               selectedPoolID={selectedPoolID}
+              switchingPoolID={switchingPoolID}
               totals={totals}
-            />
-
-            {activeAdminSection === "resumen" || !pool ? (
-              <CreatePoolPanel
-                draft={createPoolDraft}
-                onChange={updateCreatePoolDraft}
-                onCreate={() => void createPool()}
-                saving={creatingPool}
-                tournaments={tournaments}
-              />
-            ) : null}
-
-            {message ? (
-              <p
-                role={
-                  message.includes("No pudimos") ||
-                  message.includes("No tienes permisos") ||
-                  message.includes("No puedes") ||
-                  message.includes("Revisa")
-                    ? "alert"
-                    : "status"
-                }
-                className="rounded-md border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-700"
-              >
-                {message}
-              </p>
-            ) : null}
-
+            >
             {pool ? (
               <div className="grid gap-4 lg:grid-cols-[240px_minmax(0,1fr)]">
                 <AdminSectionNavigation
@@ -2529,6 +2667,7 @@ export default function AdminHome() {
                   <AdminPoolStickyHeader
                     activeSection={activeAdminSection}
                     items={adminSections}
+                    onSelect={setActiveAdminSection}
                     paymentCurrency={paymentCurrency}
                     pool={pool}
                     totals={totals}
@@ -2550,6 +2689,12 @@ export default function AdminHome() {
                       onChange={setThemeDraft}
                       onSave={() => void savePoolTheme()}
                       saving={savingTheme}
+                    />
+                  ) : null}
+                  {renderAdminSection("torneo") ? (
+                    <TournamentStructurePanel
+                      predictionStatusesByMatch={predictionStatusesByMatch}
+                      tournament={tournament}
                     />
                   ) : null}
                   {renderAdminSection("pronosticos") ? (
@@ -2703,7 +2848,7 @@ export default function AdminHome() {
                 </div>
 
                 <div className="grid gap-5 p-5 lg:grid-cols-[minmax(0,1.15fr)_minmax(280px,0.85fr)]">
-                  <div className="overflow-x-auto">
+                  <div>
                     <div className="mb-4 grid gap-2 md:grid-cols-[minmax(0,1fr)_220px] md:items-end">
                       <div>
                         <label
@@ -2742,7 +2887,7 @@ export default function AdminHome() {
                             </p>
                           </div>
                           <button
-                            className="w-fit rounded-md bg-zinc-950 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
+                            className="w-fit rounded-md bg-[var(--pollavar-primary)] px-3 py-2 text-sm font-medium text-white hover:brightness-95 disabled:cursor-not-allowed disabled:bg-zinc-300"
                             disabled={!canManageSelectedPoolPrizes || savingRankingTiebreakers}
                             type="button"
                             onClick={() => void saveRankingTiebreakers()}
@@ -2815,7 +2960,7 @@ export default function AdminHome() {
                             </p>
                           </div>
                           <button
-                            className="w-fit rounded-md bg-zinc-950 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
+                            className="w-fit rounded-md bg-[var(--pollavar-primary)] px-3 py-2 text-sm font-medium text-white hover:brightness-95 disabled:cursor-not-allowed disabled:bg-zinc-300"
                             disabled={
                               !canManageSelectedPoolPrizes ||
                               savingRankingManualTiebreakers ||
@@ -2906,83 +3051,6 @@ export default function AdminHome() {
                         </div>
                       </div>
                     ) : null}
-                    <table className="min-w-[620px] w-full border-collapse text-left text-sm">
-                      <thead className="bg-zinc-50 text-xs uppercase text-zinc-500">
-                        <tr>
-                          <th className="px-4 py-3 font-semibold">Posicion</th>
-                          <th className="px-4 py-3 font-semibold">Porcentaje</th>
-                          <th className="px-4 py-3 font-semibold">Descripcion</th>
-                          <th className="px-4 py-3 font-semibold">Acciones</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-zinc-200">
-                        {prizeDrafts.map((draft, index) => (
-                          <tr key={`${draft.position}-${index}`}>
-                            <td className="px-4 py-3">
-                              <label className="sr-only" htmlFor={`prize-position-${index}`}>
-                                Posicion del premio {index + 1}
-                              </label>
-                              <input
-                                id={`prize-position-${index}`}
-                                className="min-h-10 w-24 rounded-md border border-zinc-300 px-3 py-2 text-sm"
-                                disabled={!canManageSelectedPoolPrizes || savingPrizes}
-                                inputMode="numeric"
-                                value={draft.position}
-                                onChange={(event) =>
-                                  updatePrizeDraft(index, { position: event.target.value })
-                                }
-                              />
-                            </td>
-                            <td className="px-4 py-3">
-                              <label className="sr-only" htmlFor={`prize-percentage-${index}`}>
-                                Porcentaje del premio {index + 1}
-                              </label>
-                              <div className="flex items-center gap-2">
-                                <input
-                                  id={`prize-percentage-${index}`}
-                                  className="min-h-10 w-28 rounded-md border border-zinc-300 px-3 py-2 text-sm"
-                                  disabled={!canManageSelectedPoolPrizes || savingPrizes}
-                                  inputMode="decimal"
-                                  value={draft.percentage}
-                                  onChange={(event) =>
-                                    updatePrizeDraft(index, { percentage: event.target.value })
-                                  }
-                                />
-                                <span className="text-sm text-zinc-500">%</span>
-                              </div>
-                            </td>
-                            <td className="px-4 py-3">
-                              <label className="sr-only" htmlFor={`prize-description-${index}`}>
-                                Descripcion del premio {index + 1}
-                              </label>
-                              <input
-                                id={`prize-description-${index}`}
-                                className="min-h-10 w-56 rounded-md border border-zinc-300 px-3 py-2 text-sm"
-                                disabled={!canManageSelectedPoolPrizes || savingPrizes}
-                                value={draft.description}
-                                onChange={(event) =>
-                                  updatePrizeDraft(index, { description: event.target.value })
-                                }
-                              />
-                            </td>
-                            <td className="px-4 py-3">
-                              <button
-                                className="rounded-md border border-rose-200 px-3 py-2 text-xs font-medium text-rose-700 hover:border-rose-300 disabled:cursor-not-allowed disabled:text-zinc-400"
-                                disabled={
-                                  !canManageSelectedPoolPrizes ||
-                                  savingPrizes ||
-                                  prizeDrafts.length <= 1
-                                }
-                                type="button"
-                                onClick={() => removePrizeDraft(index)}
-                              >
-                                Quitar
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
                   </div>
 
                   <div className="space-y-3">
@@ -3044,30 +3112,148 @@ export default function AdminHome() {
                         )}
                       </div>
                     </div>
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:border-zinc-400 disabled:cursor-not-allowed disabled:text-zinc-400"
-                        disabled={!canManageSelectedPoolPrizes || savingPrizes}
-                        type="button"
-                        onClick={addPrizeDraft}
-                      >
-                        Agregar ganador
-                      </button>
-                      <button
-                        className="rounded-md bg-zinc-950 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
-                        disabled={!canManageSelectedPoolPrizes || savingPrizes}
-                        type="button"
-                        onClick={() => void savePrizeRules()}
-                      >
-                        Guardar premios
-                      </button>
-                    </div>
                     <GlobalPrizePreviewBlock
                       currency={
                         globalPrizePreview?.currency ?? prizePreview?.currency ?? paymentCurrency
                       }
                       preview={globalPrizePreview}
                     />
+                  </div>
+                  <div className="lg:col-span-2">
+                    <div className="sticky top-4 z-10 mb-4 rounded-lg border border-zinc-200 bg-white/95 p-3 shadow-sm backdrop-blur">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                          <p className="text-sm font-semibold text-zinc-950">
+                            Reglas de ganadores
+                          </p>
+                          <p className="text-xs text-zinc-500">
+                            {prizeDrafts.length} regla{prizeDrafts.length === 1 ? "" : "s"} ·{" "}
+                            {formatPercentageTotal(prizeDrafts)}% asignado
+                          </p>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:border-zinc-400 disabled:cursor-not-allowed disabled:text-zinc-400"
+                            disabled={!canManageSelectedPoolPrizes || savingPrizes}
+                            type="button"
+                            onClick={addPrizeDraft}
+                          >
+                            Agregar ganador
+                          </button>
+                          <button
+                            className="rounded-md bg-[var(--pollavar-primary)] px-3 py-2 text-sm font-medium text-white hover:brightness-95 disabled:cursor-not-allowed disabled:bg-zinc-300"
+                            disabled={!canManageSelectedPoolPrizes || savingPrizes}
+                            type="button"
+                            onClick={() => void savePrizeRules()}
+                          >
+                            Guardar premios
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="grid gap-3 xl:grid-cols-2">
+                      {prizeDrafts.map((draft, index) => {
+                        const percentage = parsePercentage(draft.percentage);
+                        const estimatedAmountCents =
+                          percentage === null
+                            ? null
+                            : Math.round(
+                                ((prizePreview?.confirmed_total_cents ?? 0) * percentage) / 100,
+                              );
+
+                        return (
+                          <article
+                            className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm"
+                            key={`${draft.position}-${index}`}
+                          >
+                            <div className="grid gap-3">
+                              <div className="grid gap-3 md:grid-cols-3 md:items-end">
+                                <label
+                                  className="grid gap-1 text-xs font-medium uppercase text-zinc-500"
+                                  htmlFor={`prize-position-${index}`}
+                                >
+                                  <span>Posicion</span>
+                                  <input
+                                    id={`prize-position-${index}`}
+                                    aria-label={`Posicion del premio ${index + 1}`}
+                                    className="min-h-10 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm normal-case text-zinc-950"
+                                    disabled={!canManageSelectedPoolPrizes || savingPrizes}
+                                    inputMode="numeric"
+                                    value={draft.position}
+                                    onChange={(event) =>
+                                      updatePrizeDraft(index, { position: event.target.value })
+                                    }
+                                  />
+                                </label>
+                                <label
+                                  className="grid gap-1 text-xs font-medium uppercase text-zinc-500"
+                                  htmlFor={`prize-percentage-${index}`}
+                                >
+                                  <span>Porcentaje</span>
+                                  <div className="relative">
+                                    <input
+                                      id={`prize-percentage-${index}`}
+                                      aria-label={`Porcentaje del premio ${index + 1}`}
+                                      className="min-h-10 w-full rounded-md border border-zinc-300 px-3 py-2 pr-9 text-sm normal-case text-zinc-950"
+                                      disabled={!canManageSelectedPoolPrizes || savingPrizes}
+                                      inputMode="decimal"
+                                      value={draft.percentage}
+                                      onChange={(event) =>
+                                        updatePrizeDraft(index, { percentage: event.target.value })
+                                      }
+                                    />
+                                    <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm normal-case text-zinc-500">
+                                      %
+                                    </span>
+                                  </div>
+                                </label>
+                                <div className="grid gap-1 text-xs font-medium uppercase text-zinc-500">
+                                  <span>Valor estimado</span>
+                                  <div className="flex min-h-10 items-center rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm font-semibold normal-case text-zinc-950">
+                                    {estimatedAmountCents === null
+                                      ? "-"
+                                      : formatMoney(
+                                          estimatedAmountCents,
+                                          prizePreview?.currency ?? paymentCurrency,
+                                        )}
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_112px] md:items-end">
+                                <label
+                                  className="grid gap-1 text-xs font-medium uppercase text-zinc-500"
+                                  htmlFor={`prize-description-${index}`}
+                                >
+                                  <span>Descripcion</span>
+                                  <input
+                                    id={`prize-description-${index}`}
+                                    aria-label={`Descripcion del premio ${index + 1}`}
+                                    className="min-h-10 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm normal-case text-zinc-950"
+                                    disabled={!canManageSelectedPoolPrizes || savingPrizes}
+                                    value={draft.description}
+                                    onChange={(event) =>
+                                      updatePrizeDraft(index, { description: event.target.value })
+                                    }
+                                  />
+                                </label>
+                                <button
+                                  className="min-h-10 rounded-md border border-rose-200 px-3 py-2 text-xs font-medium text-rose-700 hover:border-rose-300 disabled:cursor-not-allowed disabled:text-zinc-400"
+                                  disabled={
+                                    !canManageSelectedPoolPrizes ||
+                                    savingPrizes ||
+                                    prizeDrafts.length <= 1
+                                  }
+                                  type="button"
+                                  onClick={() => removePrizeDraft(index)}
+                                >
+                                  Quitar
+                                </button>
+                              </div>
+                            </div>
+                          </article>
+                        );
+                      })}
+                    </div>
                   </div>
                 </div>
               </section>
@@ -3124,7 +3310,7 @@ export default function AdminHome() {
                               />
                             </label>
                             <button
-                              className="mt-3 rounded-md bg-zinc-950 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
+                              className="mt-3 rounded-md bg-[var(--pollavar-primary)] px-3 py-2 text-sm font-medium text-white hover:brightness-95 disabled:cursor-not-allowed disabled:bg-zinc-300"
                               disabled={
                                 !canManageSelectedPool ||
                                 reportsBusy ||
@@ -3257,40 +3443,108 @@ export default function AdminHome() {
                     Sin participantes con el estado seleccionado.
                   </div>
                 ) : (
-                  <div className="overflow-x-auto">
-                    <table className="min-w-[980px] w-full border-collapse text-left text-sm">
-                      <thead className="bg-zinc-50 text-xs uppercase text-zinc-500">
-                        <tr>
-                          <th className="px-4 py-3 font-semibold">Participante</th>
-                          <th className="px-4 py-3 font-semibold">Estado</th>
-                          <th className="px-4 py-3 font-semibold">Valor</th>
-                          <th className="px-4 py-3 font-semibold">Metodo</th>
-                          <th className="px-4 py-3 font-semibold">Referencia</th>
-                          <th className="px-4 py-3 font-semibold">Acciones</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-zinc-200">
-                        {filteredParticipants.map((participant) => {
-                          const payment = paymentsByUserID.get(participant.user_id);
-                          const draft = {
-                            ...defaultDraft(pool, payment),
-                            ...drafts[participant.user_id],
-                          };
-                          const displayName = participantDisplayName(participant);
-                          const isSaving = savingUserID === participant.user_id;
+                  <div className="grid gap-4 p-5 2xl:grid-cols-2">
+                    {filteredParticipants.map((participant) => {
+                      const payment = paymentsByUserID.get(participant.user_id);
+                      const draft = {
+                        ...defaultDraft(pool, payment),
+                        ...drafts[participant.user_id],
+                      };
+                      const displayName = participantDisplayName(participant);
+                      const isSaving = savingUserID === participant.user_id;
+                      const draftAmountCents = parseMoneyToCents(draft.amount);
+                      const paidAmountCents = draftAmountCents ?? 0;
+                      const balanceCents = Math.max(pool.entry_fee_cents - paidAmountCents, 0);
+                      const canConfirmPayment =
+                        canManageSelectedPool &&
+                        !isSaving &&
+                        draftAmountCents !== null &&
+                        balanceCents === 0;
+                      const paymentCoverageLabel =
+                        draftAmountCents === null
+                          ? "Valor invalido"
+                          : balanceCents === 0
+                            ? "Pago completo"
+                            : paidAmountCents > 0
+                              ? "Pago parcial"
+                              : "Sin abono";
+                      const paymentCoverageClass =
+                        draftAmountCents === null
+                          ? "bg-rose-100 text-rose-700"
+                          : balanceCents === 0
+                            ? "bg-emerald-100 text-emerald-800"
+                            : paidAmountCents > 0
+                              ? "bg-amber-100 text-amber-800"
+                              : "bg-zinc-100 text-zinc-700";
 
-                          return (
-                            <tr key={participant.user_id} className="align-top">
-                              <td className="px-4 py-4">
-                                <p className="font-medium text-zinc-950">{displayName}</p>
-                                <p className="mt-1 text-xs text-zinc-500">
-                                  {participant.username ? `@${participant.username}` : participant.user_id}
+                      return (
+                        <article
+                          className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm"
+                          key={participant.user_id}
+                          role="row"
+                        >
+                          <div className="grid gap-4">
+                            <div role="cell">
+                              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                <div>
+                                  <p className="font-medium text-zinc-950">{displayName}</p>
+                                  <p className="mt-1 break-all text-xs text-zinc-500">
+                                    {participant.username
+                                      ? `@${participant.username}`
+                                      : participant.user_id}
+                                  </p>
+                                </div>
+                                <span
+                                  className={`w-fit rounded-md px-2 py-1 text-xs font-medium ${paymentStatusClass(
+                                    draft.status,
+                                  )}`}
+                                >
+                                  {paymentStatusLabel(draft.status)}
+                                </span>
+                              </div>
+                            </div>
+
+                            <div className="grid gap-2 rounded-md bg-zinc-50 p-3 text-xs text-zinc-600 sm:grid-cols-3">
+                              <div>
+                                <p className="font-medium uppercase text-zinc-500">Entrada</p>
+                                <p className="mt-1 font-semibold text-zinc-950">
+                                  {formatMoney(pool.entry_fee_cents, paymentCurrency)}
                                 </p>
-                              </td>
-                              <td className="px-4 py-4">
+                              </div>
+                              <div>
+                                <p className="font-medium uppercase text-zinc-500">Pagado</p>
+                                <p className="mt-1 font-semibold text-zinc-950">
+                                  {draftAmountCents === null
+                                    ? "-"
+                                    : formatMoney(paidAmountCents, paymentCurrency)}
+                                </p>
+                              </div>
+                              <div>
+                                <p className="font-medium uppercase text-zinc-500">Saldo</p>
+                                <div className="mt-1 flex flex-wrap items-center gap-2">
+                                  <span className="font-semibold text-zinc-950">
+                                    {draftAmountCents === null
+                                      ? "-"
+                                      : formatMoney(balanceCents, paymentCurrency)}
+                                  </span>
+                                  <span
+                                    className={`rounded-md px-2 py-1 text-xs font-medium ${paymentCoverageClass}`}
+                                  >
+                                    {paymentCoverageLabel}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div
+                              className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(130px,0.8fr)_minmax(130px,0.7fr)_minmax(160px,1fr)]"
+                              role="cell"
+                            >
+                              <label className="grid gap-1 text-xs font-medium uppercase text-zinc-500">
+                                <span>Estado</span>
                                 <select
                                   aria-label={`Estado de pago de ${displayName}`}
-                                  className="min-h-10 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm"
+                                  className="min-h-10 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm normal-case text-zinc-950"
                                   disabled={!canManageSelectedPool || isSaving}
                                   value={draft.status}
                                   onChange={(event) =>
@@ -3305,36 +3559,33 @@ export default function AdminHome() {
                                     </option>
                                   ))}
                                 </select>
-                                <p className="mt-2">
-                                  <span
-                                    className={`rounded-md px-2 py-1 text-xs font-medium ${paymentStatusClass(
-                                      draft.status,
-                                    )}`}
-                                  >
-                                    {paymentStatusLabel(draft.status)}
+                              </label>
+                              <label className="grid gap-1 text-xs font-medium uppercase text-zinc-500">
+                                <span>Valor</span>
+                                <div className="relative">
+                                  <input
+                                    id={`amount-${participant.user_id}`}
+                                    aria-label={`Valor de pago de ${displayName}`}
+                                    className="min-h-10 w-full rounded-md border border-zinc-300 px-3 py-2 pr-14 text-sm normal-case text-zinc-950"
+                                    disabled={!canManageSelectedPool || isSaving}
+                                    inputMode="decimal"
+                                    value={draft.amount}
+                                    onChange={(event) =>
+                                      updateDraft(participant.user_id, {
+                                        amount: event.target.value,
+                                      })
+                                    }
+                                  />
+                                  <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs font-semibold normal-case text-zinc-500">
+                                    {paymentCurrency}
                                   </span>
-                                </p>
-                              </td>
-                              <td className="px-4 py-4">
-                                <label className="sr-only" htmlFor={`amount-${participant.user_id}`}>
-                                  Valor de pago de {displayName}
-                                </label>
-                                <input
-                                  id={`amount-${participant.user_id}`}
-                                  className="min-h-10 w-32 rounded-md border border-zinc-300 px-3 py-2 text-sm"
-                                  disabled={!canManageSelectedPool || isSaving}
-                                  inputMode="decimal"
-                                  value={draft.amount}
-                                  onChange={(event) =>
-                                    updateDraft(participant.user_id, { amount: event.target.value })
-                                  }
-                                />
-                                <p className="mt-2 text-xs text-zinc-500">{paymentCurrency}</p>
-                              </td>
-                              <td className="px-4 py-4">
+                                </div>
+                              </label>
+                              <label className="grid gap-1 text-xs font-medium uppercase text-zinc-500">
+                                <span>Metodo</span>
                                 <select
                                   aria-label={`Metodo de pago de ${displayName}`}
-                                  className="min-h-10 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm"
+                                  className="min-h-10 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm normal-case text-zinc-950"
                                   disabled={!canManageSelectedPool || isSaving}
                                   value={draft.method}
                                   onChange={(event) =>
@@ -3349,17 +3600,13 @@ export default function AdminHome() {
                                     </option>
                                   ))}
                                 </select>
-                              </td>
-                              <td className="px-4 py-4">
-                                <label
-                                  className="sr-only"
-                                  htmlFor={`reference-${participant.user_id}`}
-                                >
-                                  Referencia de pago de {displayName}
-                                </label>
+                              </label>
+                              <label className="grid gap-1 text-xs font-medium uppercase text-zinc-500 sm:col-span-2 xl:col-span-3">
+                                <span>Referencia</span>
                                 <input
                                   id={`reference-${participant.user_id}`}
-                                  className="min-h-10 w-48 rounded-md border border-zinc-300 px-3 py-2 text-sm"
+                                  aria-label={`Referencia de pago de ${displayName}`}
+                                  className="min-h-10 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm normal-case text-zinc-950"
                                   disabled={!canManageSelectedPool || isSaving}
                                   value={draft.reference}
                                   onChange={(event) =>
@@ -3368,59 +3615,63 @@ export default function AdminHome() {
                                     })
                                   }
                                 />
-                              </td>
-                              <td className="px-4 py-4">
-                                <div className="flex flex-wrap gap-2">
-                                  <button
-                                    className="rounded-md bg-emerald-700 px-3 py-2 text-xs font-medium text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
-                                    disabled={!canManageSelectedPool || isSaving}
-                                    type="button"
-                                    onClick={() => void savePayment(participant.user_id, "confirmed")}
-                                  >
-                                    Confirmar
-                                  </button>
-                                  <button
-                                    className="rounded-md border border-zinc-300 px-3 py-2 text-xs font-medium text-zinc-700 hover:border-zinc-400 disabled:cursor-not-allowed disabled:text-zinc-400"
-                                    disabled={!canManageSelectedPool || isSaving}
-                                    type="button"
-                                    onClick={() => void savePayment(participant.user_id, "pending")}
-                                  >
-                                    Pendiente
-                                  </button>
-                                  <button
-                                    className="rounded-md border border-rose-200 px-3 py-2 text-xs font-medium text-rose-700 hover:border-rose-300 disabled:cursor-not-allowed disabled:text-zinc-400"
-                                    disabled={!canManageSelectedPool || isSaving}
-                                    type="button"
-                                    onClick={() => void savePayment(participant.user_id, "rejected")}
-                                  >
-                                    Rechazar
-                                  </button>
-                                  <button
-                                    className="rounded-md border border-zinc-300 px-3 py-2 text-xs font-medium text-zinc-700 hover:border-zinc-400 disabled:cursor-not-allowed disabled:text-zinc-400"
-                                    disabled={!canManageSelectedPool || isSaving}
-                                    type="button"
-                                    onClick={() => void savePayment(participant.user_id)}
-                                  >
-                                    Guardar
-                                  </button>
-                                </div>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
+                              </label>
+                            </div>
+
+                            <div
+                              className="grid gap-2 sm:grid-cols-4"
+                              role="cell"
+                            >
+                              <button
+                                className="rounded-md bg-[var(--pollavar-primary)] px-3 py-2 text-xs font-medium text-white hover:brightness-95 disabled:cursor-not-allowed disabled:bg-zinc-300"
+                                disabled={!canConfirmPayment}
+                                type="button"
+                                title={
+                                  canConfirmPayment
+                                    ? undefined
+                                    : "Disponible cuando el saldo este en cero."
+                                }
+                                onClick={() => void savePayment(participant.user_id, "confirmed")}
+                              >
+                                Confirmar
+                              </button>
+                              <button
+                                className="rounded-md border border-zinc-300 px-3 py-2 text-xs font-medium text-zinc-700 hover:border-zinc-400 disabled:cursor-not-allowed disabled:text-zinc-400"
+                                disabled={!canManageSelectedPool || isSaving}
+                                type="button"
+                                onClick={() => void savePayment(participant.user_id, "pending")}
+                              >
+                                Pendiente
+                              </button>
+                              <button
+                                className="rounded-md border border-rose-200 px-3 py-2 text-xs font-medium text-rose-700 hover:border-rose-300 disabled:cursor-not-allowed disabled:text-zinc-400"
+                                disabled={!canManageSelectedPool || isSaving}
+                                type="button"
+                                onClick={() => void savePayment(participant.user_id, "rejected")}
+                              >
+                                Rechazar
+                              </button>
+                              <button
+                                className="rounded-md border border-zinc-300 px-3 py-2 text-xs font-medium text-zinc-700 hover:border-zinc-400 disabled:cursor-not-allowed disabled:text-zinc-400"
+                                disabled={!canManageSelectedPool || isSaving}
+                                type="button"
+                                onClick={() => void savePayment(participant.user_id)}
+                              >
+                                Guardar
+                              </button>
+                            </div>
+                          </div>
+                        </article>
+                      );
+                    })}
                   </div>
                 )}
               </section>
                   ) : null}
                 </div>
               </div>
-            ) : (
-              <section className="rounded-lg border border-zinc-200 bg-white p-6 text-sm text-zinc-600 shadow-sm">
-                No tienes pollas creadas.
-              </section>
-            )}
+            ) : null}
+            </PoolThemeOverview>
           </div>
         ) : null}
       </section>
@@ -3431,36 +3682,17 @@ export default function AdminHome() {
 function CreatePoolPanel({
   draft,
   onChange,
-  onCreate,
   saving,
   tournaments,
 }: {
   draft: CreatePoolDraft;
   onChange: (patch: Partial<CreatePoolDraft>) => void;
-  onCreate: () => void;
   saving: boolean;
   tournaments: TournamentSummary[];
 }) {
   return (
-    <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
-      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-        <div>
-          <h2 className="text-lg font-semibold text-zinc-950">Crear polla</h2>
-          <p className="text-sm text-zinc-600">
-            Crea una nueva polla privada y usa el codigo de invitacion para compartirla.
-          </p>
-        </div>
-        <button
-          className="min-h-10 rounded-md bg-zinc-950 px-3 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
-          disabled={saving || tournaments.length === 0}
-          onClick={onCreate}
-          type="button"
-        >
-          {saving ? "Creando" : "Crear polla"}
-        </button>
-      </div>
-
-      <div className="mt-4 grid gap-3 md:grid-cols-2 lg:grid-cols-5">
+    <section className="grid gap-4" id="crear-polla">
+      <div className="grid gap-3 md:grid-cols-2">
         <label className="grid gap-2 text-sm font-medium text-zinc-700">
           <span>Torneo</span>
           <select
@@ -3480,12 +3712,14 @@ function CreatePoolPanel({
           disabled={saving}
           label="Nombre"
           onChange={(value) => onChange({ name: value })}
+          placeholder="Ej. Polla familiar"
           value={draft.name}
         />
         <TextInput
           disabled={saving}
           label="Entrada"
           onChange={(value) => onChange({ entryFee: value })}
+          placeholder="10000"
           type="number"
           value={draft.entryFee}
         />
@@ -3493,22 +3727,25 @@ function CreatePoolPanel({
           disabled={saving}
           label="Moneda"
           onChange={(value) => onChange({ currency: value })}
+          placeholder="COP"
           value={draft.currency}
         />
         <TextInput
           disabled={saving}
           label="Cierre horas antes"
           onChange={(value) => onChange({ predictionCloseHoursBefore: value })}
+          placeholder="6"
           type="number"
           value={draft.predictionCloseHoursBefore}
         />
       </div>
-      <label className="mt-3 grid gap-2 text-sm font-medium text-zinc-700">
-        <span>Descripcion</span>
-        <input
-          className="min-h-10 rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-950 disabled:bg-zinc-100"
+      <label className="grid gap-2 text-sm font-medium text-zinc-700">
+        <span>Descripcion opcional</span>
+        <textarea
+          className="min-h-24 resize-none rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-950 disabled:bg-zinc-100"
           disabled={saving}
           onChange={(event) => onChange({ description: event.target.value })}
+          placeholder="Ej. Reglas internas, grupo o notas para los participantes"
           value={draft.description}
         />
       </label>
@@ -3516,74 +3753,219 @@ function CreatePoolPanel({
   );
 }
 
+function CreatePoolModal({
+  canCreate,
+  children,
+  onClose,
+  onCreate,
+  saving,
+}: {
+  canCreate: boolean;
+  children: ReactNode;
+  onClose: () => void;
+  onCreate: () => void;
+  saving: boolean;
+}) {
+  return (
+    <div
+      aria-labelledby="create-pool-modal-title"
+      aria-modal="true"
+      className="fixed inset-0 z-40 grid place-items-center bg-zinc-950/45 px-4 py-6"
+      role="dialog"
+    >
+      <div className="flex max-h-[calc(100vh-2rem)] w-full max-w-[calc(100%-2rem)] flex-col overflow-hidden rounded-xl bg-white text-sm text-zinc-950 shadow-xl ring-1 ring-zinc-950/10 sm:max-w-xl">
+        <div className="flex items-start justify-between gap-3 border-b border-slate-800 bg-[#0f172a] px-4 py-4">
+          <div>
+            <p
+              className="text-base font-semibold leading-none text-white"
+              id="create-pool-modal-title"
+            >
+              Nueva polla
+            </p>
+            <p className="mt-2 text-sm text-slate-400">
+              Define torneo, entrada y cierre inicial de pronosticos.
+            </p>
+          </div>
+          <button
+            aria-label="Cerrar crear polla"
+            className="grid size-8 place-items-center rounded-md text-white/60 transition hover:bg-white/10 hover:text-white"
+            onClick={onClose}
+            type="button"
+          >
+            <span aria-hidden="true" className="text-xl leading-none">
+              x
+            </span>
+          </button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">{children}</div>
+        <div className="flex flex-col-reverse gap-2 border-t border-zinc-200 bg-zinc-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-end">
+          <button
+            className="min-h-10 rounded-md border border-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-700 hover:border-zinc-400 disabled:cursor-not-allowed disabled:text-zinc-400"
+            disabled={saving}
+            onClick={onClose}
+            type="button"
+          >
+            Cancelar
+          </button>
+          <button
+            className="min-h-10 rounded-md bg-[var(--pollavar-primary)] px-4 py-2 text-sm font-semibold text-white hover:brightness-95 disabled:cursor-not-allowed disabled:bg-zinc-300"
+            disabled={saving || !canCreate}
+            onClick={onCreate}
+            type="button"
+          >
+            {saving ? "Creando" : "Crear polla"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PoolThemeOverview({
+  children,
   onSelectPool,
   paymentCurrency,
   pool,
   pools,
   selectedPoolID,
+  switchingPoolID,
   totals,
 }: {
+  children?: ReactNode;
   onSelectPool: (poolID: string) => void;
   paymentCurrency: string;
   pool: Pool | null;
   pools: Pool[];
   selectedPoolID: string;
+  switchingPoolID: string;
   totals: ReturnType<typeof paymentTotals>;
 }) {
-  const theme = normalizedPoolTheme(pool?.theme);
+  const theme = adminVisualTheme(pool?.theme);
+  const [expandedPoolIDs, setExpandedPoolIDs] = useState<Set<string>>(
+    () => new Set(selectedPoolID ? [selectedPoolID] : []),
+  );
+
+  useEffect(() => {
+    if (!selectedPoolID) {
+      return;
+    }
+    setExpandedPoolIDs((current) => {
+      const next = new Set(current);
+      next.add(selectedPoolID);
+      return next;
+    });
+  }, [selectedPoolID]);
 
   return (
-    <section
-      className="overflow-hidden rounded-lg border bg-white shadow-sm"
-      style={{ borderColor: theme.accentColor }}
-    >
-      {theme.bannerURL ? (
-        <div
-          aria-hidden="true"
-          className="h-20 bg-cover bg-center"
-          style={{ backgroundImage: `url(${JSON.stringify(theme.bannerURL)})` }}
-        />
-      ) : (
-        <div aria-hidden="true" className="h-2" style={{ backgroundColor: theme.primaryColor }} />
-      )}
-      <div className="flex flex-col gap-4 p-5 lg:flex-row lg:items-end lg:justify-between">
-        <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-end">
-          <ThemeLogo theme={theme} />
-          <div>
-            <label className="text-sm font-medium text-zinc-600" htmlFor="pool-select">
-              Polla
-            </label>
-            <select
-              id="pool-select"
-              className="mt-2 min-h-10 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950 lg:min-w-80"
-              value={selectedPoolID}
-              onChange={(event) => onSelectPool(event.target.value)}
-            >
-              {pools.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {poolDisplayName(item)}
-                </option>
-              ))}
-            </select>
-            <p className="mt-2 text-sm font-medium" style={{ color: theme.primaryColor }}>
-              {pool ? poolDisplayName(pool) : "Sin polla seleccionada"}
-            </p>
+    <div className="grid gap-3 overflow-visible">
+        {pools.length === 0 ? (
+          <div className="grid gap-3">
+            <div className="rounded-lg border border-dashed border-zinc-300 bg-white/70 p-4 text-sm text-zinc-600">
+              Todavia no tienes pollas creadas.
+            </div>
+            {children}
           </div>
-        </div>
-        {pool ? (
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <Metric label="Participantes" value={String(pool.participants.length)} />
-            <Metric label="Confirmados" value={String(totals.confirmedCount)} />
-            <Metric label="Pendientes" value={String(totals.pendingCount)} />
-            <Metric
-              label="Recaudo confirmado"
-              value={formatMoney(totals.confirmedAmountCents, paymentCurrency)}
-            />
+        ) : (
+          <div className="grid gap-3">
+            {pools.map((item) => {
+              const itemTheme = adminVisualTheme(item.theme);
+              const isActive = item.id === selectedPoolID;
+              const isSwitching = item.id === switchingPoolID;
+              const snapshot = poolOverviewSnapshot(
+                item,
+                isActive ? totals : null,
+                paymentCurrency,
+              );
+
+              return (
+                <details
+                  className="group overflow-visible rounded-lg border bg-white/90 shadow-sm"
+                  key={`${item.id}-${isActive ? "active" : "idle"}`}
+                  open={expandedPoolIDs.has(item.id)}
+                  onToggle={(event) => {
+                    const isOpen = event.currentTarget.open;
+                    setExpandedPoolIDs((current) => {
+                      const next = new Set(current);
+                      if (isOpen) {
+                        next.add(item.id);
+                      } else {
+                        next.delete(item.id);
+                      }
+                      return next;
+                    });
+                  }}
+                  style={{
+                    borderColor: isActive
+                      ? themeColorAlpha(itemTheme.secondaryColor, 0.52)
+                      : "rgba(212, 212, 216, 0.9)",
+                  }}
+                >
+                  <summary
+                    className="flex cursor-pointer list-none flex-col gap-3 px-4 py-3 marker:hidden md:flex-row md:items-center md:justify-between"
+                    onClick={() => {
+                      if (!isActive) {
+                        onSelectPool(item.id);
+                      }
+                    }}
+                  >
+                    <div className="flex min-w-0 items-center gap-3">
+                      <ThemeLogo size="sm" theme={itemTheme} />
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="truncate font-semibold text-zinc-950">
+                            {poolDisplayName(item)}
+                          </p>
+                          {isActive ? (
+                            <span
+                              className="rounded-md px-2 py-0.5 text-[11px] font-semibold"
+                              style={{
+                                backgroundColor: themeColorAlpha(itemTheme.primaryColor, 0.12),
+                                color: itemTheme.primaryColor,
+                              }}
+                            >
+                              Activa
+                            </span>
+                          ) : null}
+                          {isSwitching ? (
+                            <span className="rounded-md bg-sky-100 px-2 py-0.5 text-[11px] font-semibold text-sky-800">
+                              Cargando
+                            </span>
+                          ) : null}
+                        </div>
+                        <p className="mt-1 text-xs text-zinc-500">
+                          Codigo {item.invite_code} · {formatMoney(item.entry_fee_cents, item.currency)} por entrada
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-600">
+                      <span className="rounded-md bg-zinc-100 px-2 py-1">
+                        {snapshot.participants} participantes
+                      </span>
+                      <span className="rounded-md bg-zinc-100 px-2 py-1">
+                        {snapshot.confirmed} pagados
+                      </span>
+                      <span
+                        aria-hidden="true"
+                        className="grid size-8 place-items-center rounded-full border border-zinc-200 text-zinc-500 transition-transform group-open:rotate-180"
+                      >
+                        <span className="h-2 w-2 rotate-45 border-b-2 border-r-2 border-current" />
+                      </span>
+                    </div>
+                  </summary>
+                  {isActive ? (
+                    <div
+                      className="border-t bg-white px-4 py-4"
+                      style={{ borderColor: themeColorAlpha(itemTheme.secondaryColor, 0.16) }}
+                    >
+                      {children}
+                    </div>
+                  ) : null}
+                </details>
+              );
+            })}
           </div>
-        ) : null}
-      </div>
-    </section>
+        )}
+    </div>
   );
 }
 
@@ -3606,27 +3988,21 @@ function AdminSectionNavigation({
 
   return (
     <aside className="lg:sticky lg:top-4 lg:self-start">
-      <label className="block text-xs font-medium uppercase text-zinc-500 lg:hidden" htmlFor="admin-section-select">
-        Seccion
-      </label>
-      <select
-        id="admin-section-select"
-        className="mt-2 min-h-11 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950 lg:hidden"
-        onChange={(event) => onSelect(event.target.value as AdminSectionID)}
-        value={activeSection}
-      >
-        {items.map((item) => (
-          <option key={item.id} value={item.id}>
-            {item.label}
-          </option>
-        ))}
-      </select>
       <nav
         aria-label="Secciones de administracion"
-        className="hidden rounded-lg border border-zinc-200 bg-white p-3 shadow-sm lg:block"
+        className="hidden rounded-lg border bg-white/95 p-3 shadow-sm backdrop-blur lg:block"
+        style={{ borderColor: "var(--pollavar-accent-soft)" }}
       >
-        <div className="border-b border-zinc-200 px-2 pb-3">
-          <p className="text-xs font-medium uppercase text-emerald-700">Administrar</p>
+        <div
+          className="rounded-md px-2 py-3"
+          style={{
+            background:
+              "linear-gradient(135deg, var(--pollavar-secondary-soft), var(--pollavar-primary-soft))",
+          }}
+        >
+          <p className="text-xs font-medium uppercase" style={{ color: "var(--pollavar-secondary)" }}>
+            Administrar
+          </p>
           <p className="mt-1 text-sm font-semibold text-zinc-950">{activeItem.label}</p>
           <p className="mt-1 text-xs text-zinc-500">{activeItem.description}</p>
         </div>
@@ -3651,7 +4027,7 @@ function AdminSectionNavigation({
                         aria-label={item.label}
                         className={`flex w-full items-center justify-between gap-2 rounded-md px-2 py-2 text-left text-sm font-medium ${
                           selected
-                            ? "bg-emerald-50 text-emerald-900"
+                            ? "text-zinc-950"
                             : "text-zinc-700 hover:bg-zinc-50 hover:text-zinc-950"
                         }`}
                         href={adminSectionHref(item.id)}
@@ -3660,15 +4036,30 @@ function AdminSectionNavigation({
                           event.preventDefault();
                           onSelect(item.id);
                         }}
+                        style={
+                          selected
+                            ? {
+                                background:
+                                  "linear-gradient(90deg, var(--pollavar-secondary-soft), var(--pollavar-primary-soft))",
+                                boxShadow:
+                                  "inset 3px 0 0 var(--pollavar-secondary), inset 0 -1px 0 var(--pollavar-accent-soft)",
+                              }
+                            : undefined
+                        }
                       >
                         <span>{item.label}</span>
                         {item.badge ? (
                           <span
                             className={`rounded-md px-2 py-0.5 text-[11px] font-semibold ${
                               selected
-                                ? "bg-emerald-100 text-emerald-800"
+                                ? "text-zinc-950"
                                 : "bg-zinc-100 text-zinc-500"
                             }`}
+                            style={
+                              selected
+                                ? { backgroundColor: "var(--pollavar-accent-soft)" }
+                                : undefined
+                            }
                           >
                             {item.badge}
                           </span>
@@ -3686,15 +4077,69 @@ function AdminSectionNavigation({
   );
 }
 
+function AdminToast({
+  message,
+  onDismiss,
+  type,
+}: {
+  message: string;
+  onDismiss: () => void;
+  type: "success" | "error";
+}) {
+  const isSuccess = type === "success";
+
+  return (
+    <div className="fixed bottom-4 right-4 z-[200] w-[min(20rem,calc(100vw-2rem))]">
+      <div
+        className={[
+          "flex items-start gap-3 rounded-lg border px-4 py-3 text-sm shadow-lg",
+          isSuccess
+            ? "border-green-500/30 bg-green-500/15 text-green-700"
+            : "border-[#F59E0B]/30 bg-[#F59E0B]/15 text-[#b45309]",
+        ].join(" ")}
+        role={isSuccess ? "status" : "alert"}
+      >
+        <span aria-hidden="true" className="mt-0.5 grid size-4 shrink-0 place-items-center">
+          {isSuccess ? (
+            <svg fill="none" height="16" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" width="16">
+              <path d="M20 6 9 17l-5-5" />
+            </svg>
+          ) : (
+            <svg fill="none" height="16" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" width="16">
+              <circle cx="12" cy="12" r="10" />
+              <path d="M12 8v5" />
+              <path d="M12 17h.01" />
+            </svg>
+          )}
+        </span>
+        <span className="flex-1">{message}</span>
+        <button
+          aria-label="Cerrar mensaje"
+          className="shrink-0 opacity-60 transition hover:opacity-100"
+          onClick={onDismiss}
+          type="button"
+        >
+          <svg fill="none" height="14" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" width="14">
+            <path d="M18 6 6 18" />
+            <path d="m6 6 12 12" />
+          </svg>
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function AdminPoolStickyHeader({
   activeSection,
   items,
+  onSelect,
   paymentCurrency,
   pool,
   totals,
 }: {
   activeSection: AdminSectionID;
   items: AdminSectionItem[];
+  onSelect: (section: AdminSectionID) => void;
   paymentCurrency: string;
   pool: Pool;
   totals: ReturnType<typeof paymentTotals>;
@@ -3702,10 +4147,20 @@ function AdminPoolStickyHeader({
   const activeItem = items.find((item) => item.id === activeSection) ?? items[0];
 
   return (
-    <section className="sticky top-0 z-10 rounded-lg border border-zinc-200 bg-white/95 px-4 py-3 shadow-sm backdrop-blur">
+    <section
+      className="sticky top-0 z-10 rounded-lg border bg-white/95 px-4 py-3 shadow-sm backdrop-blur"
+      style={{
+        background:
+          "linear-gradient(135deg, rgba(255,255,255,0.96), var(--pollavar-secondary-soft))",
+        borderColor: "var(--pollavar-secondary-soft)",
+        boxShadow: "0 12px 30px rgba(15, 23, 42, 0.08)",
+      }}
+    >
       <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
         <div className="min-w-0">
-          <p className="text-xs font-medium uppercase text-emerald-700">{activeItem.label}</p>
+          <p className="text-xs font-medium uppercase" style={{ color: "var(--pollavar-secondary)" }}>
+            {activeItem.label}
+          </p>
           <p className="mt-1 truncate text-lg font-semibold text-zinc-950">
             {poolDisplayName(pool)}
           </p>
@@ -3721,7 +4176,43 @@ function AdminPoolStickyHeader({
           />
         </div>
       </div>
+      <div className="mt-3 border-t border-white/70 pt-3 lg:hidden">
+        <label className="block text-xs font-medium uppercase text-zinc-500" htmlFor="admin-section-select">
+          Seccion
+        </label>
+        <select
+          id="admin-section-select"
+          className="mt-2 min-h-11 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950 shadow-sm"
+          onChange={(event) => onSelect(event.target.value as AdminSectionID)}
+          value={activeSection}
+        >
+          {items.map((item) => (
+            <option key={item.id} value={item.id}>
+              {item.label}
+            </option>
+          ))}
+        </select>
+      </div>
     </section>
+  );
+}
+
+function adminToastType(message: string): "success" | "error" {
+  return isAdminErrorMessage(message) ? "error" : "success";
+}
+
+function isAdminErrorMessage(message: string) {
+  return (
+    message.includes("No pudimos") ||
+    message.includes("No tienes permisos") ||
+    message.includes("No puedes") ||
+    message.includes("Revisa") ||
+    message.includes("Indica") ||
+    message.includes("Elige") ||
+    message.includes("Selecciona") ||
+    message.includes("Solo puedes") ||
+    message.includes("La prediccion") ||
+    message.includes("El partido")
   );
 }
 
@@ -3798,8 +4289,13 @@ function AdminPoolSummaryPanel({
 
 function CompactMetric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-md border border-zinc-200 bg-white px-3 py-2">
-      <p className="text-[11px] font-medium uppercase text-zinc-500">{label}</p>
+    <div
+      className="rounded-md border bg-white px-3 py-2"
+      style={{ borderColor: "var(--pollavar-accent-soft)" }}
+    >
+      <p className="text-[11px] font-medium uppercase" style={{ color: "var(--pollavar-primary)" }}>
+        {label}
+      </p>
       <p className="mt-0.5 truncate text-sm font-semibold text-zinc-950">{value}</p>
     </div>
   );
@@ -3835,6 +4331,13 @@ function buildAdminSections({
       label: "Identidad",
       description: "Marca, colores, logo y visuales de la polla.",
       group: "Configuracion",
+    },
+    {
+      id: "torneo",
+      label: "Torneo",
+      description: "Equipos, grupos, partidos y reglas de avance.",
+      group: "Configuracion",
+      badge: String(pool ? resultGroups.length : 0),
     },
     {
       id: "pronosticos",
@@ -3901,6 +4404,7 @@ function buildAdminSections({
 function adminSectionHref(section: AdminSectionID) {
   const hrefBySection: Record<AdminSectionID, string> = {
     resumen: "#resumen",
+    torneo: "#estructura-torneo",
     tema: "#identidad",
     pronosticos: "#pronosticos",
     overrides: "#overrides",
@@ -3914,6 +4418,181 @@ function adminSectionHref(section: AdminSectionID) {
   };
 
   return hrefBySection[section];
+}
+
+function TournamentStructurePanel({
+  predictionStatusesByMatch,
+  tournament,
+}: {
+  predictionStatusesByMatch: Map<string, PredictionMatchStatus>;
+  tournament: Tournament | null;
+}) {
+  const teams = tournamentTeamOptions(tournament);
+  const matchesByStage = groupMatchesByStage(tournament?.matches ?? []);
+  const knockoutMatches = (tournament?.matches ?? []).filter((match) =>
+    ["knockout", "playoff", "placement"].includes(match.stage_type),
+  );
+
+  return (
+    <section
+      className="scroll-mt-4 rounded-lg border border-zinc-200 bg-white shadow-sm"
+      id="estructura-torneo"
+    >
+      <div className="flex flex-col gap-3 border-b border-zinc-200 px-5 py-4 md:flex-row md:items-center md:justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-zinc-950">Torneo</h2>
+          <p className="text-sm text-zinc-600">
+            {tournament
+              ? `${tournament.name} · ${tournament.sport} · ${tournament.format_code}`
+              : "Sin torneo cargado."}
+          </p>
+        </div>
+        {tournament ? (
+          <div className="flex flex-wrap gap-2">
+            <span className="rounded-md bg-zinc-100 px-2 py-1 text-xs font-medium text-zinc-700">
+              {teams.length} equipos
+            </span>
+            <span className="rounded-md bg-zinc-100 px-2 py-1 text-xs font-medium text-zinc-700">
+              {tournament.groups.length} grupos
+            </span>
+            <span className="rounded-md bg-zinc-100 px-2 py-1 text-xs font-medium text-zinc-700">
+              {tournament.matches.length} partidos
+            </span>
+          </div>
+        ) : null}
+      </div>
+
+      {!tournament ? (
+        <div className="p-5 text-sm text-zinc-600">
+          Selecciona una polla para ver la estructura del torneo asociado.
+        </div>
+      ) : (
+        <div className="grid gap-5 p-5">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <Metric label="Equipos" value={String(teams.length)} />
+            <Metric label="Fases" value={String(matchesByStage.length)} />
+            <Metric label="Llaves" value={String(knockoutMatches.length)} />
+            <Metric label="Reglas de avance" value={String(tournament.advancement_rules.length)} />
+          </div>
+
+          <div className="rounded-lg border border-zinc-200">
+            <div className="border-b border-zinc-200 px-4 py-3">
+              <h3 className="text-sm font-semibold text-zinc-950">Grupos y equipos</h3>
+            </div>
+            <div className="grid gap-3 p-4 md:grid-cols-2 2xl:grid-cols-3">
+              {tournament.groups.map((group) => (
+                <article className="rounded-lg border border-zinc-200 p-3" key={group.id}>
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="font-semibold text-zinc-950">{group.name}</p>
+                    <span className="rounded-md bg-zinc-100 px-2 py-1 text-xs font-medium text-zinc-600">
+                      {group.teams.length}
+                    </span>
+                  </div>
+                  <div className="mt-3 grid gap-2.5">
+                    {group.teams.map((team) => (
+                      <div className="flex min-h-6 w-full min-w-0 items-center" key={team.id}>
+                        <TeamBadge label={team.name} team={team} />
+                      </div>
+                    ))}
+                  </div>
+                </article>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-zinc-200">
+            <div className="border-b border-zinc-200 px-4 py-3">
+              <h3 className="text-sm font-semibold text-zinc-950">Fases y partidos</h3>
+            </div>
+            <div className="grid gap-3 p-4 lg:grid-cols-2">
+              {matchesByStage.map((stage) => (
+                <article className="rounded-lg border border-zinc-200 p-4" key={stage.key}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-semibold text-zinc-950">{stage.title}</p>
+                      <p className="mt-1 text-xs text-zinc-500">{stage.stageType}</p>
+                    </div>
+                    <span className="rounded-md bg-zinc-100 px-2 py-1 text-xs font-medium text-zinc-600">
+                      {stage.matches.length} partidos
+                    </span>
+                  </div>
+                  <div className="mt-3 grid gap-2">
+                    {stage.matches.slice(0, 4).map((match) => {
+                      const status = predictionStatusesByMatch.get(match.id);
+                      const homeTeam = status?.resolved_home_team ?? match.home_team;
+                      const awayTeam = status?.resolved_away_team ?? match.away_team;
+                      const homeName = matchTeamName(match, "home", status);
+                      const awayName = matchTeamName(match, "away", status);
+
+                      return (
+                        <div
+                          className="grid gap-2 rounded-md bg-zinc-50 px-3 py-2 text-sm"
+                          key={match.id}
+                        >
+                          <div className="grid gap-2 sm:grid-cols-[44px_minmax(0,1fr)_24px_minmax(0,1fr)] sm:items-center">
+                            <span className="text-xs text-zinc-500">#{match.match_number}</span>
+                            <span className="min-w-0 font-medium text-zinc-950">
+                              <TeamBadge label={homeName} team={homeTeam} />
+                            </span>
+                            <span className="text-xs font-semibold uppercase text-zinc-400">vs</span>
+                            <span className="min-w-0 font-medium text-zinc-950">
+                              <TeamBadge label={awayName} team={awayTeam} />
+                            </span>
+                          </div>
+                          <span className="text-xs text-zinc-500 sm:pl-[68px]">
+                            {formatMatchDate(match.starts_at)}
+                          </span>
+                        </div>
+                      );
+                    })}
+                    {stage.matches.length > 4 ? (
+                      <p className="text-xs text-zinc-500">
+                        +{stage.matches.length - 4} partidos adicionales
+                      </p>
+                    ) : null}
+                  </div>
+                </article>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-zinc-200">
+            <div className="border-b border-zinc-200 px-4 py-3">
+              <h3 className="text-sm font-semibold text-zinc-950">Reglas de avance</h3>
+            </div>
+            {tournament.advancement_rules.length === 0 ? (
+              <p className="px-4 py-3 text-sm text-zinc-600">Sin reglas de avance configuradas.</p>
+            ) : (
+              <div className="grid gap-3 p-4 md:grid-cols-2">
+                {[...tournament.advancement_rules]
+                  .sort((left, right) => left.priority - right.priority)
+                  .map((rule) => (
+                    <article className="rounded-lg border border-zinc-200 p-3" key={rule.id}>
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <p className="font-semibold text-zinc-950">
+                            {advancementRuleLabel(rule.rule_type)}
+                          </p>
+                          <p className="mt-1 text-xs text-zinc-500">
+                            {rule.from_stage_name || "Origen"} → {rule.to_stage_name || "Destino"}
+                          </p>
+                        </div>
+                        <span className="rounded-md bg-zinc-100 px-2 py-1 text-xs font-medium text-zinc-600">
+                          #{rule.priority}
+                        </span>
+                      </div>
+                      <p className="mt-2 text-xs text-zinc-600">
+                        {rule.label || `Clasificados: ${rule.qualifiers || rule.rank || "-"}`}
+                      </p>
+                    </article>
+                  ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </section>
+  );
 }
 
 function PoolThemePanel({
@@ -4009,7 +4688,7 @@ function PoolThemePanel({
         />
         <div className="flex items-end">
           <button
-            className="min-h-10 rounded-md bg-zinc-950 px-3 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
+            className="min-h-10 rounded-md bg-[var(--pollavar-primary)] px-3 py-2 text-sm font-semibold text-white hover:brightness-95 disabled:cursor-not-allowed disabled:bg-zinc-300"
             disabled={!canManage || saving}
             onClick={onSave}
             type="button"
@@ -4057,13 +4736,16 @@ function ColorField({
   );
 }
 
-function ThemeLogo({ theme }: { theme: NormalizedTheme }) {
+function ThemeLogo({ size = "md", theme }: { size?: "sm" | "md"; theme: NormalizedTheme }) {
+  const sizeClass = size === "sm" ? "h-10 w-10 text-sm" : "h-16 w-16 text-lg";
+  const paddingClass = size === "sm" ? "p-1.5" : "p-2";
+
   if (theme.logoURL) {
     return (
       // eslint-disable-next-line @next/next/no-img-element
       <img
         alt=""
-        className="h-16 w-16 rounded-md border border-zinc-200 bg-white object-contain p-2"
+        className={`${sizeClass} rounded-md border border-white bg-white object-contain ${paddingClass} shadow-sm`}
         src={theme.logoURL}
       />
     );
@@ -4072,8 +4754,11 @@ function ThemeLogo({ theme }: { theme: NormalizedTheme }) {
   return (
     <div
       aria-hidden="true"
-      className="grid h-16 w-16 place-items-center rounded-md text-lg font-semibold text-white"
-      style={{ backgroundColor: theme.primaryColor }}
+      className={`${sizeClass} grid place-items-center rounded-md font-semibold text-white shadow-sm`}
+      style={{
+        background: `linear-gradient(135deg, ${theme.primaryColor}, ${theme.secondaryColor})`,
+        border: `2px solid ${theme.accentColor}`,
+      }}
     >
       PV
     </div>
@@ -4096,16 +4781,10 @@ function SignedOutPanel() {
       <h2 className="text-xl font-semibold text-zinc-950">Entra para administrar recaudo</h2>
       <div className="mt-5 flex flex-wrap gap-2">
         <Link
-          className="rounded-md bg-zinc-950 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800"
+          className="rounded-md bg-[var(--pollavar-primary)] px-3 py-2 text-sm font-medium text-white hover:brightness-95"
           href="/login"
         >
           Entrar
-        </Link>
-        <Link
-          className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:border-zinc-400"
-          href="/register"
-        >
-          Crear cuenta
         </Link>
       </div>
     </section>
@@ -4147,91 +4826,101 @@ function PredictionSettingsPanel({
         </span>
       </div>
 
-      <div className="grid gap-4 p-5 lg:grid-cols-[minmax(0,1fr)_minmax(260px,0.8fr)_auto] lg:items-end">
-        <label className="grid gap-2 text-sm font-medium text-zinc-700">
-          <span>Modo de pronostico</span>
-          <select
-            className="min-h-10 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950 disabled:bg-zinc-100"
+      <div className="grid gap-5 p-5">
+        <div className="grid gap-4 lg:grid-cols-2">
+          <label className="grid gap-2 text-sm font-medium text-zinc-700">
+            <span>Modo de pronostico</span>
+            <select
+              className="min-h-10 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950 disabled:bg-zinc-100"
+              disabled={!canManage || saving}
+              value={draft.predictionMode}
+              onChange={(event) =>
+                onChange({
+                  ...draft,
+                  predictionMode: event.target.value as PredictionMode,
+                })
+              }
+            >
+              {predictionModeOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="grid gap-2 text-sm font-medium text-zinc-700">
+            <span>Puntaje de resultado</span>
+            <select
+              className="min-h-10 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950 disabled:bg-zinc-100"
+              disabled={!canManage || saving}
+              value={draft.matchResultScoringMode}
+              onChange={(event) =>
+                onChange({
+                  ...draft,
+                  matchResultScoringMode: event.target.value as MatchResultScoringMode,
+                })
+              }
+            >
+              {matchResultScoringModeOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        <div className="grid gap-4 lg:grid-cols-[minmax(320px,0.55fr)_minmax(220px,0.35fr)] lg:items-end lg:justify-between">
+          <div className="grid gap-2 text-sm font-medium text-zinc-700">
+            <span>Bonus sorpresa</span>
+            <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_120px]">
+              <label className="flex min-h-10 items-center gap-2 rounded-md border border-zinc-300 px-3 text-sm font-medium text-zinc-700">
+                <input
+                  checked={draft.underdogBonusEnabled}
+                  className="h-4 w-4"
+                  disabled={!canManage || saving}
+                  onChange={(event) =>
+                    onChange({
+                      ...draft,
+                      underdogBonusEnabled: event.target.checked,
+                    })
+                  }
+                  type="checkbox"
+                />
+                <span>Activo</span>
+              </label>
+              <label className="grid gap-2 text-sm font-medium text-zinc-700">
+                <span>Puntos bonus</span>
+                <input
+                  aria-label="Puntos bonus"
+                  className="min-h-10 rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-950 disabled:bg-zinc-100"
+                  disabled={!canManage || saving || !draft.underdogBonusEnabled}
+                  min={0}
+                  onChange={(event) =>
+                    onChange({
+                      ...draft,
+                      underdogBonusPoints: event.target.value,
+                    })
+                  }
+                  placeholder="Pts"
+                  step={1}
+                  type="number"
+                  value={draft.underdogBonusPoints}
+                />
+              </label>
+            </div>
+          </div>
+
+          <button
+            className="min-h-10 rounded-md bg-[var(--pollavar-primary)] px-3 py-2 text-sm font-semibold text-white hover:brightness-95 disabled:cursor-not-allowed disabled:bg-zinc-300"
             disabled={!canManage || saving}
-            value={draft.predictionMode}
-            onChange={(event) =>
-              onChange({
-                ...draft,
-                predictionMode: event.target.value as PredictionMode,
-              })
-            }
+            onClick={onSave}
+            type="button"
           >
-            {predictionModeOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <label className="grid gap-2 text-sm font-medium text-zinc-700">
-          <span>Puntaje de resultado</span>
-          <select
-            className="min-h-10 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950 disabled:bg-zinc-100"
-            disabled={!canManage || saving}
-            value={draft.matchResultScoringMode}
-            onChange={(event) =>
-              onChange({
-                ...draft,
-                matchResultScoringMode: event.target.value as MatchResultScoringMode,
-              })
-            }
-          >
-            {matchResultScoringModeOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <label className="flex min-h-10 items-center gap-2 text-sm font-medium text-zinc-700">
-          <input
-            checked={draft.underdogBonusEnabled}
-            className="h-4 w-4"
-            disabled={!canManage || saving}
-            onChange={(event) =>
-              onChange({
-                ...draft,
-                underdogBonusEnabled: event.target.checked,
-              })
-            }
-            type="checkbox"
-          />
-          <span>Bonus sorpresa</span>
-        </label>
-
-        <label className="grid gap-2 text-sm font-medium text-zinc-700">
-          <span>Puntos bonus</span>
-          <input
-            className="min-h-10 rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-950 disabled:bg-zinc-100"
-            disabled={!canManage || saving}
-            min={0}
-            onChange={(event) =>
-              onChange({
-                ...draft,
-                underdogBonusPoints: event.target.value,
-              })
-            }
-            step={1}
-            type="number"
-            value={draft.underdogBonusPoints}
-          />
-        </label>
-
-        <button
-          className="min-h-10 rounded-md bg-zinc-950 px-3 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
-          disabled={!canManage || saving}
-          onClick={onSave}
-          type="button"
-        >
-          {saving ? "Guardando" : "Guardar configuracion"}
-        </button>
+            {saving ? "Guardando" : "Guardar configuracion"}
+          </button>
+        </div>
       </div>
     </section>
   );
@@ -4318,7 +5007,7 @@ function PredictionSettingsOverridesPanel({
           />
           <div className="flex justify-end">
             <button
-              className="min-h-10 rounded-md bg-zinc-950 px-3 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
+              className="min-h-10 rounded-md bg-[var(--pollavar-primary)] px-3 py-2 text-sm font-semibold text-white hover:brightness-95 disabled:cursor-not-allowed disabled:bg-zinc-300"
               disabled={!canManage || saving}
               onClick={onSave}
               type="button"
@@ -4361,45 +5050,48 @@ function PredictionSettingsOverrideTable({
   return (
     <div>
       <h3 className="mb-3 text-sm font-semibold text-zinc-950">{title}</h3>
-      <div className="overflow-x-auto rounded-md border border-zinc-200">
-        <table className="min-w-[1120px] w-full border-collapse text-left text-sm">
-          <thead className="bg-zinc-50 text-xs uppercase text-zinc-500">
-            <tr>
-              <th className="px-4 py-3 font-semibold">Alcance</th>
-              <th className="px-4 py-3 font-semibold">Modo</th>
-              <th className="px-4 py-3 font-semibold">Puntaje</th>
-              <th className="px-4 py-3 font-semibold">Bonus</th>
-              <th className="px-4 py-3 font-semibold">Puntos</th>
-              <th className="px-4 py-3 font-semibold">Efectivo</th>
-              <th className="px-4 py-3 font-semibold">Acciones</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-zinc-200">
-            {rows.map((row) => {
-              const draft = {
-                ...defaultPredictionSettingsOverrideDraft(row),
-                ...drafts[row.key],
-              };
-              const disabled = !canManage || saving;
+      <div className="grid gap-3">
+        {rows.map((row) => {
+          const draft = {
+            ...defaultPredictionSettingsOverrideDraft(row),
+            ...drafts[row.key],
+          };
+          const disabled = !canManage || saving;
+          const bonusPointsMode = draft.underdogBonusPoints === "" ? "inherit" : "custom";
 
-              return (
-                <tr className="align-top" key={row.key}>
-                  <td className="px-4 py-4">
-                    {row.homeLabel && row.awayLabel ? (
-                      <div className="flex flex-wrap items-center gap-2 font-semibold text-zinc-950">
-                        <TeamBadge label={row.homeLabel} team={row.homeTeam} />
-                        <span className="text-zinc-400">vs</span>
-                        <TeamBadge label={row.awayLabel} team={row.awayTeam} />
-                      </div>
-                    ) : (
-                      <p className="font-semibold text-zinc-950">{row.title}</p>
-                    )}
-                    <p className="mt-1 text-xs text-zinc-500">{row.subtitle}</p>
-                  </td>
-                  <td className="px-4 py-4">
+          return (
+            <article
+              className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm"
+              key={row.key}
+              role="row"
+            >
+              <div className="grid gap-4 2xl:grid-cols-[minmax(220px,0.9fr)_minmax(0,3.1fr)_minmax(180px,0.8fr)] 2xl:items-start">
+                <div role="cell">
+                  {row.homeLabel && row.awayLabel ? (
+                    <div className="flex flex-wrap items-center gap-2 font-semibold text-zinc-950">
+                      <TeamBadge label={row.homeLabel} team={row.homeTeam} />
+                      <span className="text-zinc-400">vs</span>
+                      <TeamBadge label={row.awayLabel} team={row.awayTeam} />
+                    </div>
+                  ) : (
+                    <p className="font-semibold text-zinc-950">{row.title}</p>
+                  )}
+                  <p className="mt-1 text-xs text-zinc-500">{row.subtitle}</p>
+                </div>
+
+                <div
+                  className={
+                    bonusPointsMode === "custom"
+                      ? "grid gap-3 sm:grid-cols-2 xl:grid-cols-5"
+                      : "grid gap-3 sm:grid-cols-2 xl:grid-cols-4"
+                  }
+                  role="cell"
+                >
+                  <label className="grid gap-1 text-xs font-medium uppercase text-zinc-500">
+                    <span>Modo</span>
                     <select
                       aria-label={`Modo ${row.title}`}
-                      className="min-h-9 w-full rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-950 disabled:bg-zinc-100"
+                      className="min-h-10 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm normal-case text-zinc-950 disabled:bg-zinc-100"
                       disabled={disabled}
                       onChange={(event) =>
                         onChange(row, {
@@ -4415,11 +5107,12 @@ function PredictionSettingsOverrideTable({
                         </option>
                       ))}
                     </select>
-                  </td>
-                  <td className="px-4 py-4">
+                  </label>
+                  <label className="grid gap-1 text-xs font-medium uppercase text-zinc-500">
+                    <span>Puntaje</span>
                     <select
                       aria-label={`Puntaje ${row.title}`}
-                      className="min-h-9 w-full rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-950 disabled:bg-zinc-100"
+                      className="min-h-10 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm normal-case text-zinc-950 disabled:bg-zinc-100"
                       disabled={disabled}
                       onChange={(event) =>
                         onChange(row, {
@@ -4437,11 +5130,12 @@ function PredictionSettingsOverrideTable({
                         </option>
                       ))}
                     </select>
-                  </td>
-                  <td className="px-4 py-4">
+                  </label>
+                  <label className="grid gap-1 text-xs font-medium uppercase text-zinc-500">
+                    <span>Bonus</span>
                     <select
                       aria-label={`Bonus ${row.title}`}
-                      className="min-h-9 w-full rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-950 disabled:bg-zinc-100"
+                      className="min-h-10 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm normal-case text-zinc-950 disabled:bg-zinc-100"
                       disabled={disabled}
                       onChange={(event) =>
                         onChange(row, {
@@ -4455,43 +5149,68 @@ function PredictionSettingsOverrideTable({
                       <option value="enabled">Activo</option>
                       <option value="disabled">Inactivo</option>
                     </select>
-                  </td>
-                  <td className="px-4 py-4">
-                    <input
-                      aria-label={`Puntos bonus ${row.title}`}
-                      className="min-h-9 w-24 rounded-md border border-zinc-300 px-2 py-1 text-xs text-zinc-950 disabled:bg-zinc-100"
+                  </label>
+                  <div className="grid gap-1 text-xs font-medium uppercase text-zinc-500">
+                    <span>Puntos</span>
+                    <select
+                      aria-label={`Modo puntos bonus ${row.title}`}
+                      className="min-h-10 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm normal-case text-zinc-950 disabled:bg-zinc-100"
                       disabled={disabled}
-                      min={0}
                       onChange={(event) =>
                         onChange(row, {
-                          underdogBonusPoints: event.target.value,
+                          underdogBonusPoints:
+                            event.target.value === "inherit"
+                              ? ""
+                              : draft.underdogBonusPoints || "0",
                         })
                       }
-                      step={1}
-                      type="number"
-                      value={draft.underdogBonusPoints}
-                    />
-                  </td>
-                  <td className="px-4 py-4">
-                    <p className="text-xs text-zinc-600">
+                      value={bonusPointsMode}
+                    >
+                      <option value="inherit">Heredar puntos</option>
+                      <option value="custom">Personalizar</option>
+                    </select>
+                  </div>
+                  {bonusPointsMode === "custom" ? (
+                    <label className="grid gap-1 text-xs font-medium uppercase text-zinc-500">
+                      <span>Valor</span>
+                      <input
+                        aria-label={`Puntos bonus ${row.title}`}
+                        className="min-h-10 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm normal-case text-zinc-950 disabled:bg-zinc-100"
+                        disabled={disabled}
+                        min={0}
+                        onChange={(event) =>
+                          onChange(row, {
+                            underdogBonusPoints: event.target.value,
+                          })
+                        }
+                        step={1}
+                        type="number"
+                        value={draft.underdogBonusPoints}
+                      />
+                    </label>
+                  ) : null}
+                </div>
+
+                <div className="grid gap-3 rounded-md bg-zinc-50 p-3 xl:min-h-full" role="cell">
+                  <div>
+                    <p className="text-xs font-medium uppercase text-zinc-500">Efectivo</p>
+                    <p className="mt-1 text-sm text-zinc-700">
                       {predictionSettingsEffectiveSummary(row, effectiveSettingsByMatch)}
                     </p>
-                  </td>
-                  <td className="px-4 py-4">
-                    <button
-                      className="rounded-md border border-zinc-300 px-2 py-1 text-xs font-medium text-zinc-700 hover:border-zinc-400 disabled:cursor-not-allowed disabled:text-zinc-400"
-                      disabled={disabled || !predictionSettingsOverrideDraftHasValue(draft)}
-                      onClick={() => onClear(row)}
-                      type="button"
-                    >
-                      Limpiar
-                    </button>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                  </div>
+                  <button
+                    className="w-fit rounded-md border border-zinc-300 px-3 py-2 text-xs font-medium text-zinc-700 hover:border-zinc-400 disabled:cursor-not-allowed disabled:text-zinc-400"
+                    disabled={disabled || !predictionSettingsOverrideDraftHasValue(draft)}
+                    onClick={() => onClear(row)}
+                    type="button"
+                  >
+                    Limpiar
+                  </button>
+                </div>
+              </div>
+            </article>
+          );
+        })}
       </div>
     </div>
   );
@@ -4501,12 +5220,14 @@ function TextInput({
   disabled,
   label,
   onChange,
+  placeholder,
   type = "text",
   value,
 }: {
   disabled: boolean;
   label: string;
   onChange: (value: string) => void;
+  placeholder?: string;
   type?: "number" | "text";
   value: string;
 }) {
@@ -4517,6 +5238,7 @@ function TextInput({
         className="min-h-10 rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-950 disabled:bg-zinc-100"
         disabled={disabled}
         onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
         type={type}
         value={value}
       />
@@ -4678,7 +5400,7 @@ function BracketGeneratorPanel({
           </label>
 
           <button
-            className="min-h-10 w-fit rounded-md bg-zinc-950 px-3 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
+            className="min-h-10 w-fit rounded-md bg-[var(--pollavar-primary)] px-3 py-2 text-sm font-semibold text-white hover:brightness-95 disabled:cursor-not-allowed disabled:bg-zinc-300"
             disabled={!canManage || saving || !tournament}
             onClick={onGenerate}
             type="button"
@@ -4721,39 +5443,34 @@ function BracketGeneratorPanel({
         </div>
 
         {editableMatches.length > 0 ? (
-          <div className="mt-4 overflow-x-auto">
-            <table className="min-w-full divide-y divide-zinc-200 text-sm">
-              <thead className="bg-zinc-50 text-left text-xs font-semibold uppercase text-zinc-500">
-                <tr>
-                  <th className="px-3 py-2">Ronda</th>
-                  <th className="px-3 py-2">Partido</th>
-                  <th className="px-3 py-2">Local</th>
-                  <th className="px-3 py-2">Visitante</th>
-                  <th className="px-3 py-2">Motivo</th>
-                  <th className="px-3 py-2 text-right">Accion</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-200">
-                {editableMatches.map((match) => {
-                  const draftValue = matchSlotOverrideDrafts[match.id] ?? {
-                    homeTeamID: match.home_team?.id ?? "",
-                    awayTeamID: match.away_team?.id ?? "",
-                    reason: "",
-                  };
-                  const savingMatch = savingMatchSlotOverrideID === match.id;
-                  return (
-                    <tr className="align-top" key={match.id}>
-                      <td className="px-3 py-3 text-zinc-700">
-                        <div className="font-medium text-zinc-950">{match.stage_name}</div>
-                        <div className="text-xs text-zinc-500">{match.stage_type}</div>
-                      </td>
-                      <td className="px-3 py-3 text-zinc-700">
-                        #{match.match_number || "-"}
-                        <div className="text-xs text-zinc-500">{match.id}</div>
-                      </td>
-                      <td className="px-3 py-3">
+          <div className="mt-4 grid gap-3">
+            {editableMatches.map((match) => {
+              const draftValue = matchSlotOverrideDrafts[match.id] ?? {
+                homeTeamID: match.home_team?.id ?? "",
+                awayTeamID: match.away_team?.id ?? "",
+                reason: "",
+              };
+              const savingMatch = savingMatchSlotOverrideID === match.id;
+
+              return (
+                <article
+                  className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm"
+                  key={match.id}
+                  role="row"
+                >
+                  <div className="grid gap-4 xl:grid-cols-[minmax(160px,0.7fr)_minmax(0,2fr)_auto] xl:items-start">
+                    <div>
+                      <p className="font-semibold text-zinc-950">{match.stage_name}</p>
+                      <p className="mt-1 text-xs text-zinc-500">{match.stage_type}</p>
+                      <p className="mt-3 text-sm text-zinc-700">#{match.match_number || "-"}</p>
+                      <p className="mt-1 break-all text-xs text-zinc-500">{match.id}</p>
+                    </div>
+
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <label className="grid gap-1 text-xs font-medium uppercase text-zinc-500">
+                        <span>Local</span>
                         <select
-                          className="min-h-10 w-44 rounded-md border border-zinc-300 bg-white px-2 text-sm text-zinc-950 disabled:bg-zinc-100"
+                          className="min-h-10 w-full rounded-md border border-zinc-300 bg-white px-3 text-sm normal-case text-zinc-950 disabled:bg-zinc-100"
                           disabled={!canManage || savingMatch}
                           onChange={(event) =>
                             onUpdateMatchSlotOverrideDraft(match.id, {
@@ -4769,10 +5486,11 @@ function BracketGeneratorPanel({
                             </option>
                           ))}
                         </select>
-                      </td>
-                      <td className="px-3 py-3">
+                      </label>
+                      <label className="grid gap-1 text-xs font-medium uppercase text-zinc-500">
+                        <span>Visitante</span>
                         <select
-                          className="min-h-10 w-44 rounded-md border border-zinc-300 bg-white px-2 text-sm text-zinc-950 disabled:bg-zinc-100"
+                          className="min-h-10 w-full rounded-md border border-zinc-300 bg-white px-3 text-sm normal-case text-zinc-950 disabled:bg-zinc-100"
                           disabled={!canManage || savingMatch}
                           onChange={(event) =>
                             onUpdateMatchSlotOverrideDraft(match.id, {
@@ -4788,10 +5506,11 @@ function BracketGeneratorPanel({
                             </option>
                           ))}
                         </select>
-                      </td>
-                      <td className="px-3 py-3">
+                      </label>
+                      <label className="grid gap-1 text-xs font-medium uppercase text-zinc-500 md:col-span-2">
+                        <span>Motivo</span>
                         <input
-                          className="min-h-10 w-64 rounded-md border border-zinc-300 px-3 text-sm text-zinc-950 disabled:bg-zinc-100"
+                          className="min-h-10 w-full rounded-md border border-zinc-300 px-3 text-sm normal-case text-zinc-950 disabled:bg-zinc-100"
                           disabled={!canManage || savingMatch}
                           onChange={(event) =>
                             onUpdateMatchSlotOverrideDraft(match.id, {
@@ -4801,22 +5520,21 @@ function BracketGeneratorPanel({
                           placeholder="Motivo del ajuste"
                           value={draftValue.reason}
                         />
-                      </td>
-                      <td className="px-3 py-3 text-right">
-                        <button
-                          className="min-h-10 rounded-md bg-zinc-950 px-3 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
-                          disabled={!canManage || savingMatch}
-                          onClick={() => onSaveMatchSlotOverride(match)}
-                          type="button"
-                        >
-                          {savingMatch ? "Guardando" : "Guardar"}
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                      </label>
+                    </div>
+
+                    <button
+                      className="min-h-10 rounded-md bg-[var(--pollavar-primary)] px-3 py-2 text-sm font-semibold text-white hover:brightness-95 disabled:cursor-not-allowed disabled:bg-zinc-300 xl:w-28"
+                      disabled={!canManage || savingMatch}
+                      onClick={() => onSaveMatchSlotOverride(match)}
+                      type="button"
+                    >
+                      {savingMatch ? "Guardando" : "Guardar"}
+                    </button>
+                  </div>
+                </article>
+              );
+            })}
           </div>
         ) : (
           <p className="mt-4 rounded-md border border-dashed border-zinc-300 px-3 py-4 text-sm text-zinc-500">
@@ -4994,7 +5712,7 @@ function GlobalPredictionAdminPanel({
             Agregar
           </button>
           <button
-            className="min-h-10 rounded-md bg-zinc-950 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
+            className="min-h-10 rounded-md bg-[var(--pollavar-primary)] px-3 py-2 text-sm font-medium text-white hover:brightness-95 disabled:cursor-not-allowed disabled:bg-zinc-300"
             disabled={savingDefinitions}
             onClick={onAddCustomDefinition}
             type="button"
@@ -5010,239 +5728,213 @@ function GlobalPredictionAdminPanel({
         </div>
       ) : (
         <div className="space-y-5 p-5">
-          <div className="overflow-x-auto">
-            <table className="min-w-[1300px] w-full border-collapse text-left text-sm">
-              <thead className="bg-zinc-50 text-xs uppercase text-zinc-500">
-                <tr>
-                  <th className="px-4 py-3 font-semibold">Activa</th>
-                  <th className="px-4 py-3 font-semibold">Pronostico</th>
-                  <th className="px-4 py-3 font-semibold">Tipo</th>
-                  <th className="px-4 py-3 font-semibold">Puntos</th>
-                  <th className="px-4 py-3 font-semibold">Premio</th>
-                  <th className="px-4 py-3 font-semibold">Orden</th>
-                  <th className="px-4 py-3 font-semibold">Cierre</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-200">
-                {sortedDefinitions.map((definition) => {
-                  const draft = {
-                    ...globalDefinitionDraft(definition),
-                    ...definitionDrafts[definition.code],
-                  };
+          <div className="grid gap-3">
+            {sortedDefinitions.map((definition) => {
+              const draft = {
+                ...globalDefinitionDraft(definition),
+                ...definitionDrafts[definition.code],
+              };
 
-                  return (
-                    <tr key={definition.code} className="align-top">
-                      <td className="px-4 py-4">
-                        <label className="flex items-center gap-2 text-xs font-medium text-zinc-700">
+              return (
+                <article
+                  className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm"
+                  key={definition.code}
+                  role="row"
+                >
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <label className="flex items-center gap-2 text-sm font-medium text-zinc-800">
+                        <input
+                          aria-label={`Activar ${definition.label}`}
+                          checked={draft.enabled}
+                          className="h-4 w-4"
+                          disabled={!canManage || savingDefinitions}
+                          onChange={(event) =>
+                            onUpdateDefinitionDraft(definition.code, {
+                              enabled: event.target.checked,
+                            })
+                          }
+                          type="checkbox"
+                        />
+                        <span>{draft.enabled ? "Activa" : "Inactiva"}</span>
+                      </label>
+                      <p className="mt-1 break-all text-xs text-zinc-500">{definition.code}</p>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 grid gap-3 lg:grid-cols-2">
+                    <label className="grid gap-1 text-xs font-semibold uppercase text-zinc-500 lg:col-span-2">
+                      Pronostico
+                      <input
+                        id={`global-label-${definition.code}`}
+                        className="min-h-10 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm font-normal normal-case text-zinc-950 disabled:bg-zinc-100"
+                        disabled={!canManage || savingDefinitions}
+                        onChange={(event) =>
+                          onUpdateDefinitionDraft(definition.code, {
+                            label: event.target.value,
+                          })
+                        }
+                        value={draft.label}
+                      />
+                    </label>
+
+                    <label className="grid gap-1 text-xs font-semibold uppercase text-zinc-500">
+                      Tipo
+                      <select
+                        id={`global-type-${definition.code}`}
+                        className="min-h-10 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-normal normal-case text-zinc-950 disabled:bg-zinc-100"
+                        disabled={!canManage || savingDefinitions}
+                        onChange={(event) =>
+                          onUpdateDefinitionDraft(definition.code, {
+                            valueType: event.target.value as GlobalPredictionValueType,
+                          })
+                        }
+                        value={draft.valueType}
+                      >
+                        {globalPredictionValueTypeOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <div className="grid gap-1 text-xs font-semibold uppercase text-zinc-500">
+                      Puntos
+                      <div className="grid min-h-10 grid-cols-[minmax(0,1fr)_96px] items-center gap-2">
+                        <label className="flex min-h-10 items-center gap-2 rounded-md border border-zinc-300 px-3 text-sm font-normal normal-case text-zinc-950">
                           <input
-                            aria-label={`Activar ${definition.label}`}
-                            checked={draft.enabled}
+                            aria-label={`Puntua ${definition.label}`}
+                            checked={draft.pointsEnabled}
                             className="h-4 w-4"
                             disabled={!canManage || savingDefinitions}
                             onChange={(event) =>
                               onUpdateDefinitionDraft(definition.code, {
-                                enabled: event.target.checked,
+                                pointsEnabled: event.target.checked,
                               })
                             }
                             type="checkbox"
                           />
-                          <span>Activa</span>
-                        </label>
-                      </td>
-                      <td className="px-4 py-4">
-                        <label className="sr-only" htmlFor={`global-label-${definition.code}`}>
-                          Nombre de {definition.label}
+                          Puntua
                         </label>
                         <input
-                          id={`global-label-${definition.code}`}
-                          className="min-h-10 w-64 rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-950 disabled:bg-zinc-100"
-                          disabled={!canManage || savingDefinitions}
-                          onChange={(event) =>
-                            onUpdateDefinitionDraft(definition.code, {
-                              label: event.target.value,
-                            })
-                          }
-                          value={draft.label}
-                        />
-                        <p className="mt-1 text-xs text-zinc-500">{definition.code}</p>
-                      </td>
-                      <td className="px-4 py-4">
-                        <label className="sr-only" htmlFor={`global-type-${definition.code}`}>
-                          Tipo de {definition.label}
-                        </label>
-                        <select
-                          id={`global-type-${definition.code}`}
-                          className="min-h-10 w-40 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950 disabled:bg-zinc-100"
-                          disabled={!canManage || savingDefinitions}
-                          onChange={(event) =>
-                            onUpdateDefinitionDraft(definition.code, {
-                              valueType: event.target.value as GlobalPredictionValueType,
-                            })
-                          }
-                          value={draft.valueType}
-                        >
-                          {globalPredictionValueTypeOptions.map((option) => (
-                            <option key={option.value} value={option.value}>
-                              {option.label}
-                            </option>
-                          ))}
-                        </select>
-                      </td>
-                      <td className="px-4 py-4">
-                        <div className="flex items-center gap-2">
-                          <label className="flex items-center gap-2 text-xs font-medium text-zinc-700">
-                            <input
-                              aria-label={`Puntua ${definition.label}`}
-                              checked={draft.pointsEnabled}
-                              className="h-4 w-4"
-                              disabled={!canManage || savingDefinitions}
-                              onChange={(event) =>
-                                onUpdateDefinitionDraft(definition.code, {
-                                  pointsEnabled: event.target.checked,
-                                })
-                              }
-                              type="checkbox"
-                            />
-                            <span>Si</span>
-                          </label>
-                          <label className="sr-only" htmlFor={`global-points-${definition.code}`}>
-                            Puntos de {definition.label}
-                          </label>
-                          <input
-                            id={`global-points-${definition.code}`}
-                            className="min-h-10 w-20 rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-950 disabled:bg-zinc-100"
-                            disabled={!canManage || savingDefinitions || !draft.pointsEnabled}
-                            min={0}
-                            onChange={(event) =>
-                              onUpdateDefinitionDraft(definition.code, {
-                                points: event.target.value,
-                              })
-                            }
-                            step={1}
-                            type="number"
-                            value={draft.points}
-                          />
-                        </div>
-                      </td>
-                      <td className="px-4 py-4">
-                        <div className="grid gap-2">
-                          <label className="flex items-center gap-2 text-xs font-medium text-zinc-700">
-                            <input
-                              aria-label={`Premio especial ${definition.label}`}
-                              checked={draft.prizeEnabled}
-                              className="h-4 w-4"
-                              disabled={!canManage || savingDefinitions}
-                              onChange={(event) =>
-                                onUpdateDefinitionDraft(definition.code, {
-                                  prizeEnabled: event.target.checked,
-                                  prizeType: event.target.checked
-                                    ? draft.prizeType === "none"
-                                      ? "fixed"
-                                      : draft.prizeType
-                                    : "none",
-                                })
-                              }
-                              type="checkbox"
-                            />
-                            <span>Especial</span>
-                          </label>
-                          <div className="grid gap-2 sm:grid-cols-[112px_120px]">
-                            <label
-                              className="sr-only"
-                              htmlFor={`global-prize-type-${definition.code}`}
-                            >
-                              Tipo de premio de {definition.label}
-                            </label>
-                            <select
-                              id={`global-prize-type-${definition.code}`}
-                              className="min-h-10 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950 disabled:bg-zinc-100"
-                              disabled={!canManage || savingDefinitions || !draft.prizeEnabled}
-                              onChange={(event) =>
-                                onUpdateDefinitionDraft(definition.code, {
-                                  prizeType: event.target.value as GlobalPredictionPrizeType,
-                                })
-                              }
-                              value={draft.prizeType === "none" ? "fixed" : draft.prizeType}
-                            >
-                              <option value="fixed">Monto</option>
-                              <option value="percentage">%</option>
-                            </select>
-                            <label
-                              className="sr-only"
-                              htmlFor={`global-prize-amount-${definition.code}`}
-                            >
-                              Valor de premio de {definition.label}
-                            </label>
-                            <input
-                              id={`global-prize-amount-${definition.code}`}
-                              className="min-h-10 rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-950 disabled:bg-zinc-100"
-                              disabled={!canManage || savingDefinitions || !draft.prizeEnabled}
-                              inputMode="decimal"
-                              onChange={(event) =>
-                                onUpdateDefinitionDraft(definition.code, {
-                                  [draft.prizeType === "percentage"
-                                    ? "prizePercentage"
-                                    : "prizeFixedAmount"]: event.target.value,
-                                })
-                              }
-                              placeholder={
-                                draft.prizeType === "percentage" ? "Porcentaje" : "Monto"
-                              }
-                              value={
-                                draft.prizeType === "percentage"
-                                  ? draft.prizePercentage
-                                  : draft.prizeFixedAmount
-                              }
-                            />
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-4 py-4">
-                        <label className="sr-only" htmlFor={`global-order-${definition.code}`}>
-                          Orden de {definition.label}
-                        </label>
-                        <input
-                          id={`global-order-${definition.code}`}
-                          className="min-h-10 w-20 rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-950 disabled:bg-zinc-100"
-                          disabled={!canManage || savingDefinitions}
+                          id={`global-points-${definition.code}`}
+                          className="min-h-10 rounded-md border border-zinc-300 px-3 py-2 text-sm font-normal text-zinc-950 disabled:bg-zinc-100"
+                          disabled={!canManage || savingDefinitions || !draft.pointsEnabled}
                           min={0}
                           onChange={(event) =>
                             onUpdateDefinitionDraft(definition.code, {
-                              sortOrder: event.target.value,
+                              points: event.target.value,
                             })
                           }
                           step={1}
                           type="number"
-                          value={draft.sortOrder}
+                          value={draft.points}
                         />
-                      </td>
-                      <td className="px-4 py-4">
-                        <label className="sr-only" htmlFor={`global-closes-${definition.code}`}>
-                          Cierre de {definition.label}
+                      </div>
+                    </div>
+
+                    <div className="grid gap-1 text-xs font-semibold uppercase text-zinc-500">
+                      Premio especial
+                      <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_120px_minmax(0,1fr)]">
+                        <label className="flex min-h-10 items-center gap-2 rounded-md border border-zinc-300 px-3 text-sm font-normal normal-case text-zinc-950">
+                          <input
+                            aria-label={`Premio especial ${definition.label}`}
+                            checked={draft.prizeEnabled}
+                            className="h-4 w-4"
+                            disabled={!canManage || savingDefinitions}
+                            onChange={(event) =>
+                              onUpdateDefinitionDraft(definition.code, {
+                                prizeEnabled: event.target.checked,
+                                prizeType: event.target.checked
+                                  ? draft.prizeType === "none"
+                                    ? "fixed"
+                                    : draft.prizeType
+                                  : "none",
+                              })
+                            }
+                            type="checkbox"
+                          />
+                          Especial
                         </label>
-                        <input
-                          id={`global-closes-${definition.code}`}
-                          className="min-h-10 w-52 rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-950 disabled:bg-zinc-100"
-                          disabled={!canManage || savingDefinitions}
+                        <select
+                          id={`global-prize-type-${definition.code}`}
+                          className="min-h-10 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-normal normal-case text-zinc-950 disabled:bg-zinc-100"
+                          disabled={!canManage || savingDefinitions || !draft.prizeEnabled}
                           onChange={(event) =>
                             onUpdateDefinitionDraft(definition.code, {
-                              closesAt: event.target.value,
+                              prizeType: event.target.value as GlobalPredictionPrizeType,
                             })
                           }
-                          type="datetime-local"
-                          value={draft.closesAt}
+                          value={draft.prizeType === "none" ? "fixed" : draft.prizeType}
+                        >
+                          <option value="fixed">Monto</option>
+                          <option value="percentage">%</option>
+                        </select>
+                        <input
+                          id={`global-prize-amount-${definition.code}`}
+                          className="min-h-10 rounded-md border border-zinc-300 px-3 py-2 text-sm font-normal normal-case text-zinc-950 disabled:bg-zinc-100"
+                          disabled={!canManage || savingDefinitions || !draft.prizeEnabled}
+                          inputMode="decimal"
+                          onChange={(event) =>
+                            onUpdateDefinitionDraft(definition.code, {
+                              [draft.prizeType === "percentage"
+                                ? "prizePercentage"
+                                : "prizeFixedAmount"]: event.target.value,
+                            })
+                          }
+                          placeholder={draft.prizeType === "percentage" ? "Porcentaje" : "Monto"}
+                          value={
+                            draft.prizeType === "percentage"
+                              ? draft.prizePercentage
+                              : draft.prizeFixedAmount
+                          }
                         />
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                      </div>
+                    </div>
+
+                    <label className="grid gap-1 text-xs font-semibold uppercase text-zinc-500">
+                      Orden
+                      <input
+                        id={`global-order-${definition.code}`}
+                        className="min-h-10 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm font-normal normal-case text-zinc-950 disabled:bg-zinc-100"
+                        disabled={!canManage || savingDefinitions}
+                        min={0}
+                        onChange={(event) =>
+                          onUpdateDefinitionDraft(definition.code, {
+                            sortOrder: event.target.value,
+                          })
+                        }
+                        step={1}
+                        type="number"
+                        value={draft.sortOrder}
+                      />
+                    </label>
+
+                    <label className="grid gap-1 text-xs font-semibold uppercase text-zinc-500">
+                      Cierre
+                      <input
+                        id={`global-closes-${definition.code}`}
+                        className="min-h-10 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm font-normal normal-case text-zinc-950 disabled:bg-zinc-100"
+                        disabled={!canManage || savingDefinitions}
+                        onChange={(event) =>
+                          onUpdateDefinitionDraft(definition.code, {
+                            closesAt: event.target.value,
+                          })
+                        }
+                        type="datetime-local"
+                        value={draft.closesAt}
+                      />
+                    </label>
+                  </div>
+                </article>
+              );
+            })}
           </div>
 
           <div className="flex justify-end">
             <button
-              className="rounded-md bg-zinc-950 px-3 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
+              className="rounded-md bg-[var(--pollavar-primary)] px-3 py-2 text-sm font-semibold text-white hover:brightness-95 disabled:cursor-not-allowed disabled:bg-zinc-300"
               disabled={!canManage || savingDefinitions}
               onClick={onSaveDefinitions}
               type="button"
@@ -5318,7 +6010,7 @@ function GlobalPredictionAdminPanel({
                         />
                         <button
                           aria-label={`Guardar resultado ${definition.label}`}
-                          className="min-h-10 rounded-md bg-zinc-950 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
+                          className="min-h-10 rounded-md bg-[var(--pollavar-primary)] px-3 py-2 text-sm font-medium text-white hover:brightness-95 disabled:cursor-not-allowed disabled:bg-zinc-300"
                           disabled={!canSaveResult || isSavingResult}
                           onClick={() => onSaveResult(definition)}
                           type="button"
@@ -5506,7 +6198,7 @@ function GlobalTemplateCatalogPanel({
           </p>
         </div>
         <button
-          className="min-h-10 w-fit rounded-md bg-zinc-950 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
+          className="min-h-10 w-fit rounded-md bg-[var(--pollavar-primary)] px-3 py-2 text-sm font-medium text-white hover:brightness-95 disabled:cursor-not-allowed disabled:bg-zinc-300"
           disabled={Boolean(savingTemplateCode)}
           onClick={onAddTemplate}
           type="button"
@@ -5515,111 +6207,130 @@ function GlobalTemplateCatalogPanel({
         </button>
       </div>
 
-      <div className="overflow-x-auto">
-        <table className="min-w-[1180px] w-full border-collapse text-left text-sm">
-          <thead className="bg-zinc-50 text-xs uppercase text-zinc-500">
-            <tr>
-              <th className="px-4 py-3 font-semibold">Activa</th>
-              <th className="px-4 py-3 font-semibold">Codigo</th>
-              <th className="px-4 py-3 font-semibold">Nombre</th>
-              <th className="px-4 py-3 font-semibold">Deporte</th>
-              <th className="px-4 py-3 font-semibold">Categoria</th>
-              <th className="px-4 py-3 font-semibold">Tipo</th>
-              <th className="px-4 py-3 font-semibold">Puntos</th>
-              <th className="px-4 py-3 font-semibold">Premio</th>
-              <th className="px-4 py-3 font-semibold">Default</th>
-              <th className="px-4 py-3 font-semibold">Orden</th>
-              <th className="px-4 py-3 font-semibold">Accion</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-zinc-200">
-            {sortedTemplates.map((template) => {
-              const draft = {
-                ...globalTemplateDraft(template),
-                ...drafts[template.code],
-              };
-              const isSaving = savingTemplateCode === template.code;
-              const canEditCode = isDraftGlobalTemplate(template);
+      <div className="grid gap-3 lg:grid-cols-2">
+        {sortedTemplates.map((template) => {
+          const draft = {
+            ...globalTemplateDraft(template),
+            ...drafts[template.code],
+          };
+          const isSaving = savingTemplateCode === template.code;
+          const canEditCode = isDraftGlobalTemplate(template);
 
-              return (
-                <tr key={template.code} className="align-top">
-                  <td className="px-4 py-4">
-                    <input
-                      aria-label={`Activar plantilla ${template.label}`}
-                      checked={draft.enabled}
-                      className="h-4 w-4"
-                      disabled={isSaving}
-                      onChange={(event) =>
-                        onUpdateDraft(template.code, { enabled: event.target.checked })
-                      }
-                      type="checkbox"
-                    />
-                  </td>
-                  <td className="px-4 py-4">
-                    <input
-                      aria-label={`Codigo plantilla ${template.label}`}
-                      className="min-h-10 w-44 rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-950 disabled:bg-zinc-100"
-                      disabled={isSaving || !canEditCode}
-                      onChange={(event) =>
-                        onUpdateDraft(template.code, { code: event.target.value })
-                      }
-                      value={draft.code}
-                    />
-                  </td>
-                  <td className="px-4 py-4">
-                    <input
-                      aria-label={`Nombre plantilla ${template.label}`}
-                      className="min-h-10 w-52 rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-950 disabled:bg-zinc-100"
-                      disabled={isSaving}
-                      onChange={(event) =>
-                        onUpdateDraft(template.code, { label: event.target.value })
-                      }
-                      value={draft.label}
-                    />
-                  </td>
-                  <td className="px-4 py-4">
-                    <input
-                      aria-label={`Deporte plantilla ${template.label}`}
-                      className="min-h-10 w-32 rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-950 disabled:bg-zinc-100"
-                      disabled={isSaving}
-                      onChange={(event) =>
-                        onUpdateDraft(template.code, { sport: event.target.value })
-                      }
-                      value={draft.sport}
-                    />
-                  </td>
-                  <td className="px-4 py-4">
-                    <input
-                      aria-label={`Categoria plantilla ${template.label}`}
-                      className="min-h-10 w-36 rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-950 disabled:bg-zinc-100"
-                      disabled={isSaving}
-                      onChange={(event) =>
-                        onUpdateDraft(template.code, { category: event.target.value })
-                      }
-                      value={draft.category}
-                    />
-                  </td>
-                  <td className="px-4 py-4">
-                    <select
-                      aria-label={`Tipo plantilla ${template.label}`}
-                      className="min-h-10 w-36 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950 disabled:bg-zinc-100"
-                      disabled={isSaving}
-                      onChange={(event) =>
-                        onUpdateDraft(template.code, {
-                          valueType: event.target.value as GlobalPredictionValueType,
-                        })
-                      }
-                      value={draft.valueType}
-                    >
-                      {globalPredictionValueTypeOptions.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
-                  <td className="px-4 py-4">
-                    <div className="flex items-center gap-2">
+          return (
+            <article className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm" key={template.code}>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <label className="flex items-center gap-2 text-sm font-medium text-zinc-700">
+                  <input
+                    aria-label={`Activar plantilla ${template.label}`}
+                    checked={draft.enabled}
+                    className="h-4 w-4"
+                    disabled={isSaving}
+                    onChange={(event) =>
+                      onUpdateDraft(template.code, { enabled: event.target.checked })
+                    }
+                    type="checkbox"
+                  />
+                  Activa
+                </label>
+                <button
+                  aria-label={`Guardar plantilla ${template.label}`}
+                  className="min-h-10 w-fit rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-400"
+                  disabled={isSaving}
+                  onClick={() => onSaveTemplate(template.code)}
+                  type="button"
+                >
+                  {isSaving ? "Guardando" : "Guardar"}
+                </button>
+              </div>
+
+              <div className="mt-4 grid gap-3 md:grid-cols-2">
+                <label className="grid gap-1 text-xs font-semibold uppercase text-zinc-500">
+                  Codigo
+                  <input
+                    aria-label={`Codigo plantilla ${template.label}`}
+                    className="min-h-10 rounded-md border border-zinc-300 px-3 py-2 text-sm font-normal normal-case text-zinc-950 disabled:bg-zinc-100"
+                    disabled={isSaving || !canEditCode}
+                    onChange={(event) =>
+                      onUpdateDraft(template.code, { code: event.target.value })
+                    }
+                    value={draft.code}
+                  />
+                </label>
+                <label className="grid gap-1 text-xs font-semibold uppercase text-zinc-500">
+                  Nombre
+                  <input
+                    aria-label={`Nombre plantilla ${template.label}`}
+                    className="min-h-10 rounded-md border border-zinc-300 px-3 py-2 text-sm font-normal normal-case text-zinc-950 disabled:bg-zinc-100"
+                    disabled={isSaving}
+                    onChange={(event) =>
+                      onUpdateDraft(template.code, { label: event.target.value })
+                    }
+                    value={draft.label}
+                  />
+                </label>
+                <label className="grid gap-1 text-xs font-semibold uppercase text-zinc-500">
+                  Deporte
+                  <input
+                    aria-label={`Deporte plantilla ${template.label}`}
+                    className="min-h-10 rounded-md border border-zinc-300 px-3 py-2 text-sm font-normal normal-case text-zinc-950 disabled:bg-zinc-100"
+                    disabled={isSaving}
+                    onChange={(event) =>
+                      onUpdateDraft(template.code, { sport: event.target.value })
+                    }
+                    value={draft.sport}
+                  />
+                </label>
+                <label className="grid gap-1 text-xs font-semibold uppercase text-zinc-500">
+                  Categoria
+                  <input
+                    aria-label={`Categoria plantilla ${template.label}`}
+                    className="min-h-10 rounded-md border border-zinc-300 px-3 py-2 text-sm font-normal normal-case text-zinc-950 disabled:bg-zinc-100"
+                    disabled={isSaving}
+                    onChange={(event) =>
+                      onUpdateDraft(template.code, { category: event.target.value })
+                    }
+                    value={draft.category}
+                  />
+                </label>
+                <label className="grid gap-1 text-xs font-semibold uppercase text-zinc-500">
+                  Tipo
+                  <select
+                    aria-label={`Tipo plantilla ${template.label}`}
+                    className="min-h-10 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-normal normal-case text-zinc-950 disabled:bg-zinc-100"
+                    disabled={isSaving}
+                    onChange={(event) =>
+                      onUpdateDraft(template.code, {
+                        valueType: event.target.value as GlobalPredictionValueType,
+                      })
+                    }
+                    value={draft.valueType}
+                  >
+                    {globalPredictionValueTypeOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="grid gap-1 text-xs font-semibold uppercase text-zinc-500">
+                  Orden
+                  <input
+                    aria-label={`Orden plantilla ${template.label}`}
+                    className="min-h-10 rounded-md border border-zinc-300 px-3 py-2 text-sm font-normal text-zinc-950 disabled:bg-zinc-100"
+                    disabled={isSaving}
+                    min={0}
+                    onChange={(event) =>
+                      onUpdateDraft(template.code, { sortOrder: event.target.value })
+                    }
+                    step={1}
+                    type="number"
+                    value={draft.sortOrder}
+                  />
+                </label>
+                <label className="grid gap-1 text-xs font-semibold uppercase text-zinc-500">
+                  Puntos
+                  <div className="grid min-h-10 grid-cols-[minmax(0,1fr)_96px] items-center gap-2">
+                    <label className="flex min-h-10 items-center gap-2 rounded-md border border-zinc-300 px-3 text-sm font-normal normal-case text-zinc-950">
                       <input
                         aria-label={`Puntua plantilla ${template.label}`}
                         checked={draft.pointsEnabled}
@@ -5630,33 +6341,39 @@ function GlobalTemplateCatalogPanel({
                         }
                         type="checkbox"
                       />
-                      <input
-                        aria-label={`Puntos plantilla ${template.label}`}
-                        className="min-h-10 w-20 rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-950 disabled:bg-zinc-100"
-                        disabled={isSaving || !draft.pointsEnabled}
-                        min={0}
-                        onChange={(event) =>
-                          onUpdateDraft(template.code, { points: event.target.value })
-                        }
-                        step={1}
-                        type="number"
-                        value={draft.points}
-                      />
-                    </div>
-                  </td>
-                  <td className="px-4 py-4">
+                      Puntua
+                    </label>
                     <input
-                      aria-label={`Premio plantilla ${template.label}`}
-                      checked={draft.prizeEnabled}
-                      className="h-4 w-4"
-                      disabled={isSaving}
+                      aria-label={`Puntos plantilla ${template.label}`}
+                      className="min-h-10 rounded-md border border-zinc-300 px-3 py-2 text-sm font-normal text-zinc-950 disabled:bg-zinc-100"
+                      disabled={isSaving || !draft.pointsEnabled}
+                      min={0}
                       onChange={(event) =>
-                        onUpdateDraft(template.code, { prizeEnabled: event.target.checked })
+                        onUpdateDraft(template.code, { points: event.target.value })
                       }
-                      type="checkbox"
+                      step={1}
+                      type="number"
+                      value={draft.points}
                     />
-                  </td>
-                  <td className="px-4 py-4">
+                  </div>
+                </label>
+                <div className="grid gap-1 text-xs font-semibold uppercase text-zinc-500">
+                  Opciones
+                  <div className="grid min-h-10 grid-cols-2 gap-2">
+                    <label className="flex items-center gap-2 rounded-md border border-zinc-300 px-3 text-sm font-normal normal-case text-zinc-950">
+                      <input
+                        aria-label={`Premio plantilla ${template.label}`}
+                        checked={draft.prizeEnabled}
+                        className="h-4 w-4"
+                        disabled={isSaving}
+                        onChange={(event) =>
+                          onUpdateDraft(template.code, { prizeEnabled: event.target.checked })
+                        }
+                        type="checkbox"
+                      />
+                      Premio
+                    </label>
+                    <label className="flex items-center gap-2 rounded-md border border-zinc-300 px-3 text-sm font-normal normal-case text-zinc-950">
                     <input
                       aria-label={`Default plantilla ${template.label}`}
                       checked={draft.defaultEnabled}
@@ -5667,37 +6384,14 @@ function GlobalTemplateCatalogPanel({
                       }
                       type="checkbox"
                     />
-                  </td>
-                  <td className="px-4 py-4">
-                    <input
-                      aria-label={`Orden plantilla ${template.label}`}
-                      className="min-h-10 w-20 rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-950 disabled:bg-zinc-100"
-                      disabled={isSaving}
-                      min={0}
-                      onChange={(event) =>
-                        onUpdateDraft(template.code, { sortOrder: event.target.value })
-                      }
-                      step={1}
-                      type="number"
-                      value={draft.sortOrder}
-                    />
-                  </td>
-                  <td className="px-4 py-4">
-                    <button
-                      aria-label={`Guardar plantilla ${template.label}`}
-                      className="min-h-10 rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-400"
-                      disabled={isSaving}
-                      onClick={() => onSaveTemplate(template.code)}
-                      type="button"
-                    >
-                      {isSaving ? "Guardando" : "Guardar"}
-                    </button>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                      Default
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </article>
+          );
+        })}
       </div>
     </div>
   );
@@ -5876,7 +6570,7 @@ function TournamentTiebreakersPanel({
 
         <div className="flex flex-wrap items-center gap-3">
           <button
-            className="rounded-md bg-zinc-950 px-3 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-zinc-300"
+            className="rounded-md bg-[var(--pollavar-primary)] px-3 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-zinc-300"
             disabled={!canManage || saving}
             onClick={onSave}
             type="button"
@@ -5986,40 +6680,22 @@ function OfficialStandingsPanel({
                   <p className="mt-1 text-xs text-zinc-500">{scope.subtitle}</p>
                 </div>
 
-                <div className="overflow-x-auto">
-                  <table className="min-w-[640px] w-full border-collapse text-left text-sm">
-                    <thead className="bg-zinc-50 text-xs uppercase text-zinc-500">
-                      <tr>
-                        <th className="px-4 py-3 font-semibold">Equipo</th>
-                        <th className="px-4 py-3 font-semibold">Posicion oficial</th>
-                        <th className="px-4 py-3 font-semibold">Ultima carga</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-zinc-200">
-                      {scope.teams.map((team) => {
-                        const standing = scopeStandings.find((item) => item.team.id === team.id);
-                        return (
-                          <tr key={team.id}>
-                            <td className="px-4 py-3">
-                              <p className="font-medium text-zinc-950">{team.name}</p>
-                              <p className="text-xs text-zinc-500">{team.short_name}</p>
-                            </td>
-                            <td className="px-4 py-3">
-                              <input
-                                aria-label={`Posicion oficial de ${team.name}`}
-                                className="w-28 rounded-md border border-zinc-300 px-3 py-2 text-sm"
-                                disabled={!canManage || isSaving}
-                                min={1}
-                                onChange={(event) =>
-                                  onUpdateDraft(scope.key, team.id, event.target.value)
-                                }
-                                type="number"
-                                value={draft[team.id] ?? ""}
-                              />
-                            </td>
-                            <td className="px-4 py-3 text-xs text-zinc-600">
+                <div className="grid gap-3 md:grid-cols-2">
+                  {scope.teams.map((team) => {
+                    const standing = scopeStandings.find((item) => item.team.id === team.id);
+                    return (
+                      <article
+                        className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm"
+                        key={team.id}
+                      >
+                        <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_128px] sm:items-start">
+                          <div>
+                            <TeamBadge label={team.name} team={team} />
+                            <p className="mt-2 text-xs text-zinc-500">{team.short_name}</p>
+                            <p className="mt-3 text-xs text-zinc-600">
                               {standing ? (
                                 <>
+                                  Ultima carga:{" "}
                                   <span className="font-medium text-zinc-700">
                                     #{standing.position}
                                   </span>{" "}
@@ -6028,12 +6704,26 @@ function OfficialStandingsPanel({
                               ) : (
                                 "Sin posicion oficial"
                               )}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                            </p>
+                          </div>
+                          <label className="grid gap-1 text-xs font-medium uppercase text-zinc-500">
+                            <span>Posicion oficial</span>
+                            <input
+                              aria-label={`Posicion oficial de ${team.name}`}
+                              className="min-h-10 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm normal-case text-zinc-950"
+                              disabled={!canManage || isSaving}
+                              min={1}
+                              onChange={(event) =>
+                                onUpdateDraft(scope.key, team.id, event.target.value)
+                              }
+                              type="number"
+                              value={draft[team.id] ?? ""}
+                            />
+                          </label>
+                        </div>
+                      </article>
+                    );
+                  })}
                 </div>
 
                 <label className="grid gap-1 text-sm font-medium text-zinc-700">
@@ -6049,7 +6739,7 @@ function OfficialStandingsPanel({
 
                 <div className="flex flex-wrap items-center gap-2">
                   <button
-                    className="rounded-md bg-zinc-950 px-3 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-zinc-300"
+                    className="rounded-md bg-[var(--pollavar-primary)] px-3 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-zinc-300"
                     disabled={!canManage || isSaving}
                     onClick={() => onSave(scope)}
                     type="button"
@@ -6144,6 +6834,40 @@ function ResultsPanel({
   const closedCount = matches.filter((match) =>
     isMatchClosedForResults(match, predictionCloseHoursBefore, statusesByMatch.get(match.id)),
   ).length;
+  const hasActiveResultGroup = groups.some((group) =>
+    group.matches.some((match) => {
+      const status = statusesByMatch.get(match.id);
+      return (
+        status?.has_official_result ||
+        isMatchClosedForResults(match, predictionCloseHoursBefore, status)
+      );
+    }),
+  );
+  const defaultOpenResultGroups = useMemo(
+    () =>
+      new Set(
+        groups
+          .filter((group, groupIndex) =>
+            group.matches.some((match) => {
+              const status = statusesByMatch.get(match.id);
+              return (
+                status?.has_official_result ||
+                isMatchClosedForResults(match, predictionCloseHoursBefore, status)
+              );
+            }) ||
+            (!hasActiveResultGroup && groupIndex === 0),
+          )
+          .map((group) => group.id),
+      ),
+    [groups, hasActiveResultGroup, predictionCloseHoursBefore, statusesByMatch],
+  );
+  const [openResultGroupIDs, setOpenResultGroupIDs] = useState<Set<string>>(
+    defaultOpenResultGroups,
+  );
+
+  useEffect(() => {
+    setOpenResultGroupIDs(defaultOpenResultGroups);
+  }, [defaultOpenResultGroups]);
 
   return (
     <section
@@ -6174,72 +6898,102 @@ function ResultsPanel({
       {matches.length === 0 ? (
         <div className="p-5 text-sm text-zinc-600">Sin fixture disponible para esta polla.</div>
       ) : (
-        <div className="divide-y divide-zinc-200">
-          {groups.map((group) => (
-            <div key={group.id}>
-              <div className="bg-zinc-50 px-5 py-3">
-                <h3 className="text-sm font-semibold text-zinc-950">{group.title}</h3>
-                <p className="mt-1 text-xs text-zinc-500">
-                  {group.matches.length} partidos - {group.subtitle}
-                </p>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="min-w-[1360px] w-full border-collapse text-left text-sm">
-                  <thead className="bg-white text-xs uppercase text-zinc-500">
-                    <tr>
-                      <th className="px-4 py-3 font-semibold">Partido</th>
-                      <th className="px-4 py-3 font-semibold">Estado</th>
-                      <th className="px-4 py-3 font-semibold">Sorpresa</th>
-                      <th className="px-4 py-3 font-semibold">Marcador</th>
-                      <th className="px-4 py-3 font-semibold">Snapshot</th>
-                      <th className="px-4 py-3 font-semibold">Auditoria</th>
-                      <th className="px-4 py-3 font-semibold">Acciones</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-zinc-200">
-                    {group.matches.map((match) => {
-                      const status = statusesByMatch.get(match.id);
-                      const draft = {
-                        ...defaultResultDraft(status),
-                        ...resultDrafts[match.id],
-                      };
-                      const closed = isMatchClosedForResults(
-                        match,
-                        predictionCloseHoursBefore,
-                        status,
-                      );
-                      const auditLogs = auditLogsByMatchID[match.id] ?? [];
-                      const latestAuditLog = auditLogs[0] ?? null;
-                      const homeTeam = status?.resolved_home_team ?? match.home_team;
-                      const awayTeam = status?.resolved_away_team ?? match.away_team;
-                      const homeName = matchTeamName(match, "home", status);
-                      const awayName = matchTeamName(match, "away", status);
-                      const isSaving = savingMatchID === match.id;
-                      const isSavingBonus = savingBonusMatchID === match.id;
-                      const isGeneratingSnapshot = generatingSnapshotMatchID === match.id;
-                      const isLoadingAudit = loadingAuditMatchID === match.id;
-                      const snapshot = snapshotsByMatchID[match.id];
-                      const bonusDraft = {
-                        ...defaultUnderdogBonusDraft(),
-                        ...bonusDrafts[match.id],
-                      };
+        <div className="grid gap-3 p-5">
+          {groups.map((group) => {
+            const groupResultCount = group.matches.filter(
+              (match) => statusesByMatch.get(match.id)?.has_official_result,
+            ).length;
+            const groupClosedCount = group.matches.filter((match) =>
+              isMatchClosedForResults(
+                match,
+                predictionCloseHoursBefore,
+                statusesByMatch.get(match.id),
+              ),
+            ).length;
+            return (
+              <details
+                className="group rounded-lg border border-zinc-200 bg-white shadow-sm"
+                key={group.id}
+                open={openResultGroupIDs.has(group.id)}
+                onToggle={(event) => {
+                  const isOpen = event.currentTarget.open;
+                  setOpenResultGroupIDs((current) => {
+                    const next = new Set(current);
+                    if (isOpen) {
+                      next.add(group.id);
+                    } else {
+                      next.delete(group.id);
+                    }
+                    return next;
+                  });
+                }}
+              >
+                <summary className="flex cursor-pointer list-none flex-col gap-3 px-4 py-3 marker:hidden md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <h3 className="text-sm font-semibold text-zinc-950">{group.title}</h3>
+                    <p className="mt-1 text-xs text-zinc-500">
+                      {group.matches.length} partidos - {group.subtitle}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-600">
+                    <span className="rounded-md bg-zinc-100 px-2 py-1">
+                      {groupClosedCount} cerrados
+                    </span>
+                    <span className="rounded-md bg-zinc-100 px-2 py-1">
+                      {groupResultCount} resultados
+                    </span>
+                    <span
+                      aria-hidden="true"
+                      className="grid size-8 place-items-center rounded-full border border-zinc-200 text-zinc-500 transition-transform group-open:rotate-180"
+                    >
+                      <span className="h-2 w-2 rotate-45 border-b-2 border-r-2 border-current" />
+                    </span>
+                  </div>
+                </summary>
+              <div className="grid gap-3 p-5">
+                {group.matches.map((match) => {
+                  const status = statusesByMatch.get(match.id);
+                  const draft = {
+                    ...defaultResultDraft(status),
+                    ...resultDrafts[match.id],
+                  };
+                  const closed = isMatchClosedForResults(match, predictionCloseHoursBefore, status);
+                  const auditLogs = auditLogsByMatchID[match.id] ?? [];
+                  const latestAuditLog = auditLogs[0] ?? null;
+                  const homeTeam = status?.resolved_home_team ?? match.home_team;
+                  const awayTeam = status?.resolved_away_team ?? match.away_team;
+                  const homeName = matchTeamName(match, "home", status);
+                  const awayName = matchTeamName(match, "away", status);
+                  const isSaving = savingMatchID === match.id;
+                  const isSavingBonus = savingBonusMatchID === match.id;
+                  const isGeneratingSnapshot = generatingSnapshotMatchID === match.id;
+                  const isLoadingAudit = loadingAuditMatchID === match.id;
+                  const snapshot = snapshotsByMatchID[match.id];
+                  const bonusDraft = {
+                    ...defaultUnderdogBonusDraft(),
+                    ...bonusDrafts[match.id],
+                  };
 
-                      return (
-                        <tr key={match.id} className="align-top">
-                          <td className="px-4 py-4">
-                            <p className="text-xs font-medium text-zinc-500">
-                              Partido {match.match_number}
-                            </p>
-                            <div className="mt-1 flex flex-wrap items-center gap-2 font-semibold text-zinc-950">
-                              <TeamBadge label={homeName} team={homeTeam} />
-                              <span className="text-zinc-400">vs</span>
-                              <TeamBadge label={awayName} team={awayTeam} />
-                            </div>
-                            <p className="mt-1 text-xs text-zinc-500">
-                              {formatMatchDate(match.starts_at)} - {match.venue}
-                            </p>
-                          </td>
-                          <td className="px-4 py-4">
+                  return (
+                    <article
+                      className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm"
+                      key={match.id}
+                      role="row"
+                    >
+                      <div className="grid gap-4 2xl:grid-cols-[minmax(260px,0.9fr)_minmax(0,2.6fr)_minmax(170px,0.55fr)] 2xl:items-start">
+                        <div>
+                          <p className="text-xs font-medium text-zinc-500">
+                            Partido {match.match_number}
+                          </p>
+                          <div className="mt-1 flex flex-wrap items-center gap-2 font-semibold text-zinc-950">
+                            <TeamBadge label={homeName} team={homeTeam} />
+                            <span className="text-zinc-400">vs</span>
+                            <TeamBadge label={awayName} team={awayTeam} />
+                          </div>
+                          <p className="mt-2 text-xs text-zinc-500">
+                            {formatMatchDate(match.starts_at)} - {match.venue}
+                          </p>
+                          <div className="mt-3 flex flex-wrap items-center gap-2">
                             <span
                               className={`rounded-md px-2 py-1 text-xs font-medium ${resultStatusClass(
                                 status,
@@ -6249,102 +7003,106 @@ function ResultsPanel({
                               {resultStatusLabel(status, closed)}
                             </span>
                             {status?.official_result ? (
-                              <p className="mt-2 text-xs font-medium text-zinc-700">
-                                Resultado {status.official_result.home_score}-
+                              <span className="rounded-md bg-zinc-100 px-2 py-1 text-xs font-medium text-zinc-700">
+                                {status.official_result.home_score}-
                                 {status.official_result.away_score}
-                              </p>
+                              </span>
                             ) : null}
-                          </td>
-                          <td className="px-4 py-4">
-                            <div className="grid gap-2">
-                              <label className="flex items-center gap-2 text-xs font-medium text-zinc-700">
-                                <input
-                                  checked={bonusDraft.enabled}
-                                  className="h-4 w-4"
-                                  disabled={!canManage || closed || isSavingBonus}
-                                  onChange={(event) =>
-                                    onUpdateBonusDraft(match.id, {
-                                      enabled: event.target.checked,
-                                    })
-                                  }
-                                  type="checkbox"
-                                />
-                                <span>Activo</span>
-                              </label>
-                              <select
-                                aria-label={`Sorpresa ${homeName} vs ${awayName}`}
-                                className="min-h-9 rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-950 disabled:bg-zinc-100"
-                                disabled={!canManage || closed || !bonusDraft.enabled || isSavingBonus}
+                          </div>
+                        </div>
+
+                        <div className="grid gap-3 xl:grid-cols-[minmax(220px,1.1fr)_minmax(150px,0.55fr)_minmax(170px,0.75fr)_minmax(160px,0.7fr)]">
+                          <div className="grid gap-2 rounded-md bg-zinc-50 p-3">
+                            <p className="text-xs font-semibold uppercase text-zinc-500">Sorpresa</p>
+                            <label className="flex items-center gap-2 text-sm font-medium text-zinc-700">
+                              <input
+                                checked={bonusDraft.enabled}
+                                className="h-4 w-4"
+                                disabled={!canManage || closed || isSavingBonus}
                                 onChange={(event) =>
                                   onUpdateBonusDraft(match.id, {
-                                    outcome: event.target.value as MatchOutcome | "",
+                                    enabled: event.target.checked,
                                   })
                                 }
-                                value={bonusDraft.outcome}
-                              >
-                                <option value="">Elegir</option>
-                                <option value="home">Local</option>
-                                <option value="draw">Empate</option>
-                                <option value="away">Visitante</option>
-                              </select>
-                              <div className="grid grid-cols-3 gap-1">
-                                <input
-                                  aria-label={`Probabilidad local ${homeName}`}
-                                  className="min-h-8 rounded-md border border-zinc-300 px-2 text-xs"
-                                  disabled={!canManage || closed || isSavingBonus}
-                                  onChange={(event) =>
-                                    onUpdateBonusDraft(match.id, {
-                                      homeProbability: event.target.value,
-                                    })
-                                  }
-                                  placeholder="L %"
-                                  type="number"
-                                  value={bonusDraft.homeProbability}
-                                />
-                                <input
-                                  aria-label={`Probabilidad empate ${homeName} vs ${awayName}`}
-                                  className="min-h-8 rounded-md border border-zinc-300 px-2 text-xs"
-                                  disabled={!canManage || closed || isSavingBonus}
-                                  onChange={(event) =>
-                                    onUpdateBonusDraft(match.id, {
-                                      drawProbability: event.target.value,
-                                    })
-                                  }
-                                  placeholder="E %"
-                                  type="number"
-                                  value={bonusDraft.drawProbability}
-                                />
-                                <input
-                                  aria-label={`Probabilidad visitante ${awayName}`}
-                                  className="min-h-8 rounded-md border border-zinc-300 px-2 text-xs"
-                                  disabled={!canManage || closed || isSavingBonus}
-                                  onChange={(event) =>
-                                    onUpdateBonusDraft(match.id, {
-                                      awayProbability: event.target.value,
-                                    })
-                                  }
-                                  placeholder="V %"
-                                  type="number"
-                                  value={bonusDraft.awayProbability}
-                                />
-                              </div>
-                              <button
-                                className="rounded-md border border-zinc-300 px-2 py-1 text-xs font-medium text-zinc-700 hover:border-zinc-400 disabled:cursor-not-allowed disabled:text-zinc-400"
+                                type="checkbox"
+                              />
+                              <span>Activo</span>
+                            </label>
+                            <select
+                              aria-label={`Sorpresa ${homeName} vs ${awayName}`}
+                              className="min-h-10 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950 disabled:bg-zinc-100"
+                              disabled={!canManage || closed || !bonusDraft.enabled || isSavingBonus}
+                              onChange={(event) =>
+                                onUpdateBonusDraft(match.id, {
+                                  outcome: event.target.value as MatchOutcome | "",
+                                })
+                              }
+                              value={bonusDraft.outcome}
+                            >
+                              <option value="">Elegir</option>
+                              <option value="home">Local</option>
+                              <option value="draw">Empate</option>
+                              <option value="away">Visitante</option>
+                            </select>
+                            <div className="grid grid-cols-3 gap-2">
+                              <input
+                                aria-label={`Probabilidad local ${homeName}`}
+                                className="min-h-9 rounded-md border border-zinc-300 px-2 text-xs"
                                 disabled={!canManage || closed || isSavingBonus}
-                                onClick={() => onSaveBonus(match)}
-                                type="button"
-                              >
-                                {isSavingBonus ? "Guardando" : "Guardar bonus"}
-                              </button>
+                                onChange={(event) =>
+                                  onUpdateBonusDraft(match.id, {
+                                    homeProbability: event.target.value,
+                                  })
+                                }
+                                placeholder="L %"
+                                type="number"
+                                value={bonusDraft.homeProbability}
+                              />
+                              <input
+                                aria-label={`Probabilidad empate ${homeName} vs ${awayName}`}
+                                className="min-h-9 rounded-md border border-zinc-300 px-2 text-xs"
+                                disabled={!canManage || closed || isSavingBonus}
+                                onChange={(event) =>
+                                  onUpdateBonusDraft(match.id, {
+                                    drawProbability: event.target.value,
+                                  })
+                                }
+                                placeholder="E %"
+                                type="number"
+                                value={bonusDraft.drawProbability}
+                              />
+                              <input
+                                aria-label={`Probabilidad visitante ${awayName}`}
+                                className="min-h-9 rounded-md border border-zinc-300 px-2 text-xs"
+                                disabled={!canManage || closed || isSavingBonus}
+                                onChange={(event) =>
+                                  onUpdateBonusDraft(match.id, {
+                                    awayProbability: event.target.value,
+                                  })
+                                }
+                                placeholder="V %"
+                                type="number"
+                                value={bonusDraft.awayProbability}
+                              />
                             </div>
-                          </td>
-                          <td className="px-4 py-4">
+                            <button
+                              className="rounded-md border border-zinc-300 px-3 py-2 text-xs font-medium text-zinc-700 hover:border-zinc-400 disabled:cursor-not-allowed disabled:text-zinc-400"
+                              disabled={!canManage || closed || isSavingBonus}
+                              onClick={() => onSaveBonus(match)}
+                              type="button"
+                            >
+                              {isSavingBonus ? "Guardando" : "Guardar bonus"}
+                            </button>
+                          </div>
+
+                          <div className="grid gap-2 rounded-md bg-zinc-50 p-3">
+                            <p className="text-xs font-semibold uppercase text-zinc-500">Marcador</p>
                             <div className="grid grid-cols-2 gap-2">
                               <label className="grid gap-1 text-xs font-medium text-zinc-600">
                                 <span>{matchTeamShortName(match, "home", status)}</span>
                                 <input
                                   aria-label={`Goles ${homeName}`}
-                                  className="min-h-10 w-20 rounded-md border border-zinc-300 px-3 py-2 text-sm font-semibold"
+                                  className="min-h-10 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm font-semibold"
                                   disabled={!canManage || !closed || isSaving}
                                   min={0}
                                   onChange={(event) =>
@@ -6359,7 +7117,7 @@ function ResultsPanel({
                                 <span>{matchTeamShortName(match, "away", status)}</span>
                                 <input
                                   aria-label={`Goles ${awayName}`}
-                                  className="min-h-10 w-20 rounded-md border border-zinc-300 px-3 py-2 text-sm font-semibold"
+                                  className="min-h-10 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm font-semibold"
                                   disabled={!canManage || !closed || isSaving}
                                   min={0}
                                   onChange={(event) =>
@@ -6371,38 +7129,40 @@ function ResultsPanel({
                                 />
                               </label>
                             </div>
-                          </td>
-                          <td className="px-4 py-4">
-                            <div className="grid gap-2">
-                              {snapshot ? (
-                                <div>
-                                  <p className="text-xs font-semibold text-zinc-950">
-                                    {snapshot.row_count} participantes
-                                  </p>
-                                  <p className="mt-1 text-xs text-zinc-500">
-                                    Checksum {snapshot.checksum.slice(0, 10)}
-                                  </p>
-                                </div>
-                              ) : (
-                                <p className="text-xs text-zinc-500">
-                                  Genera una evidencia inmutable despues del cierre.
+                          </div>
+
+                          <div className="grid gap-2 rounded-md bg-zinc-50 p-3">
+                            <p className="text-xs font-semibold uppercase text-zinc-500">Snapshot</p>
+                            {snapshot ? (
+                              <div>
+                                <p className="text-xs font-semibold text-zinc-950">
+                                  {snapshot.row_count} participantes
                                 </p>
-                              )}
-                              <button
-                                className="rounded-md border border-zinc-300 px-3 py-2 text-xs font-medium text-zinc-700 hover:border-zinc-400 disabled:cursor-not-allowed disabled:text-zinc-400"
-                                disabled={!canManage || !closed || isGeneratingSnapshot}
-                                onClick={() => onGenerateSnapshot(match)}
-                                type="button"
-                              >
-                                {isGeneratingSnapshot
-                                  ? "Generando"
-                                  : snapshot
-                                    ? "Consultar snapshot"
-                                    : "Generar snapshot"}
-                              </button>
-                            </div>
-                          </td>
-                          <td className="px-4 py-4">
+                                <p className="mt-1 break-all text-xs text-zinc-500">
+                                  Checksum {snapshot.checksum.slice(0, 10)}
+                                </p>
+                              </div>
+                            ) : (
+                              <p className="text-xs text-zinc-500">
+                                Genera evidencia despues del cierre.
+                              </p>
+                            )}
+                            <button
+                              className="rounded-md border border-zinc-300 px-3 py-2 text-xs font-medium text-zinc-700 hover:border-zinc-400 disabled:cursor-not-allowed disabled:text-zinc-400"
+                              disabled={!canManage || !closed || isGeneratingSnapshot}
+                              onClick={() => onGenerateSnapshot(match)}
+                              type="button"
+                            >
+                              {isGeneratingSnapshot
+                                ? "Generando"
+                                : snapshot
+                                  ? "Consultar"
+                                  : "Generar"}
+                            </button>
+                          </div>
+
+                          <div className="grid gap-2 rounded-md bg-zinc-50 p-3">
+                            <p className="text-xs font-semibold uppercase text-zinc-500">Auditoria</p>
                             {latestAuditLog ? (
                               <div>
                                 <p className="text-xs font-semibold text-zinc-950">
@@ -6415,39 +7175,37 @@ function ResultsPanel({
                             ) : (
                               <p className="text-xs text-zinc-500">
                                 {status?.has_official_result
-                                  ? "Auditoria pendiente de cargar."
+                                  ? "Pendiente de cargar."
                                   : "Sin resultado guardado."}
                               </p>
                             )}
-                          </td>
-                          <td className="px-4 py-4">
-                            <div className="flex flex-wrap gap-2">
-                              <button
-                                className="rounded-md bg-zinc-950 px-3 py-2 text-xs font-medium text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
-                                disabled={!canManage || !closed || isSaving}
-                                onClick={() => onSave(match)}
-                                type="button"
-                              >
-                                {isSaving ? "Guardando" : "Guardar resultado"}
-                              </button>
-                              <button
-                                className="rounded-md border border-zinc-300 px-3 py-2 text-xs font-medium text-zinc-700 hover:border-zinc-400 disabled:cursor-not-allowed disabled:text-zinc-400"
-                                disabled={!canManage || isLoadingAudit}
-                                onClick={() => onLoadAudit(match.id)}
-                                type="button"
-                              >
-                                {isLoadingAudit ? "Cargando" : "Ver auditoria"}
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                            <button
+                              className="rounded-md border border-zinc-300 px-3 py-2 text-xs font-medium text-zinc-700 hover:border-zinc-400 disabled:cursor-not-allowed disabled:text-zinc-400"
+                              disabled={!canManage || isLoadingAudit}
+                              onClick={() => onLoadAudit(match.id)}
+                              type="button"
+                            >
+                              {isLoadingAudit ? "Cargando" : "Ver auditoria"}
+                            </button>
+                          </div>
+                        </div>
+
+                        <button
+                          className="min-h-10 rounded-md bg-[var(--pollavar-primary)] px-3 py-2 text-sm font-medium text-white hover:brightness-95 disabled:cursor-not-allowed disabled:bg-zinc-300"
+                          disabled={!canManage || !closed || isSaving}
+                          onClick={() => onSave(match)}
+                          type="button"
+                        >
+                          {isSaving ? "Guardando" : "Guardar resultado"}
+                        </button>
+                      </div>
+                    </article>
+                  );
+                })}
               </div>
-            </div>
-          ))}
+            </details>
+            );
+          })}
         </div>
       )}
     </section>
@@ -6628,6 +7386,65 @@ function groupMatchesForResults(matches: Match[]) {
   }
 
   return Array.from(groupsByID.values());
+}
+
+function groupMatchesByStage(matches: Match[]) {
+  const groupsByID = new Map<string, TournamentStageMatchGroup>();
+  const sortedMatches = [...matches].sort((left, right) => left.match_number - right.match_number);
+
+  for (const match of sortedMatches) {
+    const key = match.stage_id || match.stage_name || match.stage_type || "matches";
+    const existingGroup = groupsByID.get(key);
+    if (existingGroup) {
+      existingGroup.matches.push(match);
+      continue;
+    }
+
+    groupsByID.set(key, {
+      key,
+      title: stageLabel(match),
+      stageType: stageTypeLabel(match.stage_type),
+      matches: [match],
+    });
+  }
+
+  return Array.from(groupsByID.values());
+}
+
+function stageTypeLabel(stageType: string) {
+  switch (stageType) {
+    case "group":
+      return "Fase de grupos";
+    case "league":
+      return "Liga";
+    case "knockout":
+      return "Eliminacion directa";
+    case "playoff":
+      return "Playoff";
+    case "placement":
+      return "Definicion de posiciones";
+    default:
+      return stageType.replace(/[-_]+/g, " ") || "Fase";
+  }
+}
+
+function advancementRuleLabel(ruleType: AdvancementRule["rule_type"]) {
+  switch (ruleType) {
+    case "top_n_per_group":
+      return "Top por grupo";
+    case "best_group_rank":
+      return "Mejores por ranking de grupo";
+    case "ranking_top_n":
+      return "Ranking general";
+    case "match_winner":
+      return "Ganador de partido";
+    case "match_loser":
+      return "Perdedor de partido";
+    case "bye":
+      return "Pase directo";
+    default:
+      return ruleType;
+  }
 }
 
 function officialStandingScopesForTournament(tournament: Tournament | null) {
@@ -6926,6 +7743,35 @@ function paymentTotals(participants: PoolParticipant[], paymentsByUserID: Map<st
   return { confirmedAmountCents, confirmedCount, pendingCount, rejectedCount };
 }
 
+function poolOverviewSnapshot(
+  pool: Pool,
+  activeTotals: ReturnType<typeof paymentTotals> | null,
+  paymentCurrency: string,
+) {
+  if (activeTotals) {
+    return {
+      participants: pool.participants.length,
+      confirmed: activeTotals.confirmedCount,
+      pending: activeTotals.pendingCount,
+      confirmedAmount: formatMoney(activeTotals.confirmedAmountCents, paymentCurrency),
+    };
+  }
+
+  const confirmed = pool.participants.filter(
+    (participant) => participant.payment_status === "confirmed",
+  ).length;
+  const pending = pool.participants.filter(
+    (participant) => participant.payment_status === "pending",
+  ).length;
+
+  return {
+    participants: pool.participants.length,
+    confirmed,
+    pending,
+    confirmedAmount: formatMoney(confirmed * pool.entry_fee_cents, pool.currency),
+  };
+}
+
 function filterParticipantsByPaymentStatus(
   participants: PoolParticipant[],
   paymentsByUserID: Map<string, Payment>,
@@ -6999,7 +7845,10 @@ function defaultBracketGeneratorDraft(tournament: Tournament | null): BracketGen
   };
 }
 
-function predictionSettingsScopeRowsForMatches(matches: Match[]) {
+function predictionSettingsScopeRowsForMatches(
+  matches: Match[],
+  predictionStatusesByMatch: Map<string, PredictionMatchStatus>,
+) {
   const sortedMatches = [...matches].sort((left, right) => left.match_number - right.match_number);
   const stagesByID = new Map<string, PredictionSettingsScopeRow>();
   const matchRows: PredictionSettingsScopeRow[] = [];
@@ -7023,8 +7872,11 @@ function predictionSettingsScopeRowsForMatches(matches: Match[]) {
       }
     }
 
-    const homeName = matchTeamName(match, "home");
-    const awayName = matchTeamName(match, "away");
+    const status = predictionStatusesByMatch.get(match.id);
+    const homeTeam = status?.resolved_home_team ?? match.home_team;
+    const awayTeam = status?.resolved_away_team ?? match.away_team;
+    const homeName = matchTeamName(match, "home", status);
+    const awayName = matchTeamName(match, "away", status);
     matchRows.push({
       key: predictionSettingsScopeKey("match", match.id),
       scopeType: "match",
@@ -7033,8 +7885,8 @@ function predictionSettingsScopeRowsForMatches(matches: Match[]) {
       title: `${homeName} vs ${awayName}`,
       subtitle: `Partido ${match.match_number} - ${stageLabel(match)}`,
       matchIDs: [match.id],
-      homeTeam: match.home_team,
-      awayTeam: match.away_team,
+      homeTeam,
+      awayTeam,
       homeLabel: homeName,
       awayLabel: awayName,
     });
@@ -8058,7 +8910,7 @@ function datetimeLocalToISO(value: string) {
 }
 
 function defaultThemeDraft(pool: Pool | null): ThemeDraft {
-  const theme = normalizedPoolTheme(pool?.theme);
+  const theme = adminVisualTheme(pool?.theme);
 
   return {
     displayName: pool?.theme?.display_name || pool?.name || "",
@@ -8080,14 +8932,53 @@ function normalizedPoolTheme(theme?: PoolTheme): NormalizedTheme {
     logoURL: theme?.logo_url ?? "",
     bannerURL: theme?.banner_url ?? "",
     mascotURL: theme?.mascot_url ?? "",
-    primaryColor: validThemeColor(primaryColor) ? primaryColor : "#0F766E",
-    secondaryColor: validThemeColor(secondaryColor) ? secondaryColor : "#111827",
+    primaryColor: validThemeColor(primaryColor) ? primaryColor : "#10B981",
+    secondaryColor: validThemeColor(secondaryColor) ? secondaryColor : "#22D3EE",
     accentColor: validThemeColor(accentColor) ? accentColor : "#F59E0B",
   };
 }
 
+function adminVisualTheme(theme?: PoolTheme): NormalizedTheme {
+  const normalized = normalizedPoolTheme(theme);
+
+  return {
+    ...normalized,
+    primaryColor: replaceLegacyThemeColor(normalized.primaryColor, {
+      "#0F766E": "#10B981",
+      "#0B5D3B": "#10B981",
+      "#0B6B43": "#10B981",
+      "#00804B": "#10B981",
+    }),
+    secondaryColor: replaceLegacyThemeColor(normalized.secondaryColor, {
+      "#111827": "#22D3EE",
+      "#10231B": "#22D3EE",
+      "#0F4C81": "#22D3EE",
+      "#145C8E": "#22D3EE",
+    }),
+    accentColor: replaceLegacyThemeColor(normalized.accentColor, {
+      "#F97316": "#F59E0B",
+      "#C8A45D": "#F59E0B",
+      "#3B82F6": "#F59E0B",
+    }),
+  };
+}
+
+function replaceLegacyThemeColor(color: string, replacements: Record<string, string>) {
+  return replacements[color.toUpperCase()] ?? color;
+}
+
+function themeColorAlpha(color: string, alpha: number) {
+  const normalized = validThemeColor(color) ? color : "#10B981";
+  const hex = normalized.slice(1);
+  const red = Number.parseInt(hex.slice(0, 2), 16);
+  const green = Number.parseInt(hex.slice(2, 4), 16);
+  const blue = Number.parseInt(hex.slice(4, 6), 16);
+
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
+}
+
 function colorPickerValue(value: string) {
-  return validThemeColor(value) && value.length === 7 ? value : "#0F766E";
+  return validThemeColor(value) && value.length === 7 ? value : "#10B981";
 }
 
 function validThemeColor(value: string | undefined): value is string {

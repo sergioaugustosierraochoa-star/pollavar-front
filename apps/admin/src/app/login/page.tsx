@@ -3,10 +3,8 @@ import { AuthForm } from "../auth-form";
 export default function AdminLoginPage() {
   return (
     <AuthForm
-      appName="PollaVAR Admin"
+      appName="PollaVAR"
       mode="login"
-      alternateHref="/register"
-      alternateLabel="Crear cuenta"
     />
   );
 }

@@ -655,10 +655,7 @@ describe("Admin home", () => {
       "href",
       "/login",
     );
-    expect(screen.getAllByRole("link", { name: "Crear cuenta" })[0]).toHaveAttribute(
-      "href",
-      "/register",
-    );
+    expect(screen.queryByRole("link", { name: "Crear cuenta" })).not.toBeInTheDocument();
   });
 
   it("clears a corrupted stored session", async () => {
@@ -668,6 +665,21 @@ describe("Admin home", () => {
 
     expect(await screen.findByText("Entra para administrar recaudo")).toBeInTheDocument();
     expect(window.localStorage.getItem("pollavar.admin.session")).toBeNull();
+  });
+
+  it("redirects to login after signing out", async () => {
+    window.history.replaceState(null, "", "/");
+    storeSession();
+    const fetcher = vi.fn(adminFetch);
+    vi.stubGlobal("fetch", fetcher);
+
+    render(<AdminHome />);
+
+    expect(await screen.findByRole("heading", { name: "Oficina FC" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Salir" }));
+
+    expect(window.localStorage.getItem("pollavar.admin.session")).toBeNull();
+    expect(window.location.pathname).toBe("/login");
   });
 
   it("loads pools and updates a participant payment", async () => {
@@ -916,6 +928,10 @@ describe("Admin home", () => {
       id: "created-pool-id",
       name: "Nueva oficina",
       entry_fee_cents: 7500000,
+      theme: {
+        ...pool.theme,
+        display_name: "Nueva oficina",
+      },
     };
     let created = false;
     const fetcher = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
@@ -939,8 +955,9 @@ describe("Admin home", () => {
 
     render(<AdminHome />);
 
-    await screen.findByRole("heading", { name: "Oficina FC" });
-    const createPoolSection = screen.getByRole("heading", { name: "Crear polla" }).closest("section");
+    expect(await screen.findAllByText("Oficina FC")).not.toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: "Crear nueva polla" }));
+    const createPoolSection = screen.getByRole("dialog", { name: "Datos basicos" });
     expect(createPoolSection).not.toBeNull();
     fireEvent.change(within(createPoolSection as HTMLElement).getByLabelText("Nombre"), {
       target: { value: "Nueva oficina" },
@@ -948,10 +965,10 @@ describe("Admin home", () => {
     fireEvent.change(within(createPoolSection as HTMLElement).getByLabelText("Entrada"), {
       target: { value: "75000" },
     });
-    fireEvent.change(within(createPoolSection as HTMLElement).getByLabelText("Descripcion"), {
+    fireEvent.change(within(createPoolSection as HTMLElement).getByLabelText("Descripcion opcional"), {
       target: { value: "Polla nueva" },
     });
-    fireEvent.click(within(createPoolSection as HTMLElement).getByRole("button", { name: "Crear polla" }));
+    fireEvent.click(screen.getByRole("button", { name: "Crear polla" }));
 
     await waitFor(() => {
       expect(screen.getByRole("status")).toHaveTextContent("Polla creada.");
@@ -975,7 +992,8 @@ describe("Admin home", () => {
         },
       }),
     );
-    expect(screen.getByLabelText("Polla")).toHaveValue("created-pool-id");
+    expect(await screen.findAllByText("Nueva oficina")).not.toHaveLength(0);
+    expect(await screen.findByText("Resumen operativo")).toBeInTheDocument();
   });
 
   it("rejects malformed bracket slots before generating a bracket", async () => {

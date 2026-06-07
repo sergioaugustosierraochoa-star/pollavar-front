@@ -27,40 +27,40 @@ export default function AdminForgotPasswordPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f7f8fb] px-5 py-8 text-[#191b1f]">
+    <main className="min-h-screen bg-[#f8fafc] px-5 py-8 text-[#0f172a]">
       <section className="mx-auto grid min-h-[calc(100vh-4rem)] max-w-3xl items-center">
         <form
           aria-label="Recuperar contrasena PollaVAR Admin"
-          className="rounded-lg border border-zinc-200 bg-white p-6 shadow-sm"
+          className="rounded-2xl border border-[#f1f5f9] bg-white p-8 shadow-[0_10px_40px_rgba(15,23,42,0.08),0_1px_3px_rgba(15,23,42,0.04)]"
           onSubmit={requestReset}
         >
-          <p className="text-sm font-medium text-emerald-700">PollaVAR Admin</p>
-          <h1 className="mt-2 text-3xl font-semibold tracking-normal text-zinc-950">
+          <p className="text-sm font-medium text-[#10B981]">PollaVAR Admin</p>
+          <h1 className="mt-2 text-3xl font-semibold tracking-normal text-[#0f172a]">
             Recuperar contrasena
           </h1>
-          <label className="mt-6 grid gap-2 text-sm font-medium text-zinc-700">
+          <label className="mt-6 grid gap-2 text-sm font-medium text-slate-700">
             <span>Usuario o correo</span>
             <input
               autoComplete="username"
-              className="h-11 rounded-md border border-zinc-300 px-3 text-base text-zinc-950 outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
+              className="h-11 rounded-md border border-[#e2e8f0] px-3 text-base text-[#0f172a] outline-none transition focus:border-[#22D3EE] focus:ring-2 focus:ring-[#22D3EE]/10"
               name="identifier"
               required
             />
           </label>
           <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <button
-              className="rounded-md bg-zinc-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-400"
+              className="rounded-md bg-[#10B981] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#059669] disabled:cursor-not-allowed disabled:opacity-50"
               disabled={saving}
               type="submit"
             >
               {saving ? "Enviando" : "Generar enlace"}
             </button>
-            <Link className="text-sm font-medium text-emerald-700 hover:text-emerald-800" href="/login">
+            <Link className="text-sm font-medium text-[#10B981] hover:text-[#059669]" href="/login">
               Volver al login
             </Link>
           </div>
           {message ? (
-            <p className="mt-4 rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-700" role="status">
+            <p className="mt-4 rounded-md border border-zinc-200 bg-[#f1f5f9] px-3 py-2 text-sm text-slate-700" role="status">
               {message}
             </p>
           ) : null}

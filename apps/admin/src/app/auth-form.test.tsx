@@ -3,6 +3,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import AdminLoginPage from "./login/page";
 import AdminRegisterPage from "./register/page";
 
+const routerMock = vi.hoisted(() => ({
+  replace: vi.fn(),
+}));
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => routerMock,
+}));
+
 const authPayload = {
   data: {
     user: {
@@ -21,6 +29,7 @@ const authPayload = {
 describe("Admin auth form", () => {
   afterEach(() => {
     window.localStorage.clear();
+    routerMock.replace.mockClear();
     vi.unstubAllGlobals();
   });
 
@@ -39,7 +48,7 @@ describe("Admin auth form", () => {
 
     expect(screen.getByRole("button", { name: "Enviando" })).toBeDisabled();
     await waitFor(() => {
-      expect(screen.getByRole("status")).toHaveTextContent("Sesion lista para admin.");
+      expect(routerMock.replace).toHaveBeenCalledWith("/");
     });
 
     expect(JSON.parse(window.localStorage.getItem("pollavar.admin.session") ?? "{}")).toEqual({
@@ -57,10 +66,46 @@ describe("Admin auth form", () => {
         "Content-Type": "application/json",
       },
     });
-    expect(screen.getByRole("link", { name: "Crear cuenta" })).toHaveAttribute(
-      "href",
-      "/register",
+    expect(screen.queryByRole("link", { name: "Crear cuenta" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
+  it("shows a clear warning when login credentials are invalid", async () => {
+    const fetcher = vi.fn(async () =>
+      jsonResponse({ code: "invalid_credentials" }, { status: 401 }),
     );
+    vi.stubGlobal("fetch", fetcher);
+    render(<AdminLoginPage />);
+
+    fireEvent.change(screen.getByLabelText("Usuario o correo"), {
+      target: { value: "superadmin" },
+    });
+    fireEvent.change(screen.getByLabelText("Contrasena"), {
+      target: { value: "wrongpass" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Iniciar sesion" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "Credenciales invalidas",
+      );
+    });
+
+    expect(routerMock.replace).not.toHaveBeenCalled();
+  });
+
+  it("shows inline validation messages for required login fields", () => {
+    const fetcher = vi.fn();
+    vi.stubGlobal("fetch", fetcher);
+    render(<AdminLoginPage />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Iniciar sesion" }));
+
+    expect(screen.getByLabelText("Usuario o correo")).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByLabelText("Contrasena")).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getAllByText("Completa este campo.")).toHaveLength(2);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(fetcher).not.toHaveBeenCalled();
   });
 
   it("shows an error when register fails", async () => {
@@ -86,7 +131,7 @@ describe("Admin auth form", () => {
 
     await waitFor(() => {
       expect(screen.getByRole("alert")).toHaveTextContent(
-        "No pudimos completar la solicitud.",
+        "No pudimos crear la cuenta en este momento. Revisa los datos e intenta nuevamente.",
       );
     });
 
