@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 type TeamBadgeProps = {
   label: string;
   team?: Team | null;
-  size?: "sm" | "md";
+  size?: "sm" | "md" | "lg";
 };
 
 export function TeamBadge({ label, team, size = "sm" }: TeamBadgeProps) {
@@ -14,12 +14,13 @@ export function TeamBadge({ label, team, size = "sm" }: TeamBadgeProps) {
   const flag = teamFlag(team, Boolean(team?.logo_url && !logoFailed));
   const initials = teamInitials(team?.short_name || label);
   const isNationalTeam = team?.kind !== "club" && team?.kind !== "custom";
-  const boxSize = size === "md" ? "h-8 w-8 text-sm" : "h-6 w-6 text-xs";
-  const boxPixels = size === "md" ? 32 : 24;
-  const flagSlotPixels = size === "md" ? 22 : 18;
+  const boxSize =
+    size === "lg" ? "h-10 w-10 text-base" : size === "md" ? "h-8 w-8 text-sm" : "h-6 w-6 text-xs";
+  const boxPixels = size === "lg" ? 40 : size === "md" ? 32 : 24;
+  const flagSlotPixels = size === "lg" ? 28 : size === "md" ? 22 : 18;
   const flagScale = nationalFlagVisualScale(team);
   const flagImageScale = nationalFlagImageVisualScale(team);
-  const flagFontSize = (size === "md" ? 17 : 12) * flagScale;
+  const flagFontSize = (size === "lg" ? 21 : size === "md" ? 17 : 12) * flagScale;
   const logoURL = team?.logo_url && !logoFailed ? team.logo_url : "";
   const badgeStyle = {
     width: boxPixels,
@@ -30,7 +31,7 @@ export function TeamBadge({ label, team, size = "sm" }: TeamBadgeProps) {
     maxHeight: boxPixels,
     display: "inline-grid",
     flexShrink: 0,
-    marginRight: size === "md" ? 2 : 1,
+    marginRight: size === "lg" ? 3 : size === "md" ? 2 : 1,
     placeItems: "center",
   };
   const flagStyle = {
@@ -42,7 +43,7 @@ export function TeamBadge({ label, team, size = "sm" }: TeamBadgeProps) {
     maxHeight: flagSlotPixels,
     display: "inline-grid",
     flexShrink: 0,
-    marginRight: size === "md" ? 2 : 1,
+    marginRight: size === "lg" ? 3 : size === "md" ? 2 : 1,
     placeItems: "center",
   };
   const flagVisualStyle = {
@@ -60,7 +61,7 @@ export function TeamBadge({ label, team, size = "sm" }: TeamBadgeProps) {
   return (
     <span
       className="inline-flex min-w-0 flex-nowrap items-center whitespace-nowrap align-middle leading-none"
-      style={{ columnGap: size === "md" ? 12 : 10 }}
+      style={{ columnGap: size === "lg" ? 14 : size === "md" ? 12 : 10 }}
     >
       {logoURL ? (
         isNationalTeam ? (
@@ -105,7 +106,7 @@ export function TeamBadge({ label, team, size = "sm" }: TeamBadgeProps) {
       )}
       <span
         className="min-w-0 truncate whitespace-nowrap leading-tight"
-        style={{ paddingLeft: size === "md" ? 2 : 3 }}
+        style={{ paddingLeft: size === "lg" ? 2 : size === "md" ? 2 : 3 }}
       >
         {label}
       </span>

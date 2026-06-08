@@ -147,6 +147,8 @@ type PredictionSettingsDraft = {
   matchResultScoringMode: MatchResultScoringMode;
   underdogBonusEnabled: boolean;
   underdogBonusPoints: string;
+  standingsPredictionEnabled: boolean;
+  standingsPredictionPoints: string;
 };
 type PredictionSettingsOverrideDrafts = Record<
   string,
@@ -1089,28 +1091,13 @@ export default function AdminHome() {
 
     try {
       const { code, ...payload } = input;
-      const savedTemplate = await createPollavarClient().saveGlobalPredictionTemplate(
+      await createPollavarClient().saveGlobalPredictionTemplate(
         session.token,
         pool.id,
         code,
         payload,
       );
-      setGlobalPredictionTemplates((current) =>
-        globalTemplatesInOrder(
-          current
-            .filter(
-              (template) =>
-                template.code !== originalCode && template.code !== savedTemplate.code,
-            )
-            .concat(savedTemplate),
-        ),
-      );
-      setGlobalTemplateDrafts((current) => {
-        const next = { ...current };
-        delete next[originalCode];
-        next[savedTemplate.code] = globalTemplateDraft(savedTemplate);
-        return next;
-      });
+      await refreshGlobalPredictionState(session.token, pool.id);
       setMessage("Plantilla del catalogo guardada.");
     } catch (error) {
       if (isUnauthorized(error)) {
@@ -1331,16 +1318,10 @@ export default function AdminHome() {
 
     try {
       const client = createPollavarClient();
-      const nextDefinitions = await client.updateGlobalPredictionDefinitions(session.token, pool.id, {
+      await client.updateGlobalPredictionDefinitions(session.token, pool.id, {
         definitions,
       });
-      setGlobalPredictionDefinitions(nextDefinitions);
-      setGlobalDefinitionDrafts(hydrateGlobalDefinitionDrafts(nextDefinitions));
-      setGlobalResultDrafts((current) => ({
-        ...hydrateGlobalResultDrafts(nextDefinitions, globalPredictionResults),
-        ...current,
-      }));
-      void refreshGlobalPrizePreview(session.token, pool.id);
+      await refreshGlobalPredictionState(session.token, pool.id);
       setMessage("Predicciones globales actualizadas.");
     } catch (error) {
       if (isUnauthorized(error)) {
@@ -1387,23 +1368,13 @@ export default function AdminHome() {
 
     try {
       const client = createPollavarClient();
-      const result = await client.saveGlobalPredictionResult(
+      await client.saveGlobalPredictionResult(
         session.token,
         pool.id,
         definition.code,
         input,
       );
-      setGlobalPredictionResults((current) => upsertGlobalPredictionResult(current, result));
-      setGlobalResultDrafts((current) => ({
-        ...current,
-        [definition.code]: globalPredictionDraft(result),
-      }));
-      setGlobalAnswerSummaries((current) => {
-        const next = { ...current };
-        delete next[definition.code];
-        return next;
-      });
-      void refreshGlobalPrizePreview(session.token, pool.id);
+      await refreshGlobalPredictionState(session.token, pool.id);
       setMessage("Resultado global actualizado.");
     } catch (error) {
       if (isUnauthorized(error)) {
@@ -1821,6 +1792,38 @@ export default function AdminHome() {
     }
   }
 
+  async function refreshGlobalPredictionState(token: string, poolID: string) {
+    try {
+      const client = createPollavarClient();
+      const [nextGlobalPrizePreview, nextTemplates, nextDefinitions, nextResults] =
+        await Promise.all([
+          client.getGlobalPredictionPrizePreview(token, poolID),
+          canManageSelectedPoolGlobalPredictions
+            ? client.listGlobalPredictionTemplates(token, poolID)
+            : Promise.resolve(globalPredictionTemplates),
+          client.listGlobalPredictionDefinitions(token, poolID),
+          client.listGlobalPredictionResults(token, poolID),
+        ]);
+
+      setGlobalPrizePreview(nextGlobalPrizePreview);
+      setGlobalPredictionTemplates(nextTemplates);
+      setGlobalTemplateDrafts(hydrateGlobalTemplateDrafts(nextTemplates));
+      setGlobalPredictionDefinitions(nextDefinitions);
+      setGlobalPredictionResults(nextResults);
+      setGlobalDefinitionDrafts(hydrateGlobalDefinitionDrafts(nextDefinitions));
+      setGlobalResultDrafts(hydrateGlobalResultDrafts(nextDefinitions, nextResults));
+      setGlobalAnswerSummaries({});
+    } catch (error) {
+      if (isUnauthorized(error)) {
+        signOutAdmin();
+        return;
+      }
+      if (isForbidden(error)) {
+        setMessage("No tienes permisos para refrescar predicciones globales.");
+      }
+    }
+  }
+
   async function loadGlobalPredictionAnswerSummary(definition: GlobalPredictionDefinition) {
     if (!session || !pool || !canManageSelectedPoolResults) {
       return;
@@ -1876,17 +1879,13 @@ export default function AdminHome() {
     setMessage("");
 
     try {
-      const nextSummary = await createPollavarClient().updateGlobalPredictionAliases(
+      await createPollavarClient().updateGlobalPredictionAliases(
         session.token,
         pool.id,
         definition.code,
         { alias_values: nextAliasValues },
       );
-      setGlobalAnswerSummaries((current) => ({
-        ...current,
-        [definition.code]: nextSummary,
-      }));
-      void refreshGlobalPrizePreview(session.token, pool.id);
+      await refreshGlobalPredictionState(session.token, pool.id);
       setMessage("Alias globales actualizados.");
     } catch (error) {
       if (isUnauthorized(error)) {
@@ -2319,6 +2318,11 @@ export default function AdminHome() {
       setMessage("Revisa los puntos del bonus sorpresa.");
       return;
     }
+    const standingsPoints = parseWholeNumber(predictionSettingsDraft.standingsPredictionPoints);
+    if (standingsPoints === null || standingsPoints > 1000) {
+      setMessage("Revisa los puntos de posiciones exactas.");
+      return;
+    }
 
     setSavingPredictionSettings(true);
     setMessage("");
@@ -2340,9 +2344,15 @@ export default function AdminHome() {
         );
       }
       const nextScoringRules = await client.updateScoringRules(session.token, pool.id, {
-        rules: scoringRulesWithUnderdog(scoringRules, {
-          enabled: predictionSettingsDraft.underdogBonusEnabled,
-          points: underdogPoints,
+        rules: scoringRulesWithPredictionSettings(scoringRules, {
+          underdogBonus: {
+            enabled: predictionSettingsDraft.underdogBonusEnabled,
+            points: underdogPoints,
+          },
+          standingsPrediction: {
+            enabled: predictionSettingsDraft.standingsPredictionEnabled,
+            points: standingsPoints,
+          },
         }),
       });
       const nextEffectiveMatchSettings = await client.listEffectiveMatchPredictionSettings(
@@ -2504,15 +2514,12 @@ export default function AdminHome() {
         className="border-b text-white shadow-sm"
         style={{
           background: "#0f172a",
-          borderColor: themeColorAlpha(adminTheme.primaryColor, 0.35),
+          borderColor: "rgba(16, 185, 129, 0.35)",
         }}
       >
         <div className="mx-auto flex max-w-7xl flex-col gap-4 px-5 py-4 md:flex-row md:items-center md:justify-between">
           <Link className="flex min-w-0 items-center gap-3" href="/">
-            <span
-              className="truncate text-lg font-semibold tracking-normal"
-              style={{ color: adminTheme.primaryColor }}
-            >
+            <span className="truncate text-lg font-semibold tracking-normal text-[#10B981]">
               PollaVAR
             </span>
             <span className="rounded-md bg-white/10 px-2 py-1 text-xs font-medium text-white/80">
@@ -2529,10 +2536,7 @@ export default function AdminHome() {
                   onClick={() => setUserMenuOpen((open) => !open)}
                   type="button"
                 >
-                  <span
-                    className="grid size-9 shrink-0 place-items-center rounded-full text-xs font-semibold"
-                    style={{ backgroundColor: adminTheme.primaryColor, color: "#ffffff" }}
-                  >
+                  <span className="grid size-9 shrink-0 place-items-center rounded-full bg-[#10B981] text-xs font-semibold text-white">
                     {userInitials(session.user.name, session.user.username)}
                   </span>
                   <span className="min-w-0 max-w-40 truncate">{session.user.name}</span>
@@ -2903,20 +2907,18 @@ export default function AdminHome() {
                                 className="grid gap-3 px-4 py-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-center"
                                 key={tiebreaker.code}
                               >
-                                <label className="flex items-center gap-3 text-sm font-medium text-zinc-800">
-                                  <input
+                                <div className="flex items-center gap-3 text-sm font-medium text-zinc-800">
+                                  <TogglePill
                                     checked={tiebreaker.enabled}
-                                    className="h-4 w-4 rounded border-zinc-300"
                                     disabled={
                                       !canManageSelectedPoolPrizes || savingRankingTiebreakers
                                     }
                                     onChange={() => toggleRankingTiebreaker(tiebreaker.code)}
-                                    type="checkbox"
                                   />
                                   <span>
                                     {index + 1}. {rankingTiebreakerLabels[tiebreaker.code]}
                                   </span>
-                                </label>
+                                </div>
                                 <div className="flex gap-2">
                                   <button
                                     className="rounded-md border border-zinc-300 px-3 py-2 text-xs font-medium text-zinc-700 hover:border-zinc-400 disabled:cursor-not-allowed disabled:text-zinc-400"
@@ -3120,7 +3122,7 @@ export default function AdminHome() {
                     />
                   </div>
                   <div className="lg:col-span-2">
-                    <div className="sticky top-4 z-10 mb-4 rounded-lg border border-zinc-200 bg-white/95 p-3 shadow-sm backdrop-blur">
+                    <div className="mb-4 rounded-lg border border-zinc-200 bg-white/95 p-3 shadow-sm backdrop-blur lg:sticky lg:top-[11rem] lg:z-10">
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                         <div>
                           <p className="text-sm font-semibold text-zinc-950">
@@ -4148,7 +4150,7 @@ function AdminPoolStickyHeader({
 
   return (
     <section
-      className="sticky top-0 z-10 rounded-lg border bg-white/95 px-4 py-3 shadow-sm backdrop-blur"
+      className="sticky top-2 z-10 rounded-lg border bg-white/95 px-4 py-3 shadow-sm backdrop-blur"
       style={{
         background:
           "linear-gradient(135deg, rgba(255,255,255,0.96), var(--pollavar-secondary-soft))",
@@ -4341,8 +4343,8 @@ function buildAdminSections({
     },
     {
       id: "pronosticos",
-      label: "Pronosticos",
-      description: "Modo de prediccion, puntajes y desempates del torneo.",
+      label: "Juego",
+      description: "Reglas base para partidos, bonus y posiciones.",
       group: "Configuracion",
       badge: pool?.prediction_mode === "outcome" ? "LEV" : "Score",
     },
@@ -4361,7 +4363,7 @@ function buildAdminSections({
     {
       id: "globales",
       label: "Globales",
-      description: "Reglas globales, alias y resultados globales.",
+      description: "Pronosticos especiales como campeon, goleador y totales.",
       group: "Configuracion",
       badge: String(globalPredictionDefinitions.length),
     },
@@ -4811,10 +4813,9 @@ function PredictionSettingsPanel({
     >
       <div className="flex flex-col gap-3 border-b border-zinc-200 px-5 py-4 md:flex-row md:items-center md:justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-zinc-950">Pronosticos</h2>
+          <h2 className="text-lg font-semibold text-zinc-950">Reglas de juego</h2>
           <p className="text-sm text-zinc-600">
-            {predictionModeLabel(draft.predictionMode)} -{" "}
-            {matchResultScoringModeLabel(draft.matchResultScoringMode)}
+            Partidos, bonus sorpresa y posiciones de grupo/liga.
           </p>
         </div>
         <span
@@ -4829,7 +4830,7 @@ function PredictionSettingsPanel({
       <div className="grid gap-5 p-5">
         <div className="grid gap-4 lg:grid-cols-2">
           <label className="grid gap-2 text-sm font-medium text-zinc-700">
-            <span>Modo de pronostico</span>
+            <span>Partidos: modo de pronostico</span>
             <select
               className="min-h-10 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950 disabled:bg-zinc-100"
               disabled={!canManage || saving}
@@ -4850,7 +4851,7 @@ function PredictionSettingsPanel({
           </label>
 
           <label className="grid gap-2 text-sm font-medium text-zinc-700">
-            <span>Puntaje de resultado</span>
+            <span>Partidos: puntaje de resultado</span>
             <select
               className="min-h-10 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950 disabled:bg-zinc-100"
               disabled={!canManage || saving}
@@ -4871,58 +4872,146 @@ function PredictionSettingsPanel({
           </label>
         </div>
 
-        <div className="grid gap-4 lg:grid-cols-[minmax(320px,0.55fr)_minmax(220px,0.35fr)] lg:items-end lg:justify-between">
-          <div className="grid gap-2 text-sm font-medium text-zinc-700">
-            <span>Bonus sorpresa</span>
-            <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_120px]">
-              <label className="flex min-h-10 items-center gap-2 rounded-md border border-zinc-300 px-3 text-sm font-medium text-zinc-700">
-                <input
-                  checked={draft.underdogBonusEnabled}
-                  className="h-4 w-4"
-                  disabled={!canManage || saving}
-                  onChange={(event) =>
-                    onChange({
-                      ...draft,
-                      underdogBonusEnabled: event.target.checked,
-                    })
-                  }
-                  type="checkbox"
-                />
-                <span>Activo</span>
-              </label>
-              <label className="grid gap-2 text-sm font-medium text-zinc-700">
-                <span>Puntos bonus</span>
-                <input
-                  aria-label="Puntos bonus"
-                  className="min-h-10 rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-950 disabled:bg-zinc-100"
-                  disabled={!canManage || saving || !draft.underdogBonusEnabled}
-                  min={0}
-                  onChange={(event) =>
-                    onChange({
-                      ...draft,
-                      underdogBonusPoints: event.target.value,
-                    })
-                  }
-                  placeholder="Pts"
-                  step={1}
-                  type="number"
-                  value={draft.underdogBonusPoints}
-                />
-              </label>
-            </div>
+        <div className="grid gap-5">
+          <div className="grid gap-3">
+            <PredictionToggleRule
+              checked={draft.underdogBonusEnabled}
+              disabled={!canManage || saving}
+              label="Partidos: bonus sorpresa"
+              description="Suma puntos extra cuando el participante acierta el resultado marcado como sorpresa."
+              onCheckedChange={(checked) =>
+                onChange({
+                  ...draft,
+                  underdogBonusEnabled: checked,
+                })
+              }
+              onPointsChange={(points) =>
+                onChange({
+                  ...draft,
+                  underdogBonusPoints: points,
+                })
+              }
+              points={draft.underdogBonusPoints}
+              pointsLabel="Puntos bonus"
+            />
+            <PredictionToggleRule
+              checked={draft.standingsPredictionEnabled}
+              description="Si esta activo, los participantes podran ordenar los equipos de cada grupo o liga. Si esta apagado, solo pronosticaran partidos y globales."
+              disabled={!canManage || saving}
+              label="Posiciones de grupo/liga"
+              onCheckedChange={(checked) =>
+                onChange({
+                  ...draft,
+                  standingsPredictionEnabled: checked,
+                })
+              }
+              onPointsChange={(points) =>
+                onChange({
+                  ...draft,
+                  standingsPredictionPoints: points,
+                })
+              }
+              points={draft.standingsPredictionPoints}
+              pointsLabel="Puntos por posicion exacta"
+            />
           </div>
 
-          <button
-            className="min-h-10 rounded-md bg-[var(--pollavar-primary)] px-3 py-2 text-sm font-semibold text-white hover:brightness-95 disabled:cursor-not-allowed disabled:bg-zinc-300"
-            disabled={!canManage || saving}
-            onClick={onSave}
-            type="button"
-          >
-            {saving ? "Guardando" : "Guardar configuracion"}
-          </button>
+          <div className="flex justify-end">
+            <button
+              className="min-h-10 w-full rounded-md bg-[var(--pollavar-primary)] px-3 py-2 text-sm font-semibold text-white hover:brightness-95 disabled:cursor-not-allowed disabled:bg-zinc-300 sm:w-auto sm:min-w-64"
+              disabled={!canManage || saving}
+              onClick={onSave}
+              type="button"
+            >
+              {saving ? "Guardando" : "Guardar configuracion"}
+            </button>
+          </div>
         </div>
       </div>
     </section>
+  );
+}
+
+function PredictionToggleRule({
+  checked,
+  description,
+  disabled,
+  label,
+  onCheckedChange,
+  onPointsChange,
+  points,
+  pointsLabel,
+}: {
+  checked: boolean;
+  description?: string;
+  disabled: boolean;
+  label: string;
+  onCheckedChange: (checked: boolean) => void;
+  onPointsChange: (points: string) => void;
+  points: string;
+  pointsLabel: string;
+}) {
+  return (
+    <div className="grid gap-4 rounded-lg border border-zinc-200 bg-zinc-50/50 p-4 lg:grid-cols-[minmax(0,1fr)_130px_180px] lg:items-center">
+      <div>
+        <p className="text-sm font-semibold text-zinc-950">{label}</p>
+        {description ? <p className="mt-1 text-xs font-normal leading-5 text-zinc-500">{description}</p> : null}
+      </div>
+      <TogglePill checked={checked} disabled={disabled} onChange={onCheckedChange} />
+      <label className="grid gap-1 text-xs font-semibold uppercase text-zinc-500">
+        <span>{pointsLabel}</span>
+        <input
+          aria-label={pointsLabel}
+          className="min-h-10 rounded-md border border-zinc-300 px-3 py-2 text-sm font-normal normal-case text-zinc-950 disabled:bg-zinc-100"
+          disabled={disabled || !checked}
+          min={0}
+          onChange={(event) => onPointsChange(event.target.value)}
+          placeholder="Pts"
+          step={1}
+          type="number"
+          value={points}
+        />
+      </label>
+    </div>
+  );
+}
+
+function TogglePill({
+  checked,
+  disabled,
+  labelOff = "Inactivo",
+  labelOn = "Activo",
+  onChange,
+}: {
+  checked: boolean;
+  disabled?: boolean;
+  labelOff?: string;
+  labelOn?: string;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <button
+      aria-checked={checked}
+      className="inline-flex w-fit items-center gap-2 rounded-full border border-zinc-200 bg-white px-2 py-1 text-sm font-medium text-zinc-700 shadow-sm transition disabled:cursor-not-allowed disabled:opacity-60"
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+      role="switch"
+      type="button"
+    >
+      <span
+        aria-hidden="true"
+        className={`relative h-5 w-9 rounded-full transition ${
+          checked ? "bg-[var(--pollavar-primary)]" : "bg-zinc-300"
+        }`}
+      >
+        <span
+          className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition ${
+            checked ? "left-4" : "left-0.5"
+          }`}
+        />
+      </span>
+      <span>{checked ? labelOn : labelOff}</span>
+    </button>
   );
 }
 
@@ -5467,46 +5556,36 @@ function BracketGeneratorPanel({
                     </div>
 
                     <div className="grid gap-3 md:grid-cols-2">
-                      <label className="grid gap-1 text-xs font-medium uppercase text-zinc-500">
-                        <span>Local</span>
-                        <select
-                          className="min-h-10 w-full rounded-md border border-zinc-300 bg-white px-3 text-sm normal-case text-zinc-950 disabled:bg-zinc-100"
-                          disabled={!canManage || savingMatch}
-                          onChange={(event) =>
-                            onUpdateMatchSlotOverrideDraft(match.id, {
-                              homeTeamID: event.target.value,
-                            })
-                          }
-                          value={draftValue.homeTeamID}
-                        >
-                          <option value="">Hueco</option>
-                          {teamOptions.map((team) => (
-                            <option key={team.id} value={team.id}>
-                              {team.name}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <label className="grid gap-1 text-xs font-medium uppercase text-zinc-500">
-                        <span>Visitante</span>
-                        <select
-                          className="min-h-10 w-full rounded-md border border-zinc-300 bg-white px-3 text-sm normal-case text-zinc-950 disabled:bg-zinc-100"
-                          disabled={!canManage || savingMatch}
-                          onChange={(event) =>
-                            onUpdateMatchSlotOverrideDraft(match.id, {
-                              awayTeamID: event.target.value,
-                            })
-                          }
-                          value={draftValue.awayTeamID}
-                        >
-                          <option value="">Hueco</option>
-                          {teamOptions.map((team) => (
-                            <option key={team.id} value={team.id}>
-                              {team.name}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
+                      <TeamAutocomplete
+                        allowEmpty
+                        ariaLabel={`Local partido ${match.match_number || match.id}`}
+                        disabled={!canManage || savingMatch}
+                        emptyLabel="Hueco"
+                        label="Local"
+                        onChange={(value) =>
+                          onUpdateMatchSlotOverrideDraft(match.id, {
+                            homeTeamID: value,
+                          })
+                        }
+                        options={teamOptions}
+                        placeholder="Buscar local"
+                        value={draftValue.homeTeamID}
+                      />
+                      <TeamAutocomplete
+                        allowEmpty
+                        ariaLabel={`Visitante partido ${match.match_number || match.id}`}
+                        disabled={!canManage || savingMatch}
+                        emptyLabel="Hueco"
+                        label="Visitante"
+                        onChange={(value) =>
+                          onUpdateMatchSlotOverrideDraft(match.id, {
+                            awayTeamID: value,
+                          })
+                        }
+                        options={teamOptions}
+                        placeholder="Buscar visitante"
+                        value={draftValue.awayTeamID}
+                      />
                       <label className="grid gap-1 text-xs font-medium uppercase text-zinc-500 md:col-span-2">
                         <span>Motivo</span>
                         <input
@@ -5617,7 +5696,16 @@ function GlobalPredictionAdminPanel({
   const sortedDefinitions = globalDefinitionsInOrder(definitions);
   const enabledDefinitions = sortedDefinitions.filter((definition) => definition.enabled);
   const [templateSearch, setTemplateSearch] = useState("");
-  const [selectedTemplateCode, setSelectedTemplateCode] = useState("");
+  const [templateAutocompleteOpen, setTemplateAutocompleteOpen] = useState(false);
+  const [openGlobalSections, setOpenGlobalSections] = useState({
+    templates: false,
+    poolGlobals: true,
+    results: false,
+  });
+  const [openGlobalDefinitionCodes, setOpenGlobalDefinitionCodes] = useState<
+    Record<string, boolean>
+  >({});
+  const templateAutocompleteRef = useRef<HTMLDivElement>(null);
   const configuredCodes = new Set(sortedDefinitions.map((definition) => definition.code));
   const normalizedTemplateSearch = templateSearch.trim().toLowerCase();
   const availableTemplates = templates.filter(
@@ -5630,10 +5718,22 @@ function GlobalPredictionAdminPanel({
         template.category.toLowerCase().includes(normalizedTemplateSearch) ||
         globalTemplateSportLabel(template.sport).toLowerCase().includes(normalizedTemplateSearch)),
   );
-  const selectedTemplate =
-    availableTemplates.find((template) => template.code === selectedTemplateCode) ?? null;
   const resultsByCode = indexGlobalPredictionResults(results);
   const teamOptions = tournamentTeamOptions(tournament);
+
+  useEffect(() => {
+    function closeTemplateAutocomplete(event: MouseEvent) {
+      if (
+        templateAutocompleteRef.current &&
+        !templateAutocompleteRef.current.contains(event.target as Node)
+      ) {
+        setTemplateAutocompleteOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", closeTemplateAutocomplete);
+    return () => document.removeEventListener("mousedown", closeTemplateAutocomplete);
+  }, []);
 
   return (
     <section
@@ -5642,9 +5742,9 @@ function GlobalPredictionAdminPanel({
     >
       <div className="flex flex-col gap-3 border-b border-zinc-200 px-5 py-4 md:flex-row md:items-center md:justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-zinc-950">Predicciones globales</h2>
+          <h2 className="text-lg font-semibold text-zinc-950">Pronosticos globales</h2>
           <p className="text-sm text-zinc-600">
-            {enabledDefinitions.length} activas de {sortedDefinitions.length} configuradas.
+            Especiales de la polla: campeon, goleador, totales, rangos o reglas custom.
           </p>
         </div>
         <span
@@ -5656,115 +5756,173 @@ function GlobalPredictionAdminPanel({
         </span>
       </div>
 
-      {canManage ? (
-        <GlobalTemplateCatalogPanel
-          drafts={templateDrafts}
-          onAddTemplate={onAddReusableTemplate}
-          onSaveTemplate={onSaveTemplate}
-          onUpdateDraft={onUpdateTemplateDraft}
-          savingTemplateCode={savingTemplateCode}
-          templates={templates}
-        />
-      ) : null}
-
-      {canManage ? (
-        <div className="grid gap-3 border-b border-zinc-200 px-5 py-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto_auto] md:items-end">
-          <label className="grid gap-2 text-sm font-medium text-zinc-700">
-            <span>Buscar</span>
-            <input
-              className="min-h-10 rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-950 disabled:bg-zinc-100"
-              disabled={savingDefinitions || templates.length === 0}
-              onChange={(event) => setTemplateSearch(event.target.value)}
-              placeholder="Nombre o codigo"
-              value={templateSearch}
+      <div className="grid gap-4 p-5">
+        {canManage ? (
+          <GlobalAccordionSection
+            count={`${templates.length} disponibles`}
+            description="Opcional y avanzado: administra la biblioteca de opciones que pueden agregarse despues a una polla."
+            open={openGlobalSections.templates}
+            onToggle={() =>
+              setOpenGlobalSections((current) => ({
+                ...current,
+                templates: !current.templates,
+              }))
+            }
+            title="Catalogo de plantillas globales"
+          >
+            <GlobalTemplateCatalogPanel
+              drafts={templateDrafts}
+              onAddTemplate={onAddReusableTemplate}
+              onSaveTemplate={onSaveTemplate}
+              onUpdateDraft={onUpdateTemplateDraft}
+              savingTemplateCode={savingTemplateCode}
+              templates={templates}
             />
-          </label>
-          <label className="grid gap-2 text-sm font-medium text-zinc-700">
-            <span>Plantilla</span>
-            <select
-              className="min-h-10 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950 disabled:bg-zinc-100"
-              disabled={savingDefinitions || availableTemplates.length === 0}
-              onChange={(event) => setSelectedTemplateCode(event.target.value)}
-              value={selectedTemplateCode}
-            >
-              <option value="">
-                {availableTemplates.length === 0 ? "Sin plantillas disponibles" : "Elegir plantilla"}
-              </option>
-              {availableTemplates.map((template) => (
-                <option key={template.code} value={template.code}>
-                  {template.label} ({globalTemplateSportLabel(template.sport)})
-                </option>
-              ))}
-            </select>
-          </label>
-          <button
-            className="min-h-10 rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-400"
-            disabled={!selectedTemplate || savingDefinitions}
-            onClick={() => {
-              if (!selectedTemplate) {
-                return;
-              }
-              onAddTemplate(selectedTemplate);
-              setSelectedTemplateCode("");
-            }}
-            type="button"
-          >
-            Agregar
-          </button>
-          <button
-            className="min-h-10 rounded-md bg-[var(--pollavar-primary)] px-3 py-2 text-sm font-medium text-white hover:brightness-95 disabled:cursor-not-allowed disabled:bg-zinc-300"
-            disabled={savingDefinitions}
-            onClick={onAddCustomDefinition}
-            type="button"
-          >
-            Nueva custom
-          </button>
-        </div>
-      ) : null}
+          </GlobalAccordionSection>
+        ) : null}
 
-      {sortedDefinitions.length === 0 ? (
-        <div className="p-5 text-sm text-zinc-600">
-          Esta polla aun no tiene predicciones globales inicializadas.
-        </div>
-      ) : (
-        <div className="space-y-5 p-5">
+        <GlobalAccordionSection
+          count={`${sortedDefinitions.length} configurados`}
+          description="Aqui decides que pronosticos aplican en esta polla, cuantos puntos dan y si entregan premio especial."
+          open={openGlobalSections.poolGlobals}
+          onToggle={() =>
+            setOpenGlobalSections((current) => ({
+              ...current,
+              poolGlobals: !current.poolGlobals,
+            }))
+          }
+          title="Pronosticos globales de esta polla"
+        >
+          {canManage ? (
+            <div className="mb-5 grid gap-4 rounded-lg border border-zinc-200 bg-zinc-50/60 p-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
+              <div className="grid gap-2 text-sm font-medium text-zinc-700">
+                <span>Buscar y agregar plantilla</span>
+                <div className="relative" ref={templateAutocompleteRef}>
+                  <input
+                    className="min-h-10 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-950 disabled:bg-zinc-100"
+                    disabled={savingDefinitions || templates.length === 0}
+                    onChange={(event) => {
+                      setTemplateSearch(event.target.value);
+                      setTemplateAutocompleteOpen(true);
+                    }}
+                    onFocus={() => setTemplateAutocompleteOpen(true)}
+                    placeholder="Campeon, goleador, total amarillas..."
+                    value={templateSearch}
+                  />
+                  {templateAutocompleteOpen ? (
+                    <div className="absolute z-30 mt-1 max-h-72 w-full overflow-y-auto rounded-lg border border-zinc-200 bg-white p-1 shadow-lg">
+                      {availableTemplates.length > 0 ? (
+                        availableTemplates.slice(0, 12).map((template) => (
+                          <button
+                            className="grid w-full gap-1 rounded-md px-3 py-2 text-left text-sm hover:bg-zinc-100"
+                            disabled={savingDefinitions}
+                            key={template.code}
+                            onClick={() => {
+                              onAddTemplate(template);
+                              setTemplateSearch("");
+                              setTemplateAutocompleteOpen(false);
+                            }}
+                            type="button"
+                          >
+                            <span className="font-semibold text-zinc-950">{template.label}</span>
+                            <span className="text-xs text-zinc-500">
+                              {template.code} - {globalTemplateSportLabel(template.sport)} -{" "}
+                              {template.category}
+                            </span>
+                          </button>
+                        ))
+                      ) : (
+                        <p className="px-3 py-3 text-sm text-zinc-500">
+                          {templates.length === 0
+                            ? "No hay plantillas disponibles."
+                            : "Sin resultados disponibles para agregar."}
+                        </p>
+                      )}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+              <button
+                className="min-h-10 rounded-md bg-[var(--pollavar-primary)] px-4 py-2 text-sm font-medium text-white hover:brightness-95 disabled:cursor-not-allowed disabled:bg-zinc-300 md:min-w-48"
+                disabled={savingDefinitions}
+                onClick={onAddCustomDefinition}
+                type="button"
+              >
+                Nueva global custom
+              </button>
+            </div>
+          ) : null}
+
+          {sortedDefinitions.length === 0 ? (
+            <div className="text-sm text-zinc-600">
+              Esta polla aun no tiene pronosticos globales configurados.
+            </div>
+          ) : (
+            <div className="space-y-5">
           <div className="grid gap-3">
             {sortedDefinitions.map((definition) => {
               const draft = {
                 ...globalDefinitionDraft(definition),
                 ...definitionDrafts[definition.code],
               };
+              const definitionOpen = openGlobalDefinitionCodes[definition.code] ?? false;
 
               return (
                 <article
-                  className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm"
+                  className="overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-sm"
                   key={definition.code}
                   role="row"
                 >
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div>
-                      <label className="flex items-center gap-2 text-sm font-medium text-zinc-800">
-                        <input
-                          aria-label={`Activar ${definition.label}`}
-                          checked={draft.enabled}
-                          className="h-4 w-4"
-                          disabled={!canManage || savingDefinitions}
-                          onChange={(event) =>
-                            onUpdateDefinitionDraft(definition.code, {
-                              enabled: event.target.checked,
-                            })
-                          }
-                          type="checkbox"
-                        />
-                        <span>{draft.enabled ? "Activa" : "Inactiva"}</span>
-                      </label>
-                      <p className="mt-1 break-all text-xs text-zinc-500">{definition.code}</p>
+                  <div className="grid gap-3 p-4 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center">
+                    <div className="grid gap-2">
+                      <TogglePill
+                        checked={draft.enabled}
+                        disabled={!canManage || savingDefinitions}
+                        labelOff="No incluida"
+                        labelOn="Incluida en esta polla"
+                        onChange={(checked) =>
+                          onUpdateDefinitionDraft(definition.code, {
+                            enabled: checked,
+                          })
+                        }
+                      />
+                      <div>
+                        <p className="text-base font-semibold text-zinc-950">{draft.label}</p>
+                        <p className="mt-1 break-all text-xs text-zinc-500">
+                          {definition.code} - {globalValueTypeLabel(draft.valueType)}
+                          {draft.pointsEnabled ? ` - ${draft.points || 0} pts` : " - sin puntos"}
+                          {draft.prizeEnabled ? " - premio especial" : ""}
+                        </p>
+                      </div>
                     </div>
+                    <button
+                      aria-expanded={definitionOpen}
+                      className="min-h-10 rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
+                      onClick={() =>
+                        setOpenGlobalDefinitionCodes((current) => ({
+                          ...current,
+                          [definition.code]: !definitionOpen,
+                        }))
+                      }
+                      type="button"
+                    >
+                      {definitionOpen ? "Ocultar" : "Editar"}
+                    </button>
+                    <button
+                      aria-label={`Guardar ${definition.label}`}
+                      className="min-h-10 rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-400"
+                      disabled={!canManage || savingDefinitions}
+                      onClick={onSaveDefinitions}
+                      type="button"
+                    >
+                      {savingDefinitions ? "Guardando" : "Guardar"}
+                    </button>
                   </div>
 
-                  <div className="mt-4 grid gap-3 lg:grid-cols-2">
+                  {definitionOpen ? (
+                  <div className="grid gap-3 border-t border-zinc-200 p-4 lg:grid-cols-2">
                     <label className="grid gap-1 text-xs font-semibold uppercase text-zinc-500 lg:col-span-2">
-                      Pronostico
+                      Nombre visible
                       <input
                         id={`global-label-${definition.code}`}
                         className="min-h-10 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm font-normal normal-case text-zinc-950 disabled:bg-zinc-100"
@@ -5802,21 +5960,17 @@ function GlobalPredictionAdminPanel({
                     <div className="grid gap-1 text-xs font-semibold uppercase text-zinc-500">
                       Puntos
                       <div className="grid min-h-10 grid-cols-[minmax(0,1fr)_96px] items-center gap-2">
-                        <label className="flex min-h-10 items-center gap-2 rounded-md border border-zinc-300 px-3 text-sm font-normal normal-case text-zinc-950">
-                          <input
-                            aria-label={`Puntua ${definition.label}`}
-                            checked={draft.pointsEnabled}
-                            className="h-4 w-4"
-                            disabled={!canManage || savingDefinitions}
-                            onChange={(event) =>
-                              onUpdateDefinitionDraft(definition.code, {
-                                pointsEnabled: event.target.checked,
-                              })
-                            }
-                            type="checkbox"
-                          />
-                          Puntua
-                        </label>
+                        <TogglePill
+                          checked={draft.pointsEnabled}
+                          disabled={!canManage || savingDefinitions}
+                          labelOff="No puntua"
+                          labelOn="Puntua"
+                          onChange={(checked) =>
+                            onUpdateDefinitionDraft(definition.code, {
+                              pointsEnabled: checked,
+                            })
+                          }
+                        />
                         <input
                           id={`global-points-${definition.code}`}
                           className="min-h-10 rounded-md border border-zinc-300 px-3 py-2 text-sm font-normal text-zinc-950 disabled:bg-zinc-100"
@@ -5835,28 +5989,24 @@ function GlobalPredictionAdminPanel({
                     </div>
 
                     <div className="grid gap-1 text-xs font-semibold uppercase text-zinc-500">
-                      Premio especial
+                      Premio global especial
                       <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_120px_minmax(0,1fr)]">
-                        <label className="flex min-h-10 items-center gap-2 rounded-md border border-zinc-300 px-3 text-sm font-normal normal-case text-zinc-950">
-                          <input
-                            aria-label={`Premio especial ${definition.label}`}
-                            checked={draft.prizeEnabled}
-                            className="h-4 w-4"
-                            disabled={!canManage || savingDefinitions}
-                            onChange={(event) =>
-                              onUpdateDefinitionDraft(definition.code, {
-                                prizeEnabled: event.target.checked,
-                                prizeType: event.target.checked
-                                  ? draft.prizeType === "none"
-                                    ? "fixed"
-                                    : draft.prizeType
-                                  : "none",
-                              })
-                            }
-                            type="checkbox"
-                          />
-                          Especial
-                        </label>
+                        <TogglePill
+                          checked={draft.prizeEnabled}
+                          disabled={!canManage || savingDefinitions}
+                          labelOff="Sin premio"
+                          labelOn="Especial"
+                          onChange={(checked) =>
+                            onUpdateDefinitionDraft(definition.code, {
+                              prizeEnabled: checked,
+                              prizeType: checked
+                                ? draft.prizeType === "none"
+                                  ? "fixed"
+                                  : draft.prizeType
+                                : "none",
+                            })
+                          }
+                        />
                         <select
                           id={`global-prize-type-${definition.code}`}
                           className="min-h-10 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-normal normal-case text-zinc-950 disabled:bg-zinc-100"
@@ -5927,35 +6077,39 @@ function GlobalPredictionAdminPanel({
                       />
                     </label>
                   </div>
+                  ) : null}
                 </article>
               );
             })}
           </div>
+            </div>
+          )}
+        </GlobalAccordionSection>
 
-          <div className="flex justify-end">
-            <button
-              className="rounded-md bg-[var(--pollavar-primary)] px-3 py-2 text-sm font-semibold text-white hover:brightness-95 disabled:cursor-not-allowed disabled:bg-zinc-300"
-              disabled={!canManage || savingDefinitions}
-              onClick={onSaveDefinitions}
-              type="button"
-            >
-              {savingDefinitions ? "Guardando" : "Guardar predicciones globales"}
-            </button>
-          </div>
-
-          <div className="border-t border-zinc-200 pt-5">
+        <GlobalAccordionSection
+          count={`${enabledDefinitions.length} activos`}
+          description="Carga la respuesta correcta cuando el pronostico global ya este cerrado y revisa alias de respuestas libres."
+          open={openGlobalSections.results}
+          onToggle={() =>
+            setOpenGlobalSections((current) => ({
+              ...current,
+              results: !current.results,
+            }))
+          }
+          title="Resultados oficiales y alias"
+        >
             <div className="mb-4">
               <h3 className="text-base font-semibold text-zinc-950">
-                Resultados globales oficiales
+                Resultados oficiales de globales
               </h3>
               <p className="text-sm text-zinc-600">
-                Los resultados por rango se cargan como numero real final.
+                Carga la respuesta correcta de cada global cuando su cierre ya haya pasado.
               </p>
             </div>
 
             {enabledDefinitions.length === 0 ? (
               <p className="text-sm text-zinc-600">
-                Activa al menos una prediccion global para cargar resultados.
+                Activa al menos un pronostico global para cargar resultados.
               </p>
             ) : (
               <div className="grid gap-4 lg:grid-cols-2">
@@ -6044,10 +6198,55 @@ function GlobalPredictionAdminPanel({
                 })}
               </div>
             )}
-          </div>
-        </div>
-      )}
+        </GlobalAccordionSection>
+      </div>
     </section>
+  );
+}
+
+function GlobalAccordionSection({
+  children,
+  count,
+  description,
+  onToggle,
+  open,
+  title,
+}: {
+  children: ReactNode;
+  count: string;
+  description: string;
+  onToggle: () => void;
+  open: boolean;
+  title: string;
+}) {
+  return (
+    <article className="overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-sm">
+      <button
+        aria-expanded={open}
+        className="flex w-full items-center justify-between gap-4 px-4 py-4 text-left hover:bg-zinc-50"
+        onClick={onToggle}
+        type="button"
+      >
+        <span>
+          <span className="block text-sm font-semibold text-zinc-950">{title}</span>
+          <span className="mt-1 block text-xs text-zinc-500">{description}</span>
+        </span>
+        <span className="flex shrink-0 items-center gap-3">
+          <span className="rounded-md bg-zinc-100 px-2 py-1 text-xs font-medium text-zinc-700">
+            {count}
+          </span>
+          <span
+            aria-hidden="true"
+            className={`grid h-8 w-8 place-items-center rounded-full border border-zinc-200 text-sm font-semibold text-zinc-600 transition ${
+              open ? "rotate-180" : ""
+            }`}
+          >
+            v
+          </span>
+        </span>
+      </button>
+      {open ? <div className="border-t border-zinc-200 p-4">{children}</div> : null}
+    </article>
   );
 }
 
@@ -6186,15 +6385,15 @@ function GlobalTemplateCatalogPanel({
   templates: GlobalPredictionTemplate[];
 }) {
   const sortedTemplates = globalTemplatesInOrder(templates);
+  const [openTemplateCodes, setOpenTemplateCodes] = useState<Record<string, boolean>>({});
 
   return (
-    <div className="border-b border-zinc-200 px-5 py-4">
+    <div className="grid gap-4">
       <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h3 className="text-base font-semibold text-zinc-950">Catalogo de plantillas</h3>
+          <h3 className="text-base font-semibold text-zinc-950">Biblioteca de plantillas</h3>
           <p className="text-sm text-zinc-600">
-            {sortedTemplates.filter((template) => template.enabled).length} activas de{" "}
-            {sortedTemplates.length}.
+            Define opciones base que podran aparecer en el selector "Agregar desde plantilla".
           </p>
         </div>
         <button
@@ -6207,7 +6406,7 @@ function GlobalTemplateCatalogPanel({
         </button>
       </div>
 
-      <div className="grid gap-3 lg:grid-cols-2">
+      <div className="overflow-hidden rounded-lg border border-zinc-200 bg-white">
         {sortedTemplates.map((template) => {
           const draft = {
             ...globalTemplateDraft(template),
@@ -6215,35 +6414,56 @@ function GlobalTemplateCatalogPanel({
           };
           const isSaving = savingTemplateCode === template.code;
           const canEditCode = isDraftGlobalTemplate(template);
+          const templateOpen = openTemplateCodes[template.code] ?? false;
 
           return (
-            <article className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm" key={template.code}>
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                <label className="flex items-center gap-2 text-sm font-medium text-zinc-700">
-                  <input
-                    aria-label={`Activar plantilla ${template.label}`}
-                    checked={draft.enabled}
-                    className="h-4 w-4"
-                    disabled={isSaving}
-                    onChange={(event) =>
-                      onUpdateDraft(template.code, { enabled: event.target.checked })
-                    }
-                    type="checkbox"
-                  />
-                  Activa
-                </label>
+            <article
+              className="border-b border-zinc-200 last:border-b-0"
+              key={template.code}
+            >
+              <div className="grid gap-3 px-4 py-3 lg:grid-cols-[220px_minmax(0,1fr)_160px_150px_auto] lg:items-center">
+                <TogglePill
+                  checked={draft.enabled}
+                  disabled={isSaving}
+                  labelOff="No disponible"
+                  labelOn="Disponible"
+                  onChange={(checked) => onUpdateDraft(template.code, { enabled: checked })}
+                />
+                <div>
+                  <p className="text-sm font-semibold text-zinc-950">{draft.label}</p>
+                  <p className="mt-1 break-all text-xs text-zinc-500">{draft.code}</p>
+                </div>
+                <span className="text-sm text-zinc-600">{globalTemplateSportLabel(draft.sport)}</span>
+                <span className="text-sm text-zinc-600">{draft.category}</span>
+                <div className="flex flex-wrap gap-2 lg:justify-end">
+                <button
+                  aria-expanded={templateOpen}
+                  className="min-h-9 rounded-md border border-zinc-300 px-3 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
+                  onClick={() =>
+                    setOpenTemplateCodes((current) => ({
+                      ...current,
+                      [template.code]: !templateOpen,
+                    }))
+                  }
+                  type="button"
+                >
+                  {templateOpen ? "Ocultar" : "Editar"}
+                </button>
                 <button
                   aria-label={`Guardar plantilla ${template.label}`}
-                  className="min-h-10 w-fit rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-400"
+                  className="min-h-9 w-fit rounded-md border border-zinc-300 px-3 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-400"
                   disabled={isSaving}
                   onClick={() => onSaveTemplate(template.code)}
                   type="button"
                 >
                   {isSaving ? "Guardando" : "Guardar"}
                 </button>
+                </div>
               </div>
 
-              <div className="mt-4 grid gap-3 md:grid-cols-2">
+              {templateOpen ? (
+              <div className="grid gap-4 border-t border-zinc-200 bg-zinc-50/50 p-4">
+                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                 <label className="grid gap-1 text-xs font-semibold uppercase text-zinc-500">
                   Codigo
                   <input
@@ -6292,6 +6512,8 @@ function GlobalTemplateCatalogPanel({
                     value={draft.category}
                   />
                 </label>
+                </div>
+                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                 <label className="grid gap-1 text-xs font-semibold uppercase text-zinc-500">
                   Tipo
                   <select
@@ -6327,22 +6549,20 @@ function GlobalTemplateCatalogPanel({
                     value={draft.sortOrder}
                   />
                 </label>
+                </div>
+                <div className="grid gap-3 md:grid-cols-2">
                 <label className="grid gap-1 text-xs font-semibold uppercase text-zinc-500">
                   Puntos
                   <div className="grid min-h-10 grid-cols-[minmax(0,1fr)_96px] items-center gap-2">
-                    <label className="flex min-h-10 items-center gap-2 rounded-md border border-zinc-300 px-3 text-sm font-normal normal-case text-zinc-950">
-                      <input
-                        aria-label={`Puntua plantilla ${template.label}`}
-                        checked={draft.pointsEnabled}
-                        className="h-4 w-4"
-                        disabled={isSaving}
-                        onChange={(event) =>
-                          onUpdateDraft(template.code, { pointsEnabled: event.target.checked })
-                        }
-                        type="checkbox"
-                      />
-                      Puntua
-                    </label>
+                    <TogglePill
+                      checked={draft.pointsEnabled}
+                      disabled={isSaving}
+                      labelOff="No puntua"
+                      labelOn="Puntua"
+                      onChange={(checked) =>
+                        onUpdateDraft(template.code, { pointsEnabled: checked })
+                      }
+                    />
                     <input
                       aria-label={`Puntos plantilla ${template.label}`}
                       className="min-h-10 rounded-md border border-zinc-300 px-3 py-2 text-sm font-normal text-zinc-950 disabled:bg-zinc-100"
@@ -6360,40 +6580,132 @@ function GlobalTemplateCatalogPanel({
                 <div className="grid gap-1 text-xs font-semibold uppercase text-zinc-500">
                   Opciones
                   <div className="grid min-h-10 grid-cols-2 gap-2">
-                    <label className="flex items-center gap-2 rounded-md border border-zinc-300 px-3 text-sm font-normal normal-case text-zinc-950">
-                      <input
-                        aria-label={`Premio plantilla ${template.label}`}
-                        checked={draft.prizeEnabled}
-                        className="h-4 w-4"
-                        disabled={isSaving}
-                        onChange={(event) =>
-                          onUpdateDraft(template.code, { prizeEnabled: event.target.checked })
-                        }
-                        type="checkbox"
-                      />
-                      Premio
-                    </label>
-                    <label className="flex items-center gap-2 rounded-md border border-zinc-300 px-3 text-sm font-normal normal-case text-zinc-950">
-                    <input
-                      aria-label={`Default plantilla ${template.label}`}
-                      checked={draft.defaultEnabled}
-                      className="h-4 w-4"
+                    <TogglePill
+                      checked={draft.prizeEnabled}
                       disabled={isSaving}
-                      onChange={(event) =>
-                        onUpdateDraft(template.code, { defaultEnabled: event.target.checked })
+                      labelOff="Sin premio"
+                      labelOn="Premio"
+                      onChange={(checked) =>
+                        onUpdateDraft(template.code, { prizeEnabled: checked })
                       }
-                      type="checkbox"
                     />
-                      Default
-                    </label>
+                    <TogglePill
+                      checked={draft.defaultEnabled}
+                      disabled={isSaving}
+                      labelOff="Opcional"
+                      labelOn="Default"
+                      onChange={(checked) =>
+                        onUpdateDraft(template.code, { defaultEnabled: checked })
+                      }
+                    />
                   </div>
                 </div>
+                </div>
               </div>
+              ) : null}
             </article>
           );
         })}
       </div>
     </div>
+  );
+}
+
+function TeamAutocomplete({
+  allowEmpty = false,
+  ariaLabel,
+  disabled,
+  emptyLabel = "Sin equipo",
+  label,
+  onChange,
+  options,
+  placeholder,
+  value,
+}: {
+  allowEmpty?: boolean;
+  ariaLabel: string;
+  disabled?: boolean;
+  emptyLabel?: string;
+  label: string;
+  onChange: (value: string) => void;
+  options: TournamentTeamOption[];
+  placeholder: string;
+  value: string;
+}) {
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const selectedTeam = options.find((team) => teamOptionValue(team) === value);
+  const visibleValue = open ? query : selectedTeam?.name ?? (value || "");
+  const normalizedQuery = normalizeSearchText(query);
+  const filteredOptions = normalizedQuery
+    ? options.filter((team) =>
+        [team.name, team.short_name, team.country_code, ...(team.aliases ?? [])]
+          .filter(Boolean)
+          .some((text) => normalizeSearchText(text).includes(normalizedQuery)),
+      )
+    : options;
+
+  return (
+    <label className="relative grid gap-1 text-xs font-medium uppercase text-zinc-500">
+      <span>{label}</span>
+      <input
+        aria-label={ariaLabel}
+        className="min-h-10 w-full rounded-md border border-zinc-300 bg-white px-3 text-sm normal-case text-zinc-950 disabled:bg-zinc-100"
+        disabled={disabled}
+        onBlur={() => {
+          window.setTimeout(() => {
+            setOpen(false);
+            setQuery("");
+          }, 120);
+        }}
+        onChange={(event) => {
+          setQuery(event.target.value);
+          setOpen(true);
+          if (event.target.value === "" && allowEmpty) {
+            onChange("");
+          }
+        }}
+        onFocus={() => setOpen(true)}
+        placeholder={selectedTeam ? undefined : placeholder}
+        value={visibleValue}
+      />
+      {open && !disabled ? (
+        <div className="absolute left-0 right-0 top-full z-40 mt-1 max-h-72 overflow-y-auto rounded-lg border border-zinc-200 bg-white p-1 normal-case shadow-lg">
+          {allowEmpty ? (
+            <button
+              className="w-full rounded-md px-3 py-2 text-left text-sm text-zinc-600 hover:bg-zinc-100"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => {
+                onChange("");
+                setQuery("");
+                setOpen(false);
+              }}
+              type="button"
+            >
+              {emptyLabel}
+            </button>
+          ) : null}
+          {filteredOptions.slice(0, 12).map((team) => (
+            <button
+              className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-zinc-100"
+              key={teamOptionValue(team)}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => {
+                onChange(teamOptionValue(team));
+                setQuery("");
+                setOpen(false);
+              }}
+              type="button"
+            >
+              <TeamBadge label={team.name} team={team} />
+            </button>
+          ))}
+          {filteredOptions.length === 0 ? (
+            <p className="px-3 py-3 text-sm text-zinc-500">Sin equipos encontrados.</p>
+          ) : null}
+        </div>
+      ) : null}
+    </label>
   );
 }
 
@@ -6412,26 +6724,15 @@ function GlobalResultInput({
 }) {
   if (definition.value_type === "team" && teamOptions.length > 0) {
     return (
-      <label className="grid gap-2 text-sm font-medium text-zinc-700">
-        <span>Equipo</span>
-        <select
-          aria-label={`Resultado oficial ${definition.label}`}
-          className="min-h-10 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950 disabled:bg-zinc-100"
-          disabled={disabled}
-          onChange={(event) => onUpdate("valueText", event.target.value)}
-          value={draft.valueText}
-        >
-          <option value="">Elegir equipo</option>
-          {teamOptions.map((team) => (
-            <option key={team.id || team.name} value={team.id || team.name}>
-              {team.name}
-            </option>
-          ))}
-          {draft.valueText && !teamOptions.some((team) => (team.id || team.name) === draft.valueText) ? (
-            <option value={draft.valueText}>{draft.valueText}</option>
-          ) : null}
-        </select>
-      </label>
+      <TeamAutocomplete
+        ariaLabel={`Resultado oficial ${definition.label}`}
+        disabled={disabled}
+        label="Equipo"
+        onChange={(value) => onUpdate("valueText", value)}
+        options={teamOptions}
+        placeholder="Buscar equipo"
+        value={draft.valueText}
+      />
     );
   }
 
@@ -6534,19 +6835,17 @@ function TournamentTiebreakersPanel({
             className="grid gap-3 rounded-md border border-zinc-200 p-3 sm:grid-cols-[1fr_auto] sm:items-center"
             key={tiebreaker}
           >
-            <label className="flex items-center gap-3 text-sm font-medium text-zinc-800">
-              <input
+            <div className="flex items-center gap-3 text-sm font-medium text-zinc-800">
+              <TogglePill
                 checked={draft[tiebreaker]}
-                className="h-4 w-4"
                 disabled={!canManage || saving}
-                onChange={(event) => onToggle(tiebreaker, event.target.checked)}
-                type="checkbox"
+                onChange={(checked) => onToggle(tiebreaker, checked)}
               />
               <span>
                 <span className="font-semibold text-zinc-950">{index + 1}. </span>
                 {tiebreakerLabel(tiebreaker)}
               </span>
-            </label>
+            </div>
             <div className="flex gap-2">
               <button
                 className="rounded-md border border-zinc-300 px-2 py-1 text-xs font-medium text-zinc-700 disabled:cursor-not-allowed disabled:text-zinc-400"
@@ -6980,7 +7279,7 @@ function ResultsPanel({
                       key={match.id}
                       role="row"
                     >
-                      <div className="grid gap-4 2xl:grid-cols-[minmax(260px,0.9fr)_minmax(0,2.6fr)_minmax(170px,0.55fr)] 2xl:items-start">
+                      <div className="grid gap-4">
                         <div>
                           <p className="text-xs font-medium text-zinc-500">
                             Partido {match.match_number}
@@ -7011,23 +7310,19 @@ function ResultsPanel({
                           </div>
                         </div>
 
-                        <div className="grid gap-3 xl:grid-cols-[minmax(220px,1.1fr)_minmax(150px,0.55fr)_minmax(170px,0.75fr)_minmax(160px,0.7fr)]">
-                          <div className="grid gap-2 rounded-md bg-zinc-50 p-3">
+                        <div className="grid gap-3">
+                          <div className="grid gap-3 xl:grid-cols-[minmax(220px,1.1fr)_minmax(150px,0.55fr)_minmax(170px,0.75fr)_minmax(160px,0.7fr)]">
+                            <div className="grid gap-2 rounded-md bg-zinc-50 p-3">
                             <p className="text-xs font-semibold uppercase text-zinc-500">Sorpresa</p>
-                            <label className="flex items-center gap-2 text-sm font-medium text-zinc-700">
-                              <input
-                                checked={bonusDraft.enabled}
-                                className="h-4 w-4"
-                                disabled={!canManage || closed || isSavingBonus}
-                                onChange={(event) =>
-                                  onUpdateBonusDraft(match.id, {
-                                    enabled: event.target.checked,
-                                  })
-                                }
-                                type="checkbox"
-                              />
-                              <span>Activo</span>
-                            </label>
+                            <TogglePill
+                              checked={bonusDraft.enabled}
+                              disabled={!canManage || closed || isSavingBonus}
+                              onChange={(checked) =>
+                                onUpdateBonusDraft(match.id, {
+                                  enabled: checked,
+                                })
+                              }
+                            />
                             <select
                               aria-label={`Sorpresa ${homeName} vs ${awayName}`}
                               className="min-h-10 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950 disabled:bg-zinc-100"
@@ -7093,9 +7388,9 @@ function ResultsPanel({
                             >
                               {isSavingBonus ? "Guardando" : "Guardar bonus"}
                             </button>
-                          </div>
+                            </div>
 
-                          <div className="grid gap-2 rounded-md bg-zinc-50 p-3">
+                            <div className="grid gap-2 rounded-md bg-zinc-50 p-3">
                             <p className="text-xs font-semibold uppercase text-zinc-500">Marcador</p>
                             <div className="grid grid-cols-2 gap-2">
                               <label className="grid gap-1 text-xs font-medium text-zinc-600">
@@ -7129,9 +7424,9 @@ function ResultsPanel({
                                 />
                               </label>
                             </div>
-                          </div>
+                            </div>
 
-                          <div className="grid gap-2 rounded-md bg-zinc-50 p-3">
+                            <div className="grid gap-2 rounded-md bg-zinc-50 p-3">
                             <p className="text-xs font-semibold uppercase text-zinc-500">Snapshot</p>
                             {snapshot ? (
                               <div>
@@ -7159,9 +7454,9 @@ function ResultsPanel({
                                   ? "Consultar"
                                   : "Generar"}
                             </button>
-                          </div>
+                            </div>
 
-                          <div className="grid gap-2 rounded-md bg-zinc-50 p-3">
+                            <div className="grid gap-2 rounded-md bg-zinc-50 p-3">
                             <p className="text-xs font-semibold uppercase text-zinc-500">Auditoria</p>
                             {latestAuditLog ? (
                               <div>
@@ -7187,17 +7482,18 @@ function ResultsPanel({
                             >
                               {isLoadingAudit ? "Cargando" : "Ver auditoria"}
                             </button>
+                            </div>
                           </div>
-                        </div>
 
-                        <button
-                          className="min-h-10 rounded-md bg-[var(--pollavar-primary)] px-3 py-2 text-sm font-medium text-white hover:brightness-95 disabled:cursor-not-allowed disabled:bg-zinc-300"
-                          disabled={!canManage || !closed || isSaving}
-                          onClick={() => onSave(match)}
-                          type="button"
-                        >
-                          {isSaving ? "Guardando" : "Guardar resultado"}
-                        </button>
+                          <button
+                            className="min-h-10 rounded-md bg-[var(--pollavar-primary)] px-3 py-2 text-sm font-medium text-white hover:brightness-95 disabled:cursor-not-allowed disabled:bg-zinc-300"
+                            disabled={!canManage || !closed || isSaving}
+                            onClick={() => onSave(match)}
+                            type="button"
+                          >
+                            {isSaving ? "Guardando" : "Guardar resultado"}
+                          </button>
+                        </div>
                       </div>
                     </article>
                   );
@@ -7814,12 +8110,15 @@ function defaultPredictionSettingsDraft(
   rules: ScoringRule[],
 ): PredictionSettingsDraft {
   const underdogRule = scoringRuleByCode(rules, "underdog_bonus");
+  const standingsRule = scoringRuleByCode(rules, "group_position_exact");
 
   return {
     predictionMode: pool?.prediction_mode ?? "score_with_outcome",
     matchResultScoringMode: pool?.match_result_scoring_mode ?? "exclusive",
     underdogBonusEnabled: underdogRule?.enabled ?? false,
     underdogBonusPoints: String(underdogRule?.points ?? 2),
+    standingsPredictionEnabled: standingsRule?.enabled ?? true,
+    standingsPredictionPoints: String(standingsRule?.points ?? 2),
   };
 }
 
@@ -8127,15 +8426,23 @@ function parseOptionalProbability(value: string) {
   return parsed;
 }
 
-function scoringRulesWithUnderdog(
+function scoringRulesWithPredictionSettings(
   rules: ScoringRule[],
-  underdogRule: { enabled: boolean; points: number },
+  settings: {
+    underdogBonus: { enabled: boolean; points: number };
+    standingsPrediction: { enabled: boolean; points: number };
+  },
 ) {
   const rulesByCode = new Map(scoringRulesWithDefaults(rules).map((rule) => [rule.code, rule]));
   rulesByCode.set("underdog_bonus", {
     code: "underdog_bonus",
-    enabled: underdogRule.enabled,
-    points: underdogRule.points,
+    enabled: settings.underdogBonus.enabled,
+    points: settings.underdogBonus.points,
+  });
+  rulesByCode.set("group_position_exact", {
+    code: "group_position_exact",
+    enabled: settings.standingsPrediction.enabled,
+    points: settings.standingsPrediction.points,
   });
   return scoringRulesInDefaultOrder(rulesByCode);
 }
@@ -8866,6 +9173,10 @@ function teamOptionLabel(value: string, teamOptions: TournamentTeamOption[]) {
   return team?.name ?? normalizedValue;
 }
 
+function teamOptionValue(team: TournamentTeamOption) {
+  return team.id || team.name;
+}
+
 function globalValueLabel(value: GlobalPredictionResult, teamOptions: TournamentTeamOption[] = []) {
   if (value.value_text) {
     if (value.value_type === "team") {
@@ -9363,6 +9674,14 @@ function tiebreakerLabel(tiebreaker: Tournament["tiebreakers"][number]) {
     default:
       return tiebreaker;
   }
+}
+
+function normalizeSearchText(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
 }
 
 function paymentStatusLabel(status: PaymentStatus) {

@@ -2,7 +2,7 @@
 
 import { PollavarAPIError, createPollavarClient, type AuthUser } from "@pollavar/api-client";
 import Link from "next/link";
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 import {
   clearStoredSession,
   persistSession,
@@ -19,6 +19,8 @@ export default function ParticipantsProfilePage() {
   const [savingProfile, setSavingProfile] = useState(false);
   const [message, setMessage] = useState("");
   const [profileMessage, setProfileMessage] = useState("");
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const userMenuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!session) {
@@ -41,6 +43,41 @@ export default function ParticipantsProfilePage() {
         redirectToLogin();
       });
   }, [session]);
+
+  useEffect(() => {
+    if (!userMenuOpen) {
+      return;
+    }
+
+    function closeMenuOnOutsideInteraction(event: PointerEvent) {
+      const target = event.target;
+      if (target instanceof Node && userMenuRef.current?.contains(target)) {
+        return;
+      }
+      setUserMenuOpen(false);
+    }
+
+    function closeMenuOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setUserMenuOpen(false);
+      }
+    }
+
+    document.addEventListener("pointerdown", closeMenuOnOutsideInteraction);
+    document.addEventListener("keydown", closeMenuOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeMenuOnOutsideInteraction);
+      document.removeEventListener("keydown", closeMenuOnEscape);
+    };
+  }, [userMenuOpen]);
+
+  function signOutProfile() {
+    setUserMenuOpen(false);
+    clearStoredSession();
+    setSession(null);
+    setUser(null);
+    redirectToLogin();
+  }
 
   async function changePassword(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -107,28 +144,65 @@ export default function ParticipantsProfilePage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f8faf9] px-5 py-6 text-[#191b1f]">
-      <section className="mx-auto grid max-w-4xl gap-5">
-        <header className="flex flex-col gap-3 border-b border-zinc-200 pb-5 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="text-sm font-medium text-emerald-700">PollaVAR Participantes</p>
-            <h1 className="mt-1 text-2xl font-semibold tracking-normal text-zinc-950">
-              Mi perfil
-            </h1>
-          </div>
-          <Link className="text-sm font-semibold text-emerald-700 hover:text-emerald-800" href="/">
-            Volver a mis pollas
+    <main className="min-h-screen bg-[#f8fafc] text-[#0f172a]">
+      <header className="border-b border-[#10B981]/35 bg-[#0f172a] text-white shadow-sm">
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-5 py-4">
+          <Link className="flex min-w-0 items-center gap-3" href="/">
+            <span className="truncate text-lg font-semibold tracking-normal text-[#10B981]">
+              PollaVAR
+            </span>
+            <span className="rounded-md bg-white/10 px-2 py-1 text-xs font-medium text-white/80">
+              Participantes
+            </span>
           </Link>
+          {user ? (
+            <div className="relative" ref={userMenuRef}>
+              <button
+                aria-expanded={userMenuOpen}
+                aria-haspopup="menu"
+                className="flex min-w-0 items-center gap-3 rounded-md px-2 py-1 text-sm font-medium text-white outline-none transition hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-cyan-300/60"
+                onClick={() => setUserMenuOpen((open) => !open)}
+                type="button"
+              >
+                <span className="grid size-9 shrink-0 place-items-center rounded-full bg-[#10B981] text-xs font-semibold text-white">
+                  {userInitials(user.name, user.username)}
+                </span>
+                <span className="hidden max-w-40 truncate sm:block">{user.name}</span>
+              </button>
+              {userMenuOpen ? (
+                <div className="absolute right-0 z-20 mt-3 grid min-w-44 overflow-hidden rounded-lg border border-zinc-200 bg-white py-2 text-sm text-zinc-700 shadow-xl ring-1 ring-zinc-950/5">
+                  <button
+                    className="flex items-center gap-3 px-4 py-3 text-left hover:bg-zinc-100"
+                    onClick={signOutProfile}
+                    type="button"
+                  >
+                    <span aria-hidden="true" className="grid size-5 place-items-center">
+                      <svg fill="none" height="18" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24" width="18">
+                        <path d="M12 2v10" />
+                        <path d="M18.4 6.6a9 9 0 1 1-12.8 0" />
+                      </svg>
+                    </span>
+                    Salir
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      </header>
+      <section className="mx-auto grid max-w-3xl gap-5 px-5 py-6">
+        <header className="pb-1">
+          <h1 className="text-2xl font-bold tracking-tight text-[#0f172a]">Mi perfil</h1>
         </header>
 
         {!session && !status ? (
-          <p className="rounded-lg border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-700">
+          <p className="rounded-xl bg-white px-4 py-3 text-sm text-slate-700 ring-1 ring-slate-950/10">
             Inicia sesion para ver tu perfil.
           </p>
         ) : null}
 
         {status ? (
-          <p className="rounded-lg border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-700">
+          <p className="rounded-xl bg-white px-4 py-3 text-sm text-slate-700 ring-1 ring-slate-950/10">
             {status}
           </p>
         ) : null}
@@ -142,43 +216,51 @@ export default function ParticipantsProfilePage() {
               <ProfileMetric label="Sesion expira" value={formatDateTime(session.expiresAt)} />
             </section>
 
-            <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
-              <h2 className="text-lg font-semibold text-zinc-950">Datos basicos</h2>
-              <form className="mt-4 grid gap-4" onSubmit={updateProfile}>
-                <TextField defaultValue={user.name} label="Nombre" name="name" />
-                <TextField defaultValue={user.username} label="Usuario" name="username" />
-                <TextField defaultValue={user.email} label="Correo" name="email" type="email" />
-                <button
-                  className="w-fit rounded-md bg-zinc-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:bg-zinc-400"
-                  disabled={savingProfile}
-                  type="submit"
-                >
-                  {savingProfile ? "Guardando" : "Guardar perfil"}
-                </button>
+            <section className="overflow-hidden rounded-xl bg-white text-sm shadow-[0_10px_40px_rgba(15,23,42,0.08),0_1px_3px_rgba(15,23,42,0.04)] ring-1 ring-slate-950/10">
+              <div className="border-b border-slate-200 px-4 py-4">
+                <h2 className="text-base font-semibold text-[#0f172a]">Datos basicos</h2>
+              </div>
+              <form className="grid gap-4 px-4 py-4" onSubmit={updateProfile}>
+                <TextField defaultValue={user.name} label="Nombre" name="name" placeholder="Nombre completo" />
+                <TextField defaultValue={user.username} label="Usuario" name="username" placeholder="usuario" />
+                <TextField defaultValue={user.email} label="Correo" name="email" placeholder="correo@ejemplo.com" type="email" />
+                <div className="-mx-4 -mb-4 mt-1 flex justify-end border-t border-slate-200 bg-slate-50 px-4 py-3">
+                  <button
+                    className="min-h-10 rounded-md bg-[#10B981] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#059669] disabled:opacity-50"
+                    disabled={savingProfile}
+                    type="submit"
+                  >
+                    {savingProfile ? "Guardando" : "Guardar perfil"}
+                  </button>
+                </div>
               </form>
               {profileMessage ? (
-                <p className="mt-4 rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-700" role="status">
+                <p className="mx-4 mb-4 rounded-md bg-[#f1f5f9] px-3 py-2 text-sm text-slate-700 ring-1 ring-slate-950/10" role="status">
                   {profileMessage}
                 </p>
               ) : null}
             </section>
 
-            <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
-              <h2 className="text-lg font-semibold text-zinc-950">Cambiar contrasena</h2>
-              <form className="mt-4 grid gap-4" onSubmit={changePassword}>
-                <PasswordField label="Contrasena actual" name="currentPassword" />
-                <PasswordField label="Nueva contrasena" name="newPassword" />
-                <PasswordField label="Confirmar nueva contrasena" name="confirmPassword" />
-                <button
-                  className="w-fit rounded-md bg-zinc-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:bg-zinc-400"
-                  disabled={saving}
-                  type="submit"
-                >
-                  {saving ? "Guardando" : "Guardar contrasena"}
-                </button>
+            <section className="overflow-hidden rounded-xl bg-white text-sm shadow-[0_10px_40px_rgba(15,23,42,0.08),0_1px_3px_rgba(15,23,42,0.04)] ring-1 ring-slate-950/10">
+              <div className="border-b border-slate-200 px-4 py-4">
+                <h2 className="text-base font-semibold text-[#0f172a]">Cambiar contrasena</h2>
+              </div>
+              <form className="grid gap-4 px-4 py-4" onSubmit={changePassword}>
+                <PasswordField label="Contrasena actual" name="currentPassword" placeholder="Contrasena actual" />
+                <PasswordField label="Nueva contrasena" name="newPassword" placeholder="Minimo 8 caracteres" />
+                <PasswordField label="Confirmar nueva contrasena" name="confirmPassword" placeholder="Repite la nueva contrasena" />
+                <div className="-mx-4 -mb-4 mt-1 flex justify-end border-t border-slate-200 bg-slate-50 px-4 py-3">
+                  <button
+                    className="min-h-10 rounded-md bg-[#10B981] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#059669] disabled:opacity-50"
+                    disabled={saving}
+                    type="submit"
+                  >
+                    {saving ? "Guardando" : "Guardar contrasena"}
+                  </button>
+                </div>
               </form>
               {message ? (
-                <p className="mt-4 rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-700" role="status">
+                <p className="mx-4 mb-4 rounded-md bg-[#f1f5f9] px-3 py-2 text-sm text-slate-700 ring-1 ring-slate-950/10" role="status">
                   {message}
                 </p>
               ) : null}
@@ -192,23 +274,24 @@ export default function ParticipantsProfilePage() {
 
 function ProfileMetric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-zinc-200 bg-white px-4 py-3 shadow-sm">
-      <p className="text-xs font-medium uppercase text-zinc-500">{label}</p>
-      <p className="mt-1 break-words text-sm font-semibold text-zinc-950">{value || "-"}</p>
+    <div className="rounded-xl bg-white px-4 py-3 shadow-[0_10px_40px_rgba(15,23,42,0.08),0_1px_3px_rgba(15,23,42,0.04)] ring-1 ring-slate-950/10">
+      <p className="text-xs font-medium uppercase text-slate-500">{label}</p>
+      <p className="mt-1 break-words text-sm font-semibold text-[#0f172a]">{value || "-"}</p>
     </div>
   );
 }
 
-function PasswordField({ label, name }: { label: string; name: string }) {
+function PasswordField({ label, name, placeholder }: { label: string; name: string; placeholder: string }) {
   return (
-    <label className="grid gap-2 text-sm font-medium text-zinc-700">
+    <label className="grid gap-2 text-sm font-medium text-slate-700">
       <span>{label}</span>
       <input
         autoComplete={name === "currentPassword" ? "current-password" : "new-password"}
-        className="h-11 rounded-md border border-zinc-300 px-3 text-base text-zinc-950 outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
+        className="h-11 rounded-md border border-[#e2e8f0] px-3 text-base text-[#0f172a] outline-none transition focus:border-[#22D3EE] focus:ring-2 focus:ring-[#22D3EE]/10"
         minLength={8}
         maxLength={128}
         name={name}
+        placeholder={placeholder}
         required
         type="password"
       />
@@ -220,26 +303,40 @@ function TextField({
   defaultValue,
   label,
   name,
+  placeholder,
   type = "text",
 }: {
   defaultValue: string;
   label: string;
   name: string;
+  placeholder: string;
   type?: string;
 }) {
   return (
-    <label className="grid gap-2 text-sm font-medium text-zinc-700">
+    <label className="grid gap-2 text-sm font-medium text-slate-700">
       <span>{label}</span>
       <input
         autoComplete={name}
-        className="h-11 rounded-md border border-zinc-300 px-3 text-base text-zinc-950 outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
+        className="h-11 rounded-md border border-[#e2e8f0] px-3 text-base text-[#0f172a] outline-none transition focus:border-[#22D3EE] focus:ring-2 focus:ring-[#22D3EE]/10"
         defaultValue={defaultValue}
         name={name}
+        placeholder={placeholder}
         required
         type={type}
       />
     </label>
   );
+}
+
+function userInitials(name: string, username: string) {
+  const source = name.trim() || username.trim();
+  const initials = source
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("");
+  return initials || "PV";
 }
 
 function formatDateTime(value: string) {

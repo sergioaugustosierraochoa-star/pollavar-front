@@ -248,6 +248,7 @@ function Field({
         type={type}
         autoComplete={autoComplete}
         onChange={onChange}
+        suppressHydrationWarning
       />
       {error ? (
         <span className="text-xs font-medium text-[#d97706]" id={errorID}>

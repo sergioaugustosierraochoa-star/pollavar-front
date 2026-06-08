@@ -31,6 +31,7 @@ import {
   type TournamentSummary,
 } from "@pollavar/api-client";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { readStoredSession, redirectToLogin, signOut, type AuthSession } from "./session";
 import { TeamBadge } from "@pollavar/ui";
@@ -94,6 +95,7 @@ type PredictionGroupDraft = Omit<PredictionGroup, "standings" | "stats">;
 type SuggestedStandingRow = {
   key: string;
   position: number;
+  team: Match["home_team"];
   teamName: string;
   teamShortName: string;
   played: number;
@@ -113,7 +115,34 @@ type NormalizedTheme = {
   accentColor: string;
 };
 
+type ParticipantsAppMode = "lobby" | "detail";
+type ParticipantSectionID =
+  | "pronosticos"
+  | "ranking"
+  | "premios"
+  | "participantes"
+  | "reglas";
+
+const participantSections: Array<{ id: ParticipantSectionID; label: string }> = [
+  { id: "pronosticos", label: "Pronosticos" },
+  { id: "participantes", label: "Participantes" },
+  { id: "ranking", label: "Ranking" },
+  { id: "premios", label: "Premios" },
+  { id: "reglas", label: "Reglas" },
+];
+
 export default function ParticipantsHome() {
+  return <ParticipantsApp mode="lobby" />;
+}
+
+export function ParticipantsApp({
+  initialPoolID,
+  mode,
+}: {
+  initialPoolID?: string;
+  mode: ParticipantsAppMode;
+}) {
+  const router = useRouter();
   const [session, setSession] = useState<AuthSession | null>(null);
   const [status, setStatus] = useState<DashboardStatus>("checking");
   const [message, setMessage] = useState("");
@@ -172,7 +201,9 @@ export default function ParticipantsHome() {
   const [standingSaveMessage, setStandingSaveMessage] = useState("");
   const [globalSaveMessage, setGlobalSaveMessage] = useState("");
   const [clockTick, setClockTick] = useState(0);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
   const dashboardRequestID = useRef(0);
+  const userMenuRef = useRef<HTMLDivElement | null>(null);
 
   const predictionsByMatch = useMemo(() => indexPredictions(predictions), [predictions]);
   const predictionStatusesByMatch = useMemo(
@@ -194,6 +225,7 @@ export default function ParticipantsHome() {
 
   const signOutParticipant = useCallback(function signOutParticipant() {
     dashboardRequestID.current += 1;
+    setUserMenuOpen(false);
     signOut();
     setSession(null);
     setStatus("signed-out");
@@ -237,6 +269,7 @@ export default function ParticipantsHome() {
     setSaveMessage("");
     setStandingSaveMessage("");
     setGlobalSaveMessage("");
+    redirectToLogin();
   }, []);
 
   const loadPoolData = useCallback(async function loadPoolData(
@@ -330,14 +363,53 @@ export default function ParticipantsHome() {
         client.listPools(token),
         client.listTournaments(),
       ]);
-      const activePool =
-        poolList.find((item) => item.id === preferredPoolID) ?? poolList[0] ?? null;
-
       if (!isLatestRequest()) {
         return;
       }
 
       setPools(poolList);
+
+      const requestedPool = preferredPoolID
+        ? poolList.find((item) => item.id === preferredPoolID)
+        : null;
+
+      if (mode === "detail" && preferredPoolID && !requestedPool) {
+        setSelectedPoolID(preferredPoolID);
+        setPool(null);
+        setTournament(null);
+        setSummary(null);
+        setPredictions([]);
+        setPredictionStatuses([]);
+        setSnapshotsByMatchID({});
+        setSnapshotLoadingMatchID("");
+        setSnapshotDownloadingMatchID("");
+        setSnapshotMessages({});
+        setRanking([]);
+        setRankingTiebreakers([]);
+        setRankingManualTiebreakers([]);
+        setPrizePreview(null);
+        setGlobalPrizePreview(null);
+        setScoringRules([]);
+        setStandingPredictions([]);
+        setGlobalPredictionDefinitions([]);
+        setGlobalPredictions([]);
+        setGlobalPredictionResults([]);
+        setEffectiveMatchSettings([]);
+        setUnderdogBonuses([]);
+        setSelectedRankingUserID("");
+        setPointDetailsByUserID({});
+        setClosedPredictionsByUserID({});
+        setPointDetailsLoadingUserID("");
+        setPointDetailsMessage("");
+        setDrafts({});
+        setStandingDrafts({});
+        setGlobalDrafts({});
+        setStatus("error");
+        setMessage("No encontramos esta polla o ya no tienes acceso.");
+        return;
+      }
+
+      const activePool = requestedPool;
       setSelectedPoolID(activePool?.id ?? "");
 
       if (!activePool) {
@@ -430,7 +502,7 @@ export default function ParticipantsHome() {
       setStatus("error");
       setMessage("No pudimos cargar tus pollas.");
     }
-  }, [loadPoolData, signOutParticipant]);
+  }, [loadPoolData, mode, signOutParticipant]);
 
   useEffect(() => {
     let cancelled = false;
@@ -448,7 +520,7 @@ export default function ParticipantsHome() {
       }
 
       setSession(storedSession);
-      await loadDashboard(storedSession.token);
+      await loadDashboard(storedSession.token, initialPoolID);
     }
 
     void bootstrapDashboard();
@@ -456,7 +528,7 @@ export default function ParticipantsHome() {
     return () => {
       cancelled = true;
     };
-  }, [loadDashboard]);
+  }, [initialPoolID, loadDashboard]);
 
   useEffect(() => {
     if (status !== "ready") {
@@ -471,6 +543,33 @@ export default function ParticipantsHome() {
       window.clearInterval(intervalID);
     };
   }, [status]);
+
+  useEffect(() => {
+    if (!userMenuOpen) {
+      return;
+    }
+
+    function closeMenuOnOutsideInteraction(event: PointerEvent) {
+      const target = event.target;
+      if (target instanceof Node && userMenuRef.current?.contains(target)) {
+        return;
+      }
+      setUserMenuOpen(false);
+    }
+
+    function closeMenuOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setUserMenuOpen(false);
+      }
+    }
+
+    document.addEventListener("pointerdown", closeMenuOnOutsideInteraction);
+    document.addEventListener("keydown", closeMenuOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeMenuOnOutsideInteraction);
+      document.removeEventListener("keydown", closeMenuOnEscape);
+    };
+  }, [userMenuOpen]);
 
   async function refreshPredictions(
     token: string,
@@ -495,13 +594,6 @@ export default function ParticipantsHome() {
     setDrafts(hydrateDrafts(matches, userPredictions));
   }
 
-  function selectPool(poolID: string) {
-    if (!session) {
-      return;
-    }
-    void loadDashboard(session.token, poolID);
-  }
-
   async function joinPool() {
     if (!session || joiningPool) {
       return;
@@ -520,7 +612,7 @@ export default function ParticipantsHome() {
         invite_code: inviteCode,
       });
       setJoinInviteCode("");
-      await loadDashboard(session.token, joinedPool.id);
+      router.push(`/pools/${joinedPool.id}`);
       setMessage("Te uniste a la polla.");
     } catch (error) {
       if (isUnauthorizedError(error)) {
@@ -684,13 +776,11 @@ export default function ParticipantsHome() {
     }));
   }
 
-  async function savePrediction(event: FormEvent<HTMLFormElement>, match: Match) {
-    event.preventDefault();
+  async function savePredictionDraft(match: Match, draft: ScoreDrafts[string]) {
     if (!session || !pool || !tournament) {
       return;
     }
 
-    const draft = drafts[match.id] ?? emptyPredictionDraft();
     const predictionMode =
       effectiveMatchSettingsByMatch.get(match.id)?.prediction_mode ?? pool.prediction_mode;
     const input = predictionInputFromDraft(predictionMode, draft);
@@ -728,6 +818,17 @@ export default function ParticipantsHome() {
         setSavingMatchID("");
       }
     }
+  }
+
+  async function savePrediction(event: FormEvent<HTMLFormElement>, match: Match) {
+    event.preventDefault();
+    await savePredictionDraft(match, drafts[match.id] ?? emptyPredictionDraft());
+  }
+
+  async function saveOutcomePrediction(match: Match, outcome: MatchOutcome) {
+    const currentDraft = drafts[match.id] ?? emptyPredictionDraft();
+    updateDraft(match.id, "outcome", outcome);
+    await savePredictionDraft(match, { ...currentDraft, outcome });
   }
 
   function moveStandingTeam(group: PredictionGroup, teamID: string, direction: -1 | 1) {
@@ -876,55 +977,88 @@ export default function ParticipantsHome() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f8faf9] text-[#191b1f]">
-      <header className="border-b border-zinc-200 bg-white">
-        <div className="mx-auto flex max-w-7xl flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="text-sm font-medium text-emerald-700">PollaVAR Participantes</p>
-            <h1 className="text-2xl font-semibold tracking-normal text-zinc-950">
-              Mis pronosticos
-            </h1>
-          </div>
-	          {session ? (
-	            <details className="relative">
-	              <summary className="flex cursor-pointer list-none items-center gap-3 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-medium text-zinc-700 hover:border-zinc-400">
-	                <span className="grid size-8 place-items-center rounded-full bg-emerald-100 text-xs font-semibold text-emerald-800">
-	                  {userInitials(session.user.name, session.user.username)}
-	                </span>
-	                <span className="max-w-44 truncate">@{session.user.username}</span>
-	              </summary>
-	              <div className="absolute right-0 z-20 mt-2 grid min-w-44 overflow-hidden rounded-md border border-zinc-200 bg-white py-1 text-sm shadow-lg">
-	                <Link className="px-3 py-2 text-zinc-700 hover:bg-zinc-50" href="/profile">
-	                  Mi perfil
-	                </Link>
-	                <button
-	                  className="px-3 py-2 text-left text-zinc-700 hover:bg-zinc-50"
-	                  onClick={() => {
-	                    void loadDashboard(session.token, selectedPoolID);
-	                  }}
-	                  type="button"
-	                >
-	                  Actualizar
-	                </button>
-	                <button
-	                  className="px-3 py-2 text-left text-zinc-700 hover:bg-zinc-50"
-	                  onClick={signOutParticipant}
-	                  type="button"
-	                >
-	                  Salir
-	                </button>
-	              </div>
-	            </details>
-	          ) : (
+    <main className="min-h-screen bg-[#f8fafc] text-[#0f172a]">
+      <header className="border-b border-[#10B981]/35 bg-[#0f172a] text-white shadow-sm">
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-5 py-4">
+          <Link className="flex min-w-0 items-center gap-3" href="/">
+            <span className="truncate text-lg font-semibold tracking-normal text-[#10B981]">
+              PollaVAR
+            </span>
+            <span className="rounded-md bg-white/10 px-2 py-1 text-xs font-medium text-white/80">
+              Participantes
+            </span>
+          </Link>
+          {session ? (
+            <div className="relative" ref={userMenuRef}>
+              <button
+                aria-expanded={userMenuOpen}
+                aria-haspopup="menu"
+                className="flex min-w-0 items-center gap-3 rounded-md px-2 py-1 text-sm font-medium text-white outline-none transition hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-cyan-300/60"
+                onClick={() => setUserMenuOpen((open) => !open)}
+                type="button"
+              >
+                <span className="grid size-9 shrink-0 place-items-center rounded-full bg-[#10B981] text-xs font-semibold text-white">
+                  {userInitials(session.user.name, session.user.username)}
+                </span>
+                <span className="hidden max-w-40 truncate sm:block">{session.user.name}</span>
+              </button>
+              {userMenuOpen ? (
+                <div className="absolute right-0 z-20 mt-3 grid min-w-48 overflow-hidden rounded-lg border border-zinc-200 bg-white py-2 text-sm text-zinc-700 shadow-xl ring-1 ring-zinc-950/5">
+                  <Link
+                    className="flex items-center gap-3 px-4 py-3 hover:bg-zinc-100"
+                    href="/profile"
+                    onClick={() => setUserMenuOpen(false)}
+                  >
+                    <span aria-hidden="true" className="grid size-5 place-items-center">
+                      <svg fill="none" height="18" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24" width="18">
+                        <path d="M20 21a8 8 0 0 0-16 0" />
+                        <circle cx="12" cy="7" r="4" />
+                      </svg>
+                    </span>
+                    Mi perfil
+                  </Link>
+                  <button
+                    className="flex items-center gap-3 px-4 py-3 text-left hover:bg-zinc-100"
+                    onClick={() => {
+                      setUserMenuOpen(false);
+                      void loadDashboard(session.token, selectedPoolID);
+                    }}
+                    type="button"
+                  >
+                    <span aria-hidden="true" className="grid size-5 place-items-center">
+                      <svg fill="none" height="18" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24" width="18">
+                        <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+                        <path d="M21 3v6h-6" />
+                      </svg>
+                    </span>
+                    Actualizar
+                  </button>
+                  <button
+                    className="flex items-center gap-3 px-4 py-3 text-left hover:bg-zinc-100"
+                    onClick={signOutParticipant}
+                    type="button"
+                  >
+                    <span aria-hidden="true" className="grid size-5 place-items-center">
+                      <svg fill="none" height="18" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24" width="18">
+                        <path d="M12 2v10" />
+                        <path d="M18.4 6.6a9 9 0 1 1-12.8 0" />
+                      </svg>
+                    </span>
+                    Salir
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          ) : (
             <nav aria-label="Autenticacion participantes" className="flex items-center gap-2">
               <Link
-                className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:border-zinc-400"
+                className="rounded-md border border-white/25 bg-white/10 px-3 py-2 text-sm font-medium text-white backdrop-blur hover:bg-white/15"
                 href="/login"
               >
                 Entrar
               </Link>
               <Link
-                className="rounded-md bg-zinc-950 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800"
+                className="rounded-md bg-[#10B981] px-3 py-2 text-sm font-medium text-white hover:bg-[#059669]"
                 href="/register"
               >
                 Crear cuenta
@@ -949,17 +1083,20 @@ export default function ParticipantsHome() {
           }
         />
       ) : null}
-      {status === "ready" && session ? (
+      {status === "ready" && session && mode === "lobby" ? (
+        <section className="mx-auto grid max-w-7xl gap-5 px-5 py-6">
+          <JoinPoolPanel
+            inviteCode={joinInviteCode}
+            joining={joiningPool}
+            message={message}
+            onChange={setJoinInviteCode}
+            onJoin={() => void joinPool()}
+          />
+          <ParticipantPoolLobby pools={pools} />
+        </section>
+      ) : null}
+      {status === "ready" && session && mode === "detail" ? (
         <>
-          <section className="mx-auto mt-6 max-w-7xl px-5">
-            <JoinPoolPanel
-              inviteCode={joinInviteCode}
-              joining={joiningPool}
-              message={message}
-              onChange={setJoinInviteCode}
-              onJoin={() => void joinPool()}
-            />
-          </section>
           <Dashboard
             closedPredictionsByUserID={closedPredictionsByUserID}
             drafts={drafts}
@@ -967,17 +1104,16 @@ export default function ParticipantsHome() {
             effectiveMatchSettingsByMatch={effectiveMatchSettingsByMatch}
             underdogBonusesByMatch={underdogBonusesByMatch}
             onSave={savePrediction}
+            onSaveOutcome={saveOutcomePrediction}
             onDownloadSnapshot={downloadPredictionSnapshot}
             onLoadSnapshot={loadPredictionSnapshot}
             onSelectRankingUser={loadPointDetails}
             onSaveStanding={saveStandingPrediction}
             onSaveGlobalPrediction={saveGlobalPrediction}
-            onSelectPool={selectPool}
             onMoveStanding={moveStandingTeam}
             onUpdateDraft={updateDraft}
             onUpdateGlobalDraft={updateGlobalDraft}
             pool={pool}
-            pools={pools}
             predictionsByMatch={predictionsByMatch}
             predictionStatusesByMatch={predictionStatusesByMatch}
             pointDetailsByUserID={pointDetailsByUserID}
@@ -998,7 +1134,6 @@ export default function ParticipantsHome() {
             savingGlobalDefinitionCode={savingGlobalDefinitionCode}
             savingMatchID={savingMatchID}
             savingStandingGroupID={savingStandingGroupID}
-            selectedPoolID={selectedPoolID}
             selectedRankingUserID={selectedRankingUserID}
             clockTick={clockTick}
             snapshotDownloadingMatchID={snapshotDownloadingMatchID}
@@ -1037,26 +1172,27 @@ function JoinPoolPanel({
     message.includes("Ingresa");
 
   return (
-    <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
+    <section className="rounded-xl bg-white p-5 shadow-[0_10px_40px_rgba(15,23,42,0.08),0_1px_3px_rgba(15,23,42,0.04)] ring-1 ring-slate-950/10">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-zinc-950">Unirse a una polla</h2>
-          <p className="text-sm text-zinc-600">
+          <h2 className="text-lg font-semibold text-[#0f172a]">Unirse a una polla</h2>
+          <p className="text-sm text-slate-500">
             Ingresa el codigo que te compartio el administrador.
           </p>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-          <label className="grid gap-2 text-sm font-medium text-zinc-700">
+          <label className="grid gap-2 text-sm font-medium text-slate-700">
             <span>Codigo de invitacion</span>
             <input
-              className="min-h-10 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm uppercase text-zinc-950 disabled:bg-zinc-100 sm:w-56"
+              className="min-h-11 w-full rounded-xl border border-[#e2e8f0] px-3 py-2 text-sm uppercase text-[#0f172a] outline-none transition placeholder:text-slate-400 focus:border-[#22D3EE] focus:ring-4 focus:ring-[#22D3EE]/10 disabled:bg-slate-100 sm:w-56"
               disabled={joining}
               onChange={(event) => onChange(event.target.value)}
+              placeholder="CODIGO"
               value={inviteCode}
             />
           </label>
           <button
-            className="min-h-10 rounded-md bg-zinc-950 px-3 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
+            className="min-h-11 rounded-xl bg-[#10B981] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#059669] disabled:cursor-not-allowed disabled:opacity-50"
             disabled={joining}
             onClick={onJoin}
             type="button"
@@ -1066,11 +1202,115 @@ function JoinPoolPanel({
         </div>
       </div>
       {message ? (
-        <p className={`mt-3 text-sm font-medium ${isError ? "text-rose-700" : "text-emerald-700"}`} role={isError ? "alert" : "status"}>
+        <p
+          className={`mt-3 rounded-xl border px-4 py-2.5 text-sm font-medium ${
+            isError
+              ? "border-[#F59E0B]/20 bg-[#F59E0B]/10 text-[#b45309]"
+              : "border-green-500/20 bg-green-500/10 text-green-700"
+          }`}
+          role={isError ? "alert" : "status"}
+        >
           {message}
         </p>
       ) : null}
     </section>
+  );
+}
+
+function ParticipantPoolLobby({ pools }: { pools: Pool[] }) {
+  if (pools.length === 0) {
+    return (
+      <section className="rounded-xl bg-white p-6 text-sm text-slate-600 shadow-[0_10px_40px_rgba(15,23,42,0.08),0_1px_3px_rgba(15,23,42,0.04)] ring-1 ring-slate-950/10">
+        <h2 className="text-xl font-bold text-[#0f172a]">Mis pollas</h2>
+        <p className="mt-2">Cuando te unas a una polla, aparecera aqui para entrar a jugar.</p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="grid gap-4">
+      <div>
+        <h2 className="text-2xl font-bold tracking-tight text-[#0f172a]">Mis pollas</h2>
+        <p className="mt-1 text-sm text-slate-500">
+          Elige una polla para ver sus pronosticos, ranking, premios y reglas.
+        </p>
+      </div>
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {pools.map((pool) => {
+          const theme = normalizedPoolTheme(pool.theme);
+          const paidCount = pool.participants.filter(
+            (participant) => participant.payment_status === "confirmed",
+          ).length;
+
+          return (
+            <Link
+              className="group overflow-hidden rounded-xl bg-white text-left shadow-[0_10px_40px_rgba(15,23,42,0.08),0_1px_3px_rgba(15,23,42,0.04)] ring-1 ring-slate-950/10 transition hover:-translate-y-0.5 hover:shadow-[0_14px_48px_rgba(15,23,42,0.12),0_1px_3px_rgba(15,23,42,0.05)]"
+              href={`/pools/${pool.id}`}
+              key={pool.id}
+            >
+              <div
+                className="grid gap-4 p-5"
+                style={{
+                  background: `linear-gradient(135deg, ${colorWithAlpha(theme.primaryColor, 0.08)}, #ffffff 52%, ${colorWithAlpha(theme.secondaryColor, 0.1)})`,
+                }}
+              >
+                <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_150px] sm:items-center">
+                  <div className="flex min-w-0 items-start gap-3">
+                    <ThemeLogo theme={theme} />
+                    <div className="min-w-0">
+                      <h3 className="truncate text-lg font-bold text-[#0f172a]">
+                        {poolDisplayName(pool)}
+                      </h3>
+                      <p className="mt-1 text-xs text-slate-500">
+                        Codigo {pool.invite_code}
+                      </p>
+                    </div>
+                  </div>
+                  {theme.bannerURL || theme.mascotURL ? (
+                    <div className="relative hidden h-24 overflow-hidden sm:block">
+                      {theme.bannerURL ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          alt=""
+                          className="absolute inset-y-0 right-0 h-full w-full object-contain object-right"
+                          src={theme.bannerURL}
+                        />
+                      ) : null}
+                      {theme.mascotURL ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          alt=""
+                          className="absolute bottom-1 right-2 h-16 max-w-24 object-contain drop-shadow-[0_8px_16px_rgba(15,23,42,0.16)]"
+                          src={theme.mascotURL}
+                        />
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-sm">
+                  <LobbyMetric label="Entrada" value={formatMoney(pool.entry_fee_cents, pool.currency)} />
+                  <LobbyMetric label="Participantes" value={String(pool.participants.length)} />
+                  <LobbyMetric label="Pagados" value={String(paidCount)} />
+                  <LobbyMetric label="Cierre" value={`${pool.prediction_close_hours_before}h antes`} />
+                </div>
+                <span className="inline-flex w-fit rounded-xl bg-[#10B981] px-4 py-2 text-sm font-semibold text-white transition group-hover:bg-[#059669]">
+                  Entrar
+                </span>
+              </div>
+            </Link>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function LobbyMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg bg-slate-50 px-3 py-2 ring-1 ring-slate-950/5">
+      <p className="text-[11px] font-medium uppercase text-slate-500">{label}</p>
+      <p className="mt-1 truncate font-semibold text-[#0f172a]">{value}</p>
+    </div>
   );
 }
 
@@ -1090,15 +1330,14 @@ function Dashboard({
   onDownloadSnapshot,
   onLoadSnapshot,
   onSave,
+  onSaveOutcome,
   onSaveGlobalPrediction,
   onSelectRankingUser,
   onSaveStanding,
-  onSelectPool,
   onMoveStanding,
   onUpdateDraft,
   onUpdateGlobalDraft,
   pool,
-  pools,
   predictionsByMatch,
   predictionStatusesByMatch,
   pointDetailsByUserID,
@@ -1113,7 +1352,6 @@ function Dashboard({
   savingGlobalDefinitionCode,
   savingMatchID,
   savingStandingGroupID,
-  selectedPoolID,
   selectedRankingUserID,
   snapshotDownloadingMatchID,
   snapshotLoadingMatchID,
@@ -1140,10 +1378,10 @@ function Dashboard({
   onDownloadSnapshot: (matchID: string) => void;
   onLoadSnapshot: (matchID: string) => void;
   onSave: (event: FormEvent<HTMLFormElement>, match: Match) => void;
+  onSaveOutcome: (match: Match, outcome: MatchOutcome) => void;
   onSaveGlobalPrediction: (definition: GlobalPredictionDefinition) => void;
   onSelectRankingUser: (userID: string) => void;
   onSaveStanding: (group: PredictionGroup) => void;
-  onSelectPool: (poolID: string) => void;
   onMoveStanding: (group: PredictionGroup, teamID: string, direction: -1 | 1) => void;
   onUpdateDraft: (matchID: string, side: "home" | "away" | "outcome", value: string) => void;
   onUpdateGlobalDraft: (
@@ -1152,7 +1390,6 @@ function Dashboard({
     value: string,
   ) => void;
   pool: Pool | null;
-  pools: Pool[];
   predictionsByMatch: Map<string, Prediction>;
   predictionStatusesByMatch: Map<string, PredictionMatchStatus>;
   pointDetailsByUserID: Record<string, PointEventDetail[]>;
@@ -1167,7 +1404,6 @@ function Dashboard({
   savingGlobalDefinitionCode: string;
   savingMatchID: string;
   savingStandingGroupID: string;
-  selectedPoolID: string;
   selectedRankingUserID: string;
   snapshotDownloadingMatchID: string;
   snapshotLoadingMatchID: string;
@@ -1179,11 +1415,13 @@ function Dashboard({
   summary: PredictionSummary | null;
   tournament: Tournament | null;
 }) {
-  if (pools.length === 0) {
+  const [activeSection, setActiveSection] = useState<ParticipantSectionID>("pronosticos");
+
+  if (!pool) {
     return (
       <StatusState
-        title="Aun no tienes pollas"
-        message="Cuando te unas a una polla, tus partidos y pronosticos apareceran aqui."
+        title="No encontramos esta polla"
+        message="Vuelve a mis pollas y selecciona una disponible."
       />
     );
   }
@@ -1196,147 +1434,521 @@ function Dashboard({
         clockTick,
       )
     : [];
-  const activeTheme = normalizedPoolTheme(pool?.theme);
+  const standingsPredictionEnabled =
+    scoringRuleByCode(scoringRules, "group_position_exact")?.enabled ?? false;
+  const visiblePredictionGroups = standingsPredictionEnabled
+    ? predictionGroups
+    : predictionGroups.map((group) => ({ ...group, standings: [] }));
+  const theme = normalizedPoolTheme(pool.theme);
+  return (
+    <section
+      className="min-h-screen overflow-x-clip px-4 pb-24 pt-4 sm:px-6 sm:py-6"
+      style={{
+        backgroundColor: colorWithAlpha(theme.primaryColor, 0.1),
+        backgroundImage: `radial-gradient(circle at 8% 8%, ${colorWithAlpha(theme.primaryColor, 0.2)}, transparent 34%), radial-gradient(circle at 92% 12%, ${colorWithAlpha(theme.primaryColor, 0.14)}, transparent 32%), linear-gradient(180deg, ${colorWithAlpha(theme.primaryColor, 0.08)}, ${colorWithAlpha(theme.primaryColor, 0.12)})`,
+      }}
+    >
+      <div className="mx-auto grid w-full max-w-[96rem] gap-5">
+        <ParticipantPoolHero
+          pool={pool}
+          tournament={tournament}
+        />
+        <div className="grid min-w-0 gap-5 xl:grid-cols-[280px_minmax(0,1fr)] xl:items-start">
+          <ParticipantPoolShell
+            activeSection={activeSection}
+            onSelectSection={setActiveSection}
+            pool={pool}
+            summary={summary}
+            theme={theme}
+          />
+
+          <div className="min-w-0 overflow-x-clip">
+            <div
+              className="sticky top-[8.5rem] z-20 mb-5 grid gap-3 rounded-2xl p-3 shadow-[0_18px_28px_rgba(248,250,252,0.98)] sm:p-4 xl:top-[10.5rem]"
+              style={{
+                background: `linear-gradient(135deg, rgba(255,255,255,0.94), ${colorWithAlpha(theme.secondaryColor, 0.16)})`,
+              }}
+            >
+              <SummaryGrid summary={summary} theme={theme} />
+              <DashboardNavigation
+                currentUserID={currentUserID}
+                globalPrizePreview={globalPrizePreview}
+                onSelectSection={setActiveSection}
+                prizePreview={prizePreview}
+                ranking={ranking}
+                theme={theme}
+              />
+            </div>
+
+            {activeSection === "pronosticos" ? (
+            <div className="grid gap-5">
+              <PredictionList
+                drafts={drafts}
+                clockTick={clockTick}
+                effectiveMatchSettingsByMatch={effectiveMatchSettingsByMatch}
+                underdogBonusesByMatch={underdogBonusesByMatch}
+                underdogRule={scoringRuleByCode(scoringRules, "underdog_bonus")}
+                onDownloadSnapshot={onDownloadSnapshot}
+                onLoadSnapshot={onLoadSnapshot}
+                onSave={onSave}
+                onSaveOutcome={onSaveOutcome}
+                onSaveStanding={onSaveStanding}
+                onMoveStanding={onMoveStanding}
+                onUpdateDraft={onUpdateDraft}
+                pool={pool}
+                predictionGroups={visiblePredictionGroups}
+                predictionsByMatch={predictionsByMatch}
+                predictionStatusesByMatch={predictionStatusesByMatch}
+                saveMessage={saveMessage}
+                savingMatchID={savingMatchID}
+                savingStandingGroupID={savingStandingGroupID}
+                snapshotDownloadingMatchID={snapshotDownloadingMatchID}
+                snapshotLoadingMatchID={snapshotLoadingMatchID}
+                snapshotMessages={snapshotMessages}
+                snapshotsByMatchID={snapshotsByMatchID}
+                standingDrafts={standingDrafts}
+                standingPredictionsByGroup={standingPredictionsByGroup}
+                standingSaveMessage={standingSaveMessage}
+                tournament={tournament}
+              />
+              <GlobalPredictionsPanel
+                definitions={globalPredictionDefinitions}
+                drafts={globalDrafts}
+                onSave={onSaveGlobalPrediction}
+                onUpdateDraft={onUpdateGlobalDraft}
+                results={globalPredictionResults}
+                saveMessage={globalSaveMessage}
+                savingDefinitionCode={savingGlobalDefinitionCode}
+                tournament={tournament}
+                userPredictions={globalPredictions}
+              />
+            </div>
+            ) : null}
+
+            {activeSection === "ranking" ? (
+            <RankingPanel
+              closedPredictionsByUserID={closedPredictionsByUserID}
+              currentUserID={currentUserID}
+              detailsByUserID={pointDetailsByUserID}
+              loadingUserID={pointDetailsLoadingUserID}
+              message={pointDetailsMessage}
+              onSelectUser={onSelectRankingUser}
+              prizePreview={prizePreview}
+              ranking={ranking}
+              selectedUserID={selectedRankingUserID}
+            />
+            ) : null}
+
+            {activeSection === "premios" ? (
+            <PrizePanel
+              globalPreview={globalPrizePreview}
+              preview={prizePreview}
+              ranking={ranking}
+              rankingManualTiebreakers={rankingManualTiebreakers}
+              rankingTiebreakers={rankingTiebreakers}
+            />
+            ) : null}
+
+            {activeSection === "participantes" ? (
+            <ParticipantsPanel currentUserID={currentUserID} pool={pool} />
+            ) : null}
+
+            {activeSection === "reglas" ? (
+            <div className="grid gap-5">
+              <ScoringRulesPanel rules={scoringRules} />
+              <RoundClarificationsPanel
+                closeHours={pool?.prediction_close_hours_before}
+                predictionGroups={visiblePredictionGroups}
+                scoringRules={scoringRules}
+              />
+            </div>
+            ) : null}
+          </div>
+        </div>
+      </div>
+      <MobileBottomNavigation
+        activeSection={activeSection}
+        onSelectSection={setActiveSection}
+        pool={pool}
+        summary={summary}
+        theme={theme}
+      />
+    </section>
+  );
+}
+
+function ParticipantPoolHero({
+  pool,
+  tournament,
+}: {
+  pool: Pool;
+  tournament: Tournament | null;
+}) {
+  const theme = normalizedPoolTheme(pool.theme);
 
   return (
-    <section className="mx-auto grid max-w-7xl gap-5 px-5 py-6 lg:grid-cols-[280px_1fr]">
-      <aside
-        className="h-fit rounded-lg border bg-white shadow-sm"
-        style={{ borderColor: activeTheme.accentColor }}
+    <section
+      className="sticky top-2 z-40 overflow-hidden rounded-2xl border bg-white shadow-[0_10px_40px_rgba(15,23,42,0.08),0_1px_3px_rgba(15,23,42,0.04)] xl:top-4 xl:z-30"
+      style={{
+        borderColor: colorWithAlpha(theme.secondaryColor, 0.18),
+        boxShadow: `0 18px 50px ${colorWithAlpha(theme.primaryColor, 0.12)}, 0 1px 3px rgba(15,23,42,0.06)`,
+      }}
+    >
+      <div
+        className="grid gap-4 p-4 lg:grid-cols-[minmax(0,0.95fr)_minmax(320px,1.05fr)] lg:items-center"
+        style={{
+          background: `linear-gradient(135deg, ${colorWithAlpha(theme.primaryColor, 0.1)}, #ffffff 48%, ${colorWithAlpha(theme.secondaryColor, 0.12)})`,
+        }}
       >
-        <div className="border-b border-zinc-200 px-4 py-3">
-          <h2 className="text-sm font-semibold text-zinc-950">Mis pollas</h2>
+        <div className="flex min-w-0 items-center gap-4">
+          <ThemeLogo theme={theme} />
+          <div className="min-w-0">
+            <p className="text-sm font-semibold uppercase" style={{ color: theme.primaryColor }}>
+              {tournament?.name ?? "Torneo pendiente"}
+            </p>
+            <h1 className="mt-1 truncate text-2xl font-bold tracking-normal text-[#0f172a]">
+              {poolDisplayName(pool)}
+            </h1>
+            <p className="mt-1 text-sm text-slate-600">
+              Codigo {pool.invite_code} · {formatMoney(pool.entry_fee_cents, pool.currency)} por entrada
+            </p>
+          </div>
         </div>
-        <div className="grid gap-2 p-3">
-          {pools.map((item) => {
-            const itemTheme = normalizedPoolTheme(item.theme);
-            const selected = item.id === selectedPoolID;
-
-            return (
-              <button
-                className={`rounded-md border px-3 py-3 text-left text-sm transition ${
-                  selected
-                    ? "text-zinc-950"
-                    : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-300"
-                }`}
-                key={item.id}
-                onClick={() => onSelectPool(item.id)}
-                style={
-                  selected
-                    ? {
-                        borderColor: itemTheme.primaryColor,
-                        backgroundColor: colorWithAlpha(itemTheme.primaryColor, 0.1),
-                      }
-                    : undefined
-                }
-                type="button"
-              >
-                <span className="block font-semibold">{poolDisplayName(item)}</span>
-                <span className="mt-1 block text-xs text-zinc-500">{item.currency}</span>
-              </button>
-            );
-          })}
-        </div>
-      </aside>
-
-      <div className="grid gap-5">
-        <PoolHeader pool={pool} tournament={tournament} />
-        <SummaryGrid summary={summary} />
-        <DashboardNavigation
-          globalPredictionDefinitions={globalPredictionDefinitions}
-          globalPredictions={globalPredictions}
-          globalPrizePreview={globalPrizePreview}
-          pool={pool}
-          predictionGroups={predictionGroups}
-          prizePreview={prizePreview}
-          ranking={ranking}
-          scoringRules={scoringRules}
-          summary={summary}
-        />
-        <PrizePanel
-          globalPreview={globalPrizePreview}
-          preview={prizePreview}
-          ranking={ranking}
-          rankingManualTiebreakers={rankingManualTiebreakers}
-          rankingTiebreakers={rankingTiebreakers}
-        />
-        <GlobalPredictionsPanel
-          definitions={globalPredictionDefinitions}
-          drafts={globalDrafts}
-          onSave={onSaveGlobalPrediction}
-          onUpdateDraft={onUpdateGlobalDraft}
-          results={globalPredictionResults}
-          saveMessage={globalSaveMessage}
-          savingDefinitionCode={savingGlobalDefinitionCode}
-          tournament={tournament}
-          userPredictions={globalPredictions}
-        />
-        <ParticipantsPanel currentUserID={currentUserID} pool={pool} />
-        <RankingPanel
-          closedPredictionsByUserID={closedPredictionsByUserID}
-          currentUserID={currentUserID}
-          detailsByUserID={pointDetailsByUserID}
-          loadingUserID={pointDetailsLoadingUserID}
-          message={pointDetailsMessage}
-          onSelectUser={onSelectRankingUser}
-          prizePreview={prizePreview}
-          ranking={ranking}
-          selectedUserID={selectedRankingUserID}
-        />
-        <ScoringRulesPanel rules={scoringRules} />
-        <RoundClarificationsPanel
-          closeHours={pool?.prediction_close_hours_before}
-          predictionGroups={predictionGroups}
-          scoringRules={scoringRules}
-        />
-        <PredictionList
-          drafts={drafts}
-          clockTick={clockTick}
-          effectiveMatchSettingsByMatch={effectiveMatchSettingsByMatch}
-          underdogBonusesByMatch={underdogBonusesByMatch}
-          underdogRule={scoringRuleByCode(scoringRules, "underdog_bonus")}
-          onDownloadSnapshot={onDownloadSnapshot}
-          onLoadSnapshot={onLoadSnapshot}
-          onSave={onSave}
-          onSaveStanding={onSaveStanding}
-          onMoveStanding={onMoveStanding}
-          onUpdateDraft={onUpdateDraft}
-          pool={pool}
-          predictionGroups={predictionGroups}
-          predictionsByMatch={predictionsByMatch}
-          predictionStatusesByMatch={predictionStatusesByMatch}
-          saveMessage={saveMessage}
-          savingMatchID={savingMatchID}
-          savingStandingGroupID={savingStandingGroupID}
-          snapshotDownloadingMatchID={snapshotDownloadingMatchID}
-          snapshotLoadingMatchID={snapshotLoadingMatchID}
-          snapshotMessages={snapshotMessages}
-          snapshotsByMatchID={snapshotsByMatchID}
-          standingDrafts={standingDrafts}
-          standingPredictionsByGroup={standingPredictionsByGroup}
-          standingSaveMessage={standingSaveMessage}
-          tournament={tournament}
-        />
+        {theme.bannerURL || theme.mascotURL ? (
+          <div className="relative hidden h-28 overflow-hidden lg:block">
+            {theme.bannerURL ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                alt=""
+                className="absolute inset-y-0 right-0 h-full w-full object-contain object-right"
+                src={theme.bannerURL}
+              />
+            ) : null}
+            {theme.mascotURL ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                alt=""
+                className="absolute bottom-2 right-4 h-20 max-w-32 object-contain drop-shadow-[0_12px_22px_rgba(15,23,42,0.16)]"
+                src={theme.mascotURL}
+              />
+            ) : null}
+          </div>
+        ) : null}
       </div>
     </section>
   );
 }
 
+function ParticipantPoolShell({
+  activeSection,
+  onSelectSection,
+  pool,
+  summary,
+  theme,
+}: {
+  activeSection: ParticipantSectionID;
+  onSelectSection: (section: ParticipantSectionID) => void;
+  pool: Pool;
+  summary: PredictionSummary | null;
+  theme: NormalizedTheme;
+}) {
+  const activeSectionData =
+    participantSections.find((section) => section.id === activeSection) ?? participantSections[0];
+
+  return (
+    <aside
+      className="sticky top-[10.5rem] z-10 hidden rounded-2xl border bg-white p-4 shadow-[0_10px_40px_rgba(15,23,42,0.08),0_1px_3px_rgba(15,23,42,0.04)] xl:block"
+      style={{ borderColor: colorWithAlpha(theme.accentColor, 0.18) }}
+    >
+      <div
+        className="rounded-xl p-3"
+        style={{
+          background: `linear-gradient(135deg, ${colorWithAlpha(theme.primaryColor, 0.12)}, ${colorWithAlpha(theme.secondaryColor, 0.08)})`,
+        }}
+      >
+        <p className="text-xs font-semibold uppercase" style={{ color: theme.primaryColor }}>
+          Participar
+        </p>
+        <h2 className="mt-1 text-lg font-bold text-[#0f172a]">{activeSectionData.label}</h2>
+        <p className="mt-1 text-sm text-slate-500">{participantSectionDescription(activeSection)}</p>
+      </div>
+      <nav aria-label="Secciones de la polla" className="mt-4 grid gap-2">
+        {participantSections.map((section) => {
+          const selected = section.id === activeSection;
+          const counter = participantSectionCounter(section.id, pool, summary);
+          return (
+            <button
+              className="flex min-h-12 items-center justify-between rounded-xl border-l-4 border-solid px-4 py-3 text-left text-sm font-semibold transition"
+              key={section.id}
+              onClick={() => onSelectSection(section.id)}
+              style={{
+                background: selected
+                  ? `linear-gradient(135deg, ${colorWithAlpha(theme.secondaryColor, 0.18)}, ${colorWithAlpha(theme.primaryColor, 0.1)})`
+                  : colorWithAlpha(theme.secondaryColor, 0.07),
+                borderLeftColor: selected ? theme.accentColor : "transparent",
+                boxShadow: "none",
+                color: selected ? "#0f172a" : "#475569",
+              }}
+              type="button"
+            >
+              <span>{section.label}</span>
+              {counter ? (
+                <span className="rounded-lg bg-white/80 px-2 py-1 text-xs text-slate-600">
+                  {counter}
+                </span>
+              ) : null}
+            </button>
+          );
+        })}
+      </nav>
+    </aside>
+  );
+}
+
+function MobileParticipantSummary({
+  summary,
+  theme,
+}: {
+  summary: PredictionSummary | null;
+  theme: NormalizedTheme;
+}) {
+  const total = summary?.total_matches ?? 0;
+  const predicted = summary?.predicted_matches ?? 0;
+  const missing = summary?.missing_matches ?? 0;
+  const closed = summary?.closed_matches ?? 0;
+  const progress = total > 0 ? Math.round((predicted / total) * 100) : 0;
+
+  return (
+    <div className="border-t border-white/70 pt-4">
+      <p className="text-xs font-semibold uppercase" style={{ color: theme.primaryColor }}>
+        Tu avance
+      </p>
+      <p className="mt-1 text-lg font-bold text-[#0f172a]">
+        {predicted} de {total} partidos
+      </p>
+      <div
+        className="mt-3 h-2 overflow-hidden rounded-full"
+        style={{ backgroundColor: colorWithAlpha(theme.secondaryColor, 0.14) }}
+      >
+        <div
+          className="h-full rounded-full"
+          style={{
+            background: `linear-gradient(90deg, ${theme.primaryColor}, ${theme.accentColor})`,
+            width: `${Math.min(progress, 100)}%`,
+          }}
+        />
+      </div>
+      <dl className="mt-3 grid grid-cols-3 gap-2 text-xs">
+        <MobileSummaryStat label="Faltantes" theme={theme} value={missing} />
+        <MobileSummaryStat label="Cerrados" theme={theme} value={closed} />
+        <MobileSummaryStat label="Avance" theme={theme} value={`${progress}%`} />
+      </dl>
+    </div>
+  );
+}
+
+function MobileSummaryStat({
+  label,
+  theme,
+  value,
+}: {
+  label: string;
+  theme: NormalizedTheme;
+  value: number | string;
+}) {
+  return (
+    <div
+      className="rounded-xl px-3 py-2"
+      style={{ backgroundColor: colorWithAlpha(theme.secondaryColor, 0.11) }}
+    >
+      <dt className="font-semibold uppercase" style={{ color: theme.primaryColor }}>
+        {label}
+      </dt>
+      <dd className="mt-1 text-base font-bold text-[#0f172a]">{value}</dd>
+    </div>
+  );
+}
+
+function ParticipantQuickCard({
+  label,
+  onClick,
+  theme,
+  value,
+}: {
+  label: string;
+  onClick: () => void;
+  theme: NormalizedTheme;
+  value: string;
+}) {
+  return (
+    <button
+      className="rounded-xl border px-3 py-2 text-left transition hover:-translate-y-0.5"
+      onClick={onClick}
+      style={{
+        backgroundColor: colorWithAlpha(theme.secondaryColor, 0.08),
+        borderColor: colorWithAlpha(theme.accentColor, 0.18),
+      }}
+      type="button"
+    >
+      <span className="block text-xs font-semibold uppercase" style={{ color: theme.primaryColor }}>
+        {label}
+      </span>
+      <span className="mt-1 block text-base font-bold text-[#0f172a]">{value}</span>
+    </button>
+  );
+}
+
+function participantSectionDescription(sectionID: ParticipantSectionID) {
+  switch (sectionID) {
+    case "pronosticos":
+      return "Partidos, globales y posiciones configuradas.";
+    case "ranking":
+      return "Posiciones, puntos y pronosticos cerrados.";
+    case "premios":
+      return "Bolsa, ganadores y premios especiales.";
+    case "participantes":
+      return "Integrantes, pagos y elegibilidad.";
+    case "reglas":
+      return "Puntajes, cierres y aclaraciones.";
+    default:
+      return "";
+  }
+}
+
+function participantSectionCounter(
+  sectionID: ParticipantSectionID,
+  pool: Pool,
+  summary: PredictionSummary | null,
+) {
+  switch (sectionID) {
+    case "pronosticos":
+      return summary ? `${summary.predicted_matches}/${summary.total_matches}` : "";
+    case "ranking":
+      return "";
+    case "premios":
+      return "";
+    case "participantes":
+      return String(pool.participants.length);
+    case "reglas":
+      return summary ? `${summary.closed_matches} cerrados` : "";
+    default:
+      return "";
+  }
+}
+
+function MobileBottomNavigation({
+  activeSection,
+  onSelectSection,
+  pool,
+  summary,
+  theme,
+}: {
+  activeSection: ParticipantSectionID;
+  onSelectSection: (section: ParticipantSectionID) => void;
+  pool: Pool;
+  summary: PredictionSummary | null;
+  theme: NormalizedTheme;
+}) {
+  return (
+    <nav
+      aria-label="Secciones de la polla"
+      className="fixed inset-x-3 bottom-3 z-50 grid grid-cols-5 gap-1 rounded-2xl border bg-white/95 p-2 shadow-[0_18px_48px_rgba(15,23,42,0.22)] backdrop-blur xl:hidden"
+      style={{ borderColor: colorWithAlpha(theme.accentColor, 0.22) }}
+    >
+      {participantSections.map((section) => {
+        const selected = section.id === activeSection;
+        const counter = participantSectionCounter(section.id, pool, summary);
+        return (
+          <button
+            aria-label={section.label}
+            aria-current={selected ? "page" : undefined}
+            className="relative flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl px-1 text-[10px] font-semibold transition"
+            key={section.id}
+            onClick={() => onSelectSection(section.id)}
+            style={{
+              backgroundColor: selected ? colorWithAlpha(theme.secondaryColor, 0.15) : "transparent",
+              boxShadow: selected ? `inset 0 0 0 2px ${theme.accentColor}` : "none",
+              color: selected ? "#0f172a" : "#64748b",
+            }}
+            type="button"
+          >
+            <ParticipantSectionIcon section={section.id} />
+            <span className="max-w-full truncate">{section.label}</span>
+            {counter ? (
+              <span className="absolute -right-1 -top-1 rounded-full bg-white px-1.5 py-0.5 text-[10px] leading-none text-slate-700 shadow-sm">
+                {counter}
+              </span>
+            ) : null}
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
+
+function ParticipantSectionIcon({ section }: { section: ParticipantSectionID }) {
+  const common = "h-5 w-5";
+  switch (section) {
+    case "pronosticos":
+      return (
+        <svg aria-hidden="true" className={common} fill="none" viewBox="0 0 24 24">
+          <path d="M7 7h10M7 12h6M7 17h8" stroke="currentColor" strokeLinecap="round" strokeWidth="2" />
+          <path d="M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z" stroke="currentColor" strokeWidth="2" />
+        </svg>
+      );
+    case "participantes":
+      return (
+        <svg aria-hidden="true" className={common} fill="none" viewBox="0 0 24 24">
+          <path d="M8 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM16 10a3 3 0 1 0 0-6" stroke="currentColor" strokeLinecap="round" strokeWidth="2" />
+          <path d="M3 21a5 5 0 0 1 10 0M14 20a4 4 0 0 1 7 0" stroke="currentColor" strokeLinecap="round" strokeWidth="2" />
+        </svg>
+      );
+    case "ranking":
+      return (
+        <svg aria-hidden="true" className={common} fill="none" viewBox="0 0 24 24">
+          <path d="M5 20V10M12 20V4M19 20v-7" stroke="currentColor" strokeLinecap="round" strokeWidth="2" />
+        </svg>
+      );
+    case "premios":
+      return (
+        <svg aria-hidden="true" className={common} fill="none" viewBox="0 0 24 24">
+          <path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4Z" stroke="currentColor" strokeLinecap="round" strokeWidth="2" />
+          <path d="M7 6H4v2a3 3 0 0 0 3 3M17 6h3v2a3 3 0 0 1-3 3" stroke="currentColor" strokeLinecap="round" strokeWidth="2" />
+        </svg>
+      );
+    case "reglas":
+      return (
+        <svg aria-hidden="true" className={common} fill="none" viewBox="0 0 24 24">
+          <path d="M9 6h11M9 12h11M9 18h11" stroke="currentColor" strokeLinecap="round" strokeWidth="2" />
+          <path d="m4 6 1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2" stroke="currentColor" strokeLinecap="round" strokeWidth="2" />
+        </svg>
+      );
+    default:
+      return null;
+  }
+}
+
 function PoolHeader({
   pool,
   tournament,
+  variant = "default",
 }: {
   pool: Pool | null;
   tournament: Tournament | null;
+  variant?: "default" | "compact";
 }) {
   const theme = normalizedPoolTheme(pool?.theme);
+  const compact = variant === "compact";
 
   return (
     <section
-      className="overflow-hidden rounded-lg border bg-white shadow-sm"
-      style={{ borderColor: theme.accentColor }}
+      className={
+        compact
+          ? "overflow-hidden bg-white"
+          : "overflow-hidden rounded-xl bg-white shadow-[0_10px_40px_rgba(15,23,42,0.08),0_1px_3px_rgba(15,23,42,0.04)] ring-1 ring-slate-950/10"
+      }
     >
-      {theme.bannerURL ? (
+      {compact ? null : theme.bannerURL ? (
         <div
           aria-hidden="true"
           className="h-24 bg-cover bg-center"
@@ -1345,20 +1957,22 @@ function PoolHeader({
       ) : (
         <div aria-hidden="true" className="h-2" style={{ backgroundColor: theme.primaryColor }} />
       )}
-      <div className="flex flex-col gap-4 p-5 md:flex-row md:items-start md:justify-between">
-        <div className="flex min-w-0 flex-col gap-4 sm:flex-row">
+      <div className={`flex flex-col gap-4 ${compact ? "p-4" : "p-5"} md:flex-row md:items-start md:justify-between`}>
+        <div className="flex min-w-0 items-center gap-3">
           <ThemeLogo theme={theme} />
           <div className="min-w-0">
             <p className="text-sm font-medium" style={{ color: theme.primaryColor }}>
               {tournament?.name ?? "Torneo pendiente"}
             </p>
-            <h2 className="mt-1 text-2xl font-semibold tracking-normal text-zinc-950">
+            <h2 className={`${compact ? "text-xl" : "mt-1 text-2xl"} font-bold tracking-normal text-[#0f172a]`}>
               {poolDisplayName(pool)}
             </h2>
-            <p className="mt-2 text-sm leading-6 text-zinc-600">{pool?.description}</p>
+            {compact ? null : (
+              <p className="mt-2 text-sm leading-6 text-slate-500">{pool?.description}</p>
+            )}
           </div>
         </div>
-        <div className="flex flex-col gap-3 md:items-end">
+        <div className={`flex flex-col gap-3 md:items-end ${compact ? "hidden md:flex" : ""}`}>
           {theme.mascotURL ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
@@ -1391,134 +2005,136 @@ function PoolHeader({
   );
 }
 
-function SummaryGrid({ summary }: { summary: PredictionSummary | null }) {
-  const metrics = [
-    { label: "Partidos", value: summary?.total_matches ?? 0 },
-    { label: "Pronosticados", value: summary?.predicted_matches ?? 0 },
-    { label: "Faltantes", value: summary?.missing_matches ?? 0 },
-    { label: "Abiertos", value: summary?.open_matches ?? 0 },
-    { label: "Cerrados", value: summary?.closed_matches ?? 0 },
-    { label: "Puntuados", value: summary?.scored_matches ?? 0 },
-  ];
+function SummaryGrid({
+  summary,
+  theme,
+}: {
+  summary: PredictionSummary | null;
+  theme: NormalizedTheme;
+}) {
+  const total = summary?.total_matches ?? 0;
+  const predicted = summary?.predicted_matches ?? 0;
+  const missing = summary?.missing_matches ?? 0;
+  const closed = summary?.closed_matches ?? 0;
+  const progress = total > 0 ? Math.round((predicted / total) * 100) : 0;
 
   return (
-    <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
-      {metrics.map((metric) => (
-        <div
-          className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm"
-          key={metric.label}
-        >
-          <p className="text-xs font-medium uppercase text-zinc-500">{metric.label}</p>
-          <p className="mt-2 text-2xl font-semibold text-zinc-950">{metric.value}</p>
+    <section
+      className="rounded-2xl border bg-white p-4 shadow-[0_10px_40px_rgba(15,23,42,0.08),0_1px_3px_rgba(15,23,42,0.04)] sm:p-5"
+      style={{ borderColor: colorWithAlpha(theme.accentColor, 0.22) }}
+    >
+      <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center">
+        <div>
+          <p className="text-xs font-semibold uppercase" style={{ color: theme.primaryColor }}>
+            Tu avance
+          </p>
+          <h2 className="mt-1 text-lg font-bold tracking-normal text-[#0f172a] xl:text-2xl">
+            {predicted} de {total} partidos pronosticados
+          </h2>
+          <div
+            className="mt-3 h-2 overflow-hidden rounded-full sm:mt-4 sm:h-3"
+            style={{ backgroundColor: colorWithAlpha(theme.secondaryColor, 0.12) }}
+          >
+            <div
+              className="h-full rounded-full"
+              style={{
+                background: `linear-gradient(90deg, ${theme.primaryColor}, ${theme.accentColor})`,
+                width: `${Math.min(progress, 100)}%`,
+              }}
+            />
+          </div>
         </div>
-      ))}
+        <dl className="grid grid-cols-3 gap-2 xl:min-w-64 xl:gap-3">
+          <SummaryStat label="Faltantes" theme={theme} value={missing} />
+          <SummaryStat label="Cerrados" theme={theme} value={closed} />
+          <SummaryStat label="Avance" theme={theme} value={`${progress}%`} />
+        </dl>
+      </div>
     </section>
   );
 }
 
+function SummaryStat({
+  label,
+  theme,
+  value,
+}: {
+  label: string;
+  theme: NormalizedTheme;
+  value: number | string;
+}) {
+  return (
+    <div
+      className="rounded-xl px-3 py-2 sm:px-4 sm:py-3"
+      style={{ backgroundColor: colorWithAlpha(theme.secondaryColor, 0.1) }}
+    >
+      <dt className="truncate text-[10px] font-semibold uppercase sm:text-xs" style={{ color: theme.primaryColor }}>
+        {label}
+      </dt>
+      <dd className="mt-1 text-base font-bold text-[#0f172a] sm:text-xl">{value}</dd>
+    </div>
+  );
+}
+
 function DashboardNavigation({
-  globalPredictionDefinitions,
-  globalPredictions,
+  currentUserID,
   globalPrizePreview,
-  pool,
-  predictionGroups,
+  onSelectSection,
   prizePreview,
   ranking,
-  scoringRules,
-  summary,
+  theme,
 }: {
-  globalPredictionDefinitions: GlobalPredictionDefinition[];
-  globalPredictions: GlobalPrediction[];
+  currentUserID: string;
   globalPrizePreview: GlobalPredictionPrizePreview | null;
-  pool: Pool | null;
-  predictionGroups: PredictionGroup[];
+  onSelectSection: (section: ParticipantSectionID) => void;
   prizePreview: PrizePreview | null;
   ranking: RankingEntry[];
-  scoringRules: ScoringRule[];
-  summary: PredictionSummary | null;
+  theme: NormalizedTheme;
 }) {
-  const standingGroupCount = predictionGroups.filter((group) => group.standings.length > 0).length;
-  const activeRuleCount = scoringRules.filter((rule) => rule.enabled).length;
-  const enabledGlobalDefinitions = globalPredictionDefinitions.filter(
-    (definition) => definition.enabled,
-  );
-  const predictedGlobalCount = enabledGlobalDefinitions.filter((definition) =>
-    globalPredictions.some((prediction) => prediction.code === definition.code),
-  ).length;
+  const currentRanking = ranking.find((entry) => entry.user_id === currentUserID);
   const prizeCount = (prizePreview?.payouts.length ?? 0) + (globalPrizePreview?.prizes.length ?? 0);
   const prizeCurrency = prizePreview?.currency ?? globalPrizePreview?.currency ?? "COP";
   const prizeTotal =
     prizePreview?.confirmed_total_cents ?? globalPrizePreview?.confirmed_total_cents ?? 0;
   const links = [
     {
-      href: "#pronosticos",
-      label: "Pronosticos",
-      value: `${summary?.missing_matches ?? 0} faltantes`,
-      detail: `${summary?.predicted_matches ?? 0}/${summary?.total_matches ?? 0} partidos`,
-    },
-    {
-      href: "#globales",
-      label: "Globales",
-      value: `${enabledGlobalDefinitions.length - predictedGlobalCount} faltantes`,
-      detail: `${predictedGlobalCount}/${enabledGlobalDefinitions.length} pronosticos`,
-    },
-    {
-      href: standingGroupCount > 0 ? "#posiciones" : "#pronosticos",
-      label: "Posiciones",
-      value: `${standingGroupCount} tablas`,
-      detail: "Ordenes por grupo o liga",
-    },
-    {
-      href: "#participantes",
-      label: "Participantes",
-      value: String(pool?.participants.length ?? 0),
-      detail: "Estados de pago y premio",
-    },
-    {
-      href: "#ranking",
+      section: "ranking" as const,
       label: "Ranking",
-      value: `${ranking.length} usuarios`,
-      detail: "Puntos y detalle",
+      value: currentRanking ? `#${currentRanking.position}` : "-",
+      detail: currentRanking
+        ? `${currentRanking.points} pts · ${ranking.length} participantes`
+        : `${ranking.length} participantes`,
     },
     {
-      href: "#premios",
+      section: "premios" as const,
       label: "Premios",
       value: `${prizeCount} premios`,
       detail: formatMoney(prizeTotal, prizeCurrency),
     },
-    {
-      href: "#reglas",
-      label: "Reglas",
-      value: `${activeRuleCount} activas`,
-      detail: "Puntajes de la polla",
-    },
-    {
-      href: "#aclaraciones",
-      label: "Aclaraciones",
-      value: `${predictionGroups.length} rondas`,
-      detail: "Cierres y conteos",
-    },
   ];
-  const gridColumnsClass =
-    links.length >= 8 ? "xl:grid-cols-8" : "xl:grid-cols-6";
 
   return (
     <nav
       aria-label="Accesos de la polla"
-      className={`grid gap-3 sm:grid-cols-2 ${gridColumnsClass}`}
+      className="hidden gap-3 xl:grid xl:grid-cols-2"
     >
       {links.map((link) => (
-        <a
-          className="rounded-lg border border-zinc-200 bg-white px-4 py-3 text-sm shadow-sm transition hover:border-emerald-300 hover:bg-emerald-50"
-          href={link.href}
+        <button
+          className="rounded-2xl border bg-white px-5 py-4 text-left text-sm shadow-sm transition hover:-translate-y-0.5"
           key={link.label}
+          onClick={() => onSelectSection(link.section)}
+          style={{
+            borderColor: colorWithAlpha(theme.accentColor, 0.24),
+            boxShadow: `0 10px 24px ${colorWithAlpha(theme.primaryColor, 0.08)}`,
+          }}
+          type="button"
         >
           <span className="block font-semibold text-zinc-950">{link.label}</span>
-          <span className="mt-2 block text-lg font-semibold text-emerald-800">
+          <span className="mt-2 block text-lg font-semibold" style={{ color: theme.primaryColor }}>
             {link.value}
           </span>
           <span className="mt-1 block text-xs text-zinc-500">{link.detail}</span>
-        </a>
+        </button>
       ))}
     </nav>
   );
@@ -1713,6 +2329,7 @@ function GlobalPredictionsPanel({
   const predictionsByCode = indexGlobalPredictions(userPredictions);
   const resultsByCode = indexGlobalPredictionResults(results);
   const teamOptions = tournamentTeamOptions(tournament);
+  const [open, setOpen] = useState(false);
 
   if (enabledDefinitions.length === 0) {
     return (
@@ -1731,19 +2348,29 @@ function GlobalPredictionsPanel({
 
   return (
     <section className="rounded-lg border border-zinc-200 bg-white shadow-sm" id="globales">
-      <div className="flex flex-col gap-2 border-b border-zinc-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+      <button
+        aria-expanded={open}
+        className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-zinc-200 px-5 py-4 text-left sm:grid-cols-[minmax(0,1fr)_auto_auto]"
+        onClick={() => setOpen((current) => !current)}
+        type="button"
+      >
         <div>
           <h2 className="text-lg font-semibold text-zinc-950">Predicciones globales</h2>
           <p className="mt-1 text-sm text-zinc-500">
             {completedCount} de {enabledDefinitions.length} pronosticos completos.
           </p>
         </div>
-        {saveMessage ? (
-          <p className="text-sm font-medium text-emerald-700" role="status">
-            {saveMessage}
-          </p>
-        ) : null}
-      </div>
+        <span className="flex items-center gap-3 text-sm text-zinc-600">
+          {saveMessage ? (
+            <span className="hidden font-medium text-emerald-700 sm:inline" role="status">
+              {saveMessage}
+            </span>
+          ) : null}
+          <span className="grid h-10 w-10 place-items-center rounded-full border border-zinc-200 text-base font-semibold">
+            {open ? "⌃" : "⌄"}
+          </span>
+        </span>
+      </button>
 
       <datalist id="global-team-options">
         {teamOptions.map((team) => (
@@ -1751,88 +2378,181 @@ function GlobalPredictionsPanel({
         ))}
       </datalist>
 
-      <div className="divide-y divide-zinc-100">
-        {enabledDefinitions.map((definition) => {
-          const prediction = predictionsByCode.get(definition.code);
-          const result = resultsByCode.get(definition.code);
-          const draft = {
-            ...emptyGlobalPredictionDraft(),
-            ...globalPredictionDraft(prediction),
-            ...drafts[definition.code],
-          };
-          const closed = isGlobalDefinitionClosed(definition);
-          const visibleResult = closed ? result : undefined;
-          const isSaving = savingDefinitionCode === definition.code;
+      {open ? (
+        <div className="grid gap-3 bg-zinc-50/70 px-4 py-5 sm:px-5 min-[900px]:grid-cols-2 2xl:grid-cols-3">
+          {enabledDefinitions.map((definition) => {
+            const prediction = predictionsByCode.get(definition.code);
+            const result = resultsByCode.get(definition.code);
+            const draft = {
+              ...emptyGlobalPredictionDraft(),
+              ...globalPredictionDraft(prediction),
+              ...drafts[definition.code],
+            };
+            const closed = isGlobalDefinitionClosed(definition);
+            const visibleResult = closed ? result : undefined;
+            const isSaving = savingDefinitionCode === definition.code;
 
-          return (
-            <div
-              className="grid gap-4 px-5 py-4 lg:grid-cols-[minmax(0,1fr)_minmax(260px,0.9fr)_auto]"
-              key={definition.code}
-            >
-              <div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <h3 className="text-sm font-semibold text-zinc-950">{definition.label}</h3>
-                  <span
-                    className={`rounded-md px-2 py-1 text-xs font-medium ${
-                      closed ? "bg-zinc-100 text-zinc-600" : "bg-emerald-100 text-emerald-800"
-                    }`}
-                  >
-                    {closed ? "Cerrado" : "Abierto"}
-                  </span>
-                  {definition.points_enabled ? (
-                    <span className="rounded-md bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-800">
-                      {definition.points} pts
-                    </span>
-                  ) : null}
-                  {definition.prize_enabled ? (
-                    <span className="rounded-md bg-sky-50 px-2 py-1 text-xs font-semibold text-sky-800">
-                      Premio especial
-                    </span>
-                  ) : null}
+            return (
+              <article
+                className="grid min-h-full gap-4 rounded-xl border border-zinc-200 bg-white p-4 shadow-sm"
+                key={definition.code}
+              >
+                <div className="grid gap-3">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <h3 className="text-base font-semibold tracking-normal text-zinc-950">
+                        {definition.label}
+                      </h3>
+                      <p className="mt-1 text-xs text-zinc-500">
+                        {globalPredictionValueTypeLabel(definition.value_type)}
+                        {definition.closes_at
+                          ? ` - Cierra ${formatMatchDate(definition.closes_at)}`
+                          : ""}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 flex-wrap justify-end gap-2">
+                      <span
+                        className={`rounded-md px-2 py-1 text-xs font-medium ${
+                          closed ? "bg-zinc-100 text-zinc-600" : "bg-emerald-100 text-emerald-800"
+                        }`}
+                      >
+                        {closed ? "Cerrado" : "Abierto"}
+                      </span>
+                      {definition.points_enabled ? (
+                        <span className="rounded-md bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-800">
+                          {definition.points} pts
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg bg-zinc-50 px-3 py-2 text-sm text-zinc-600">
+                    {prediction ? (
+                      <p>
+                        Guardado:{" "}
+                        <span className="font-semibold text-zinc-950">
+                          {globalPredictionValueLabel(prediction, teamOptions)}
+                        </span>
+                      </p>
+                    ) : (
+                      <p>Sin respuesta guardada.</p>
+                    )}
+                    {definition.prize_enabled ? (
+                      <p className="mt-1 text-xs font-semibold text-sky-800">Premio especial</p>
+                    ) : null}
+                    {visibleResult ? (
+                      <p className="mt-1 text-xs text-zinc-500">
+                        Resultado oficial: {globalPredictionValueLabel(visibleResult, teamOptions)}
+                      </p>
+                    ) : null}
+                  </div>
                 </div>
-                <p className="mt-2 text-xs text-zinc-500">
-                  {globalPredictionValueTypeLabel(definition.value_type)}
-                  {definition.closes_at ? ` - Cierra ${formatMatchDate(definition.closes_at)}` : ""}
-                </p>
-                {prediction ? (
-                  <p className="mt-2 text-sm text-zinc-700">
-                    Guardado:{" "}
-                    <span className="font-semibold text-zinc-950">
-                      {globalPredictionValueLabel(prediction, teamOptions)}
-                    </span>
-                  </p>
-                ) : null}
-                {visibleResult ? (
-                  <p className="mt-1 text-xs text-zinc-500">
-                    Resultado oficial: {globalPredictionValueLabel(visibleResult, teamOptions)}
-                  </p>
-                ) : null}
-              </div>
 
-              <GlobalPredictionInput
-                closed={closed}
-                definition={definition}
-                draft={draft}
-                onUpdateDraft={onUpdateDraft}
-                teamOptions={teamOptions}
-              />
+                <div className="grid content-end gap-3">
+                  <GlobalPredictionInput
+                    closed={closed}
+                    definition={definition}
+                    draft={draft}
+                    onUpdateDraft={onUpdateDraft}
+                    teamOptions={teamOptions}
+                  />
 
-              <div className="flex items-end lg:justify-end">
-                <button
-                  aria-label={`Guardar prediccion global ${definition.label}`}
-                  className="h-10 rounded-md bg-zinc-950 px-3 text-sm font-semibold text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-400"
-                  disabled={closed || isSaving}
-                  onClick={() => onSave(definition)}
-                  type="button"
-                >
-                  {isSaving ? "Guardando" : "Guardar"}
-                </button>
-              </div>
-            </div>
-          );
-        })}
-      </div>
+                  <button
+                    aria-label={`Guardar prediccion global ${definition.label}`}
+                    className="h-11 w-full rounded-md bg-zinc-950 px-3 text-sm font-semibold text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-400"
+                    disabled={closed || isSaving}
+                    onClick={() => onSave(definition)}
+                    type="button"
+                  >
+                    {isSaving ? "Guardando" : "Guardar"}
+                  </button>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      ) : null}
     </section>
+  );
+}
+
+function TeamAutocomplete({
+  ariaLabel,
+  disabled,
+  label,
+  onChange,
+  options,
+  placeholder,
+  value,
+}: {
+  ariaLabel: string;
+  disabled?: boolean;
+  label: string;
+  onChange: (value: string) => void;
+  options: TournamentTeamOption[];
+  placeholder: string;
+  value: string;
+}) {
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const selectedTeam = options.find((team) => teamOptionValue(team) === value);
+  const visibleValue = open ? query : selectedTeam?.name ?? (value || "");
+  const normalizedQuery = normalizeSearchText(query);
+  const filteredOptions = normalizedQuery
+    ? options.filter((team) =>
+        [team.name, team.short_name, team.country_code, ...(team.aliases ?? [])]
+          .filter(Boolean)
+          .some((text) => normalizeSearchText(text).includes(normalizedQuery)),
+      )
+    : options;
+
+  return (
+    <label className="relative grid gap-1 text-xs font-medium text-zinc-600">
+      <span>{label}</span>
+      <input
+        aria-label={ariaLabel}
+        className="h-10 rounded-md border border-zinc-300 bg-white px-3 text-sm text-zinc-950 disabled:bg-zinc-100"
+        disabled={disabled}
+        onBlur={() => {
+          window.setTimeout(() => {
+            setOpen(false);
+            setQuery("");
+          }, 120);
+        }}
+        onChange={(event) => {
+          setQuery(event.target.value);
+          setOpen(true);
+          if (event.target.value === "") {
+            onChange("");
+          }
+        }}
+        onFocus={() => setOpen(true)}
+        placeholder={selectedTeam ? undefined : placeholder}
+        value={visibleValue}
+      />
+      {open && !disabled ? (
+        <div className="absolute left-0 right-0 top-full z-40 mt-1 max-h-72 overflow-y-auto rounded-lg border border-zinc-200 bg-white p-1 normal-case shadow-lg">
+          {filteredOptions.slice(0, 12).map((team) => (
+            <button
+              className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-zinc-100"
+              key={teamOptionValue(team)}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => {
+                onChange(teamOptionValue(team));
+                setQuery("");
+                setOpen(false);
+              }}
+              type="button"
+            >
+              <TeamBadge label={team.name} team={team} />
+            </button>
+          ))}
+          {filteredOptions.length === 0 ? (
+            <p className="px-3 py-3 text-sm text-zinc-500">Sin equipos encontrados.</p>
+          ) : null}
+        </div>
+      ) : null}
+    </label>
   );
 }
 
@@ -1855,26 +2575,15 @@ function GlobalPredictionInput({
 }) {
   if (definition.value_type === "team" && teamOptions.length > 0) {
     return (
-      <label className="grid gap-1 text-xs font-medium text-zinc-600">
-        <span>Equipo</span>
-        <select
-          aria-label={`Pronostico global ${definition.label}`}
-          className="h-10 rounded-md border border-zinc-300 bg-white px-3 text-sm text-zinc-950 disabled:bg-zinc-100"
-          disabled={closed}
-          onChange={(event) => onUpdateDraft(definition.code, "valueText", event.target.value)}
-          value={draft.valueText}
-        >
-          <option value="">Elegir equipo</option>
-          {teamOptions.map((team) => (
-            <option key={team.id || team.name} value={team.id || team.name}>
-              {team.name}
-            </option>
-          ))}
-          {draft.valueText && !teamOptions.some((team) => (team.id || team.name) === draft.valueText) ? (
-            <option value={draft.valueText}>{draft.valueText}</option>
-          ) : null}
-        </select>
-      </label>
+      <TeamAutocomplete
+        ariaLabel={`Pronostico global ${definition.label}`}
+        disabled={closed}
+        label="Equipo"
+        onChange={(value) => onUpdateDraft(definition.code, "valueText", value)}
+        options={teamOptions}
+        placeholder="Buscar equipo"
+        value={draft.valueText}
+      />
     );
   }
 
@@ -2489,6 +3198,7 @@ function PredictionList({
   onDownloadSnapshot,
   onLoadSnapshot,
   onSave,
+  onSaveOutcome,
   onSaveStanding,
   onMoveStanding,
   onUpdateDraft,
@@ -2516,6 +3226,7 @@ function PredictionList({
   onDownloadSnapshot: (matchID: string) => void;
   onLoadSnapshot: (matchID: string) => void;
   onSave: (event: FormEvent<HTMLFormElement>, match: Match) => void;
+  onSaveOutcome: (match: Match, outcome: MatchOutcome) => void;
   onSaveStanding: (group: PredictionGroup) => void;
   onMoveStanding: (group: PredictionGroup, teamID: string, direction: -1 | 1) => void;
   onUpdateDraft: (matchID: string, side: "home" | "away" | "outcome", value: string) => void;
@@ -2535,6 +3246,11 @@ function PredictionList({
   standingSaveMessage: string;
   tournament: Tournament | null;
 }) {
+  const [open, setOpen] = useState(false);
+  const [openGroupIDs, setOpenGroupIDs] = useState<Set<string>>(
+    () => new Set(),
+  );
+
   if (!tournament) {
     return (
       <StatusState
@@ -2559,25 +3275,60 @@ function PredictionList({
   const firstStandingGroupID =
     predictionGroups.find((group) => group.standings.length > 0)?.id ?? "";
 
+  function toggleGroup(groupID: string) {
+    setOpenGroupIDs((current) => {
+      const next = new Set(current);
+      if (next.has(groupID)) {
+        next.delete(groupID);
+      } else {
+        next.add(groupID);
+      }
+      return next;
+    });
+  }
+
   return (
-    <section className="rounded-lg border border-zinc-200 bg-white shadow-sm" id="pronosticos">
-      <div className="flex flex-col gap-2 border-b border-zinc-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-        <h2 className="text-lg font-semibold text-zinc-950">Partidos por pronosticar</h2>
-        {saveMessage ? (
-          <p className="text-sm font-medium text-emerald-700" role="status">
-            {saveMessage}
+    <section className="w-full max-w-full overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-sm" id="pronosticos">
+      <button
+        aria-expanded={open}
+        className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-zinc-200 px-5 py-4 text-left sm:grid-cols-[minmax(0,1fr)_auto_auto]"
+        onClick={() => setOpen((current) => !current)}
+        type="button"
+      >
+        <div>
+          <h2 className="text-lg font-semibold text-zinc-950">Partidos por pronosticar</h2>
+          <p className="mt-1 text-sm text-zinc-500">
+            {predictionGroups.length} grupos o rondas disponibles.
           </p>
-        ) : null}
-        {standingSaveMessage ? (
-          <p className="text-sm font-medium text-emerald-700" role="status">
-            {standingSaveMessage}
-          </p>
-        ) : null}
-      </div>
+        </div>
+        <span className="flex items-center gap-3 text-sm text-zinc-600">
+          {saveMessage ? (
+            <span className="hidden font-medium text-emerald-700 sm:inline" role="status">
+              {saveMessage}
+            </span>
+          ) : null}
+          {standingSaveMessage ? (
+            <span className="hidden font-medium text-emerald-700 sm:inline" role="status">
+              {standingSaveMessage}
+            </span>
+          ) : null}
+          <span className="grid h-10 w-10 place-items-center rounded-full border border-zinc-200 text-base font-semibold">
+            {open ? "⌃" : "⌄"}
+          </span>
+        </span>
+      </button>
+      {open ? (
       <div className="divide-y divide-zinc-200">
-        {predictionGroups.map((group) => (
+        {predictionGroups.map((group) => {
+          const groupOpen = openGroupIDs.has(group.id);
+          return (
           <section aria-labelledby={`${group.id}-title`} key={group.id}>
-            <div className="grid gap-3 bg-zinc-50 px-5 py-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
+            <button
+              aria-expanded={groupOpen}
+              className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 bg-zinc-50 px-5 py-4 text-left min-[900px]:grid-cols-[minmax(0,1fr)_auto_auto]"
+              onClick={() => toggleGroup(group.id)}
+              type="button"
+            >
               <div>
                 <p className="text-xs font-medium uppercase text-sky-700">{group.subtitle}</p>
                 <h3
@@ -2586,8 +3337,12 @@ function PredictionList({
                 >
                   {group.title}
                 </h3>
+                <p className="mt-2 text-xs font-medium text-zinc-500 min-[900px]:hidden">
+                  {group.stats.total} partidos · {group.stats.predicted}/{group.stats.total} pronosticados ·{" "}
+                  {group.stats.missing} faltantes · {group.stats.closed} cerrados
+                </p>
               </div>
-              <dl className="grid gap-2 text-xs text-zinc-600 sm:grid-cols-4">
+              <dl className="hidden grid-cols-4 gap-2 text-xs text-zinc-600 min-[900px]:col-span-1 min-[900px]:grid">
                 <MetricItem label="Partidos" value={group.stats.total} />
                 <MetricItem
                   label="Pronosticados"
@@ -2596,13 +3351,63 @@ function PredictionList({
                 <MetricItem label="Faltantes" value={group.stats.missing} />
                 <MetricItem label="Cerrados" value={group.stats.closed} />
               </dl>
+              <span className="grid h-10 w-10 place-items-center rounded-full border border-zinc-200 bg-white text-base font-semibold text-zinc-600">
+                {groupOpen ? "⌃" : "⌄"}
+              </span>
+            </button>
+            {groupOpen ? (
+            <>
+            <div className="border-t border-zinc-200">
+              <div className="bg-white px-5 py-3">
+                <h4 className="text-sm font-semibold text-zinc-950">Partidos</h4>
+                <p className="mt-1 text-xs text-zinc-500">
+                  Marca cada partido disponible de este grupo o ronda.
+                </p>
+              </div>
+              <div className="grid gap-3 bg-zinc-50/70 px-4 py-5 sm:px-5 min-[900px]:grid-cols-2">
+                {group.matches.map((match) => {
+                  const matchSettings = effectiveMatchSettingsByMatch.get(match.id);
+                  return (
+                    <MatchPredictionForm
+                      draft={drafts[match.id] ?? emptyPredictionDraft()}
+                      key={match.id}
+                      match={match}
+                      underdogBonus={underdogBonusesByMatch.get(match.id)}
+                      underdogRule={effectiveUnderdogRule(underdogRule, matchSettings)}
+                      onDownloadSnapshot={onDownloadSnapshot}
+                      onLoadSnapshot={onLoadSnapshot}
+                      onSave={onSave}
+                      onSaveOutcome={onSaveOutcome}
+                      onUpdateDraft={onUpdateDraft}
+                      prediction={predictionsByMatch.get(match.id)}
+                      predictionCloseHoursBefore={pool?.prediction_close_hours_before}
+                      predictionMode={
+                        matchSettings?.prediction_mode ?? pool?.prediction_mode ?? "score_with_outcome"
+                      }
+                      predictionStatus={predictionStatusesByMatch.get(match.id)}
+                      savingMatchID={savingMatchID}
+                      snapshot={snapshotsByMatchID[match.id]}
+                      snapshotDownloadInProgress={snapshotDownloadingMatchID === match.id}
+                      snapshotLoadInProgress={snapshotLoadingMatchID === match.id}
+                      snapshotMessage={snapshotMessages[match.id] ?? ""}
+                    />
+                  );
+                })}
+              </div>
             </div>
             {group.standings.length > 0 ? (
+              <div className="border-t border-zinc-200 bg-white px-5 py-3">
+                <h4 className="text-sm font-semibold text-zinc-950">Orden del grupo</h4>
+                <p className="mt-1 text-xs text-zinc-500">
+                  Revisa la tabla sugerida y ajusta tu orden final si aplica para esta polla.
+                </p>
+              </div>
+            ) : null}
+            {group.standings.length > 0 ? (
               <div
-                className="grid border-t border-zinc-200 lg:grid-cols-2"
+                className="bg-white"
                 id={group.id === firstStandingGroupID ? "posiciones" : undefined}
               >
-                <SuggestedStandingsTable rows={group.standings} />
                 <StandingOrderEditor
                   group={group}
                   isClosed={isStandingPredictionClosed(
@@ -2623,97 +3428,14 @@ function PredictionList({
                 />
               </div>
             ) : null}
-            <div className="divide-y divide-zinc-100">
-              {group.matches.map((match) => {
-                const matchSettings = effectiveMatchSettingsByMatch.get(match.id);
-                return (
-                  <MatchPredictionForm
-                    draft={drafts[match.id] ?? emptyPredictionDraft()}
-                    key={match.id}
-                    match={match}
-                    underdogBonus={underdogBonusesByMatch.get(match.id)}
-                    underdogRule={effectiveUnderdogRule(underdogRule, matchSettings)}
-                    onDownloadSnapshot={onDownloadSnapshot}
-                    onLoadSnapshot={onLoadSnapshot}
-                    onSave={onSave}
-                    onUpdateDraft={onUpdateDraft}
-                    prediction={predictionsByMatch.get(match.id)}
-                    predictionCloseHoursBefore={pool?.prediction_close_hours_before}
-                    predictionMode={
-                      matchSettings?.prediction_mode ?? pool?.prediction_mode ?? "score_with_outcome"
-                    }
-                    predictionStatus={predictionStatusesByMatch.get(match.id)}
-                    savingMatchID={savingMatchID}
-                    snapshot={snapshotsByMatchID[match.id]}
-                    snapshotDownloadInProgress={snapshotDownloadingMatchID === match.id}
-                    snapshotLoadInProgress={snapshotLoadingMatchID === match.id}
-                    snapshotMessage={snapshotMessages[match.id] ?? ""}
-                  />
-                );
-              })}
-            </div>
+            </>
+            ) : null}
           </section>
-        ))}
+          );
+        })}
       </div>
+      ) : null}
     </section>
-  );
-}
-
-function SuggestedStandingsTable({ rows }: { rows: SuggestedStandingRow[] }) {
-  return (
-    <div className="px-5 py-4 lg:border-r lg:border-zinc-200">
-      <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-        <h4 className="text-sm font-semibold text-zinc-950">Tabla sugerida</h4>
-        <p className="text-xs text-zinc-500">Calculada con tus marcadores guardados</p>
-      </div>
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[620px] border-collapse text-left text-sm">
-          <thead>
-            <tr className="border-y border-zinc-200 text-xs uppercase text-zinc-500">
-              <th className="w-10 py-2 pr-3 font-medium">#</th>
-              <th className="py-2 pr-3 font-medium">Equipo</th>
-              <th className="py-2 pr-3 text-right font-medium">PJ</th>
-              <th className="py-2 pr-3 text-right font-medium">Pts</th>
-              <th className="py-2 pr-3 text-right font-medium">GF</th>
-              <th className="py-2 pr-3 text-right font-medium">GC</th>
-              <th className="py-2 pr-3 text-right font-medium">DG</th>
-              <th className="py-2 text-right font-medium">Estado</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => (
-              <tr className="border-b border-zinc-100" key={row.key}>
-                <td className="py-2 pr-3 font-semibold text-zinc-950">{row.position}</td>
-                <td className="py-2 pr-3">
-                  <span className="font-semibold text-zinc-950">{row.teamName}</span>
-                  <span className="ml-2 text-xs text-zinc-500">{row.teamShortName}</span>
-                </td>
-                <td className="py-2 pr-3 text-right text-zinc-700">{row.played}</td>
-                <td className="py-2 pr-3 text-right font-semibold text-zinc-950">
-                  {row.points}
-                </td>
-                <td className="py-2 pr-3 text-right text-zinc-700">{row.goalsFor}</td>
-                <td className="py-2 pr-3 text-right text-zinc-700">{row.goalsAgainst}</td>
-                <td className="py-2 pr-3 text-right text-zinc-700">
-                  {formatGoalDifference(row.goalDifference)}
-                </td>
-                <td className="py-2 text-right">
-                  <span
-                    className={`rounded-md px-2 py-1 text-xs font-medium ${
-                      row.complete
-                        ? "bg-emerald-100 text-emerald-800"
-                        : "bg-zinc-100 text-zinc-600"
-                    }`}
-                  >
-                    {row.complete ? "Completo" : "Incompleto"}
-                  </span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
   );
 }
 
@@ -2735,30 +3457,57 @@ function StandingOrderEditor({
   return (
     <div className="px-5 py-4">
       <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-        <h4 className="text-sm font-semibold text-zinc-950">Mi orden final</h4>
-        <span
-          className={`w-fit rounded-md px-2 py-1 text-xs font-medium ${
-            isClosed ? "bg-zinc-100 text-zinc-600" : "bg-emerald-100 text-emerald-800"
-          }`}
-        >
-          {isClosed ? "Cerrado" : "Abierto"}
-        </span>
-      </div>
-      <ol className="divide-y divide-zinc-100 rounded-md border border-zinc-200">
-        {rows.map((row, index) => (
-          <li
-            className="grid min-h-14 grid-cols-[2.5rem_minmax(0,1fr)_auto] items-center gap-3 px-3 py-2 text-sm"
-            key={row.key}
+        <div>
+          <h4 className="text-sm font-semibold text-zinc-950">Orden final</h4>
+          <p className="mt-1 text-xs text-zinc-500">
+            Inicia con la tabla sugerida por tus marcadores y puedes ajustar posiciones.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="rounded-md bg-zinc-100 px-2 py-1 text-xs font-medium text-zinc-600">
+            PJ, PTS, GF, GC y DG sugeridos
+          </span>
+          <span
+            className={`w-fit rounded-md px-2 py-1 text-xs font-medium ${
+              isClosed ? "bg-zinc-100 text-zinc-600" : "bg-emerald-100 text-emerald-800"
+            }`}
           >
-            <span className="font-semibold text-zinc-950">{index + 1}</span>
-            <span className="min-w-0">
-              <span className="block truncate font-semibold text-zinc-950">{row.teamName}</span>
-              <span className="text-xs text-zinc-500">{row.teamShortName}</span>
-            </span>
-            <span className="flex gap-1">
+            {isClosed ? "Cerrado" : "Abierto"}
+          </span>
+        </div>
+      </div>
+      <div className="grid gap-2 sm:hidden">
+        {rows.map((row, index) => (
+          <div className="rounded-xl border border-zinc-200 bg-white p-3" key={row.key}>
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-zinc-500">#{index + 1}</p>
+                <div className="mt-1 flex min-w-0 items-center gap-2">
+                  <TeamBadge label={row.teamName} team={row.team} />
+                  <span className="shrink-0 text-xs text-zinc-500">{row.teamShortName}</span>
+                </div>
+              </div>
+              <span
+                className={`shrink-0 rounded-md px-2 py-1 text-xs font-medium ${
+                  row.complete
+                    ? "bg-emerald-100 text-emerald-800"
+                    : "bg-zinc-100 text-zinc-600"
+                }`}
+              >
+                {row.complete ? "Completo" : "Incompleto"}
+              </span>
+            </div>
+            <dl className="mt-3 grid grid-cols-5 gap-1 text-center text-xs">
+              <StandingMobileMetric label="PJ" value={row.played} />
+              <StandingMobileMetric label="Pts" value={row.points} />
+              <StandingMobileMetric label="GF" value={row.goalsFor} />
+              <StandingMobileMetric label="GC" value={row.goalsAgainst} />
+              <StandingMobileMetric label="DG" value={formatGoalDifference(row.goalDifference)} />
+            </dl>
+            <div className="mt-3 grid grid-cols-2 gap-2">
               <button
                 aria-label={`Subir ${row.teamName}`}
-                className="min-w-14 rounded-md border border-zinc-300 px-2 py-1 text-xs font-medium text-zinc-700 disabled:cursor-not-allowed disabled:opacity-40"
+                className="rounded-lg border border-zinc-300 px-3 py-2 text-xs font-medium text-zinc-700 disabled:cursor-not-allowed disabled:opacity-40"
                 disabled={index === 0 || isClosed || isSaving}
                 onClick={() => onMove(group, row.key, -1)}
                 type="button"
@@ -2767,20 +3516,90 @@ function StandingOrderEditor({
               </button>
               <button
                 aria-label={`Bajar ${row.teamName}`}
-                className="min-w-14 rounded-md border border-zinc-300 px-2 py-1 text-xs font-medium text-zinc-700 disabled:cursor-not-allowed disabled:opacity-40"
+                className="rounded-lg border border-zinc-300 px-3 py-2 text-xs font-medium text-zinc-700 disabled:cursor-not-allowed disabled:opacity-40"
                 disabled={index === rows.length - 1 || isClosed || isSaving}
                 onClick={() => onMove(group, row.key, 1)}
                 type="button"
               >
                 Bajar
               </button>
-            </span>
-          </li>
+            </div>
+          </div>
         ))}
-      </ol>
+      </div>
+      <div className="hidden overflow-x-auto rounded-md border border-zinc-200 sm:block">
+        <table className="w-full min-w-[760px] border-collapse text-left text-sm">
+          <thead>
+            <tr className="bg-zinc-50 text-xs uppercase text-zinc-500">
+              <th className="w-12 px-3 py-3 font-medium">#</th>
+              <th className="px-3 py-3 font-medium">Equipo</th>
+              <th className="px-3 py-3 text-right font-medium">PJ</th>
+              <th className="px-3 py-3 text-right font-medium">Pts</th>
+              <th className="px-3 py-3 text-right font-medium">GF</th>
+              <th className="px-3 py-3 text-right font-medium">GC</th>
+              <th className="px-3 py-3 text-right font-medium">DG</th>
+              <th className="px-3 py-3 text-right font-medium">Estado</th>
+              <th className="px-3 py-3 text-right font-medium">Orden</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, index) => (
+              <tr className="border-t border-zinc-100" key={row.key}>
+                <td className="px-3 py-3 font-semibold text-zinc-950">{index + 1}</td>
+                <td className="min-w-0 px-3 py-3">
+                  <TeamBadge label={row.teamName} team={row.team} />
+                  <span className="ml-2 text-xs text-zinc-500">{row.teamShortName}</span>
+                </td>
+                <td className="px-3 py-3 text-right text-zinc-700">{row.played}</td>
+                <td className="px-3 py-3 text-right font-semibold text-zinc-950">
+                  {row.points}
+                </td>
+                <td className="px-3 py-3 text-right text-zinc-700">{row.goalsFor}</td>
+                <td className="px-3 py-3 text-right text-zinc-700">{row.goalsAgainst}</td>
+                <td className="px-3 py-3 text-right text-zinc-700">
+                  {formatGoalDifference(row.goalDifference)}
+                </td>
+                <td className="px-3 py-3 text-right">
+                  <span
+                    className={`rounded-md px-2 py-1 text-xs font-medium ${
+                      row.complete
+                        ? "bg-emerald-100 text-emerald-800"
+                        : "bg-zinc-100 text-zinc-600"
+                    }`}
+                  >
+                    {row.complete ? "Completo" : "Incompleto"}
+                  </span>
+                </td>
+                <td className="px-3 py-3">
+                  <span className="flex justify-end gap-1">
+                    <button
+                      aria-label={`Subir ${row.teamName}`}
+                      className="min-w-14 rounded-md border border-zinc-300 px-2 py-1 text-xs font-medium text-zinc-700 disabled:cursor-not-allowed disabled:opacity-40"
+                      disabled={index === 0 || isClosed || isSaving}
+                      onClick={() => onMove(group, row.key, -1)}
+                      type="button"
+                    >
+                      Subir
+                    </button>
+                    <button
+                      aria-label={`Bajar ${row.teamName}`}
+                      className="min-w-14 rounded-md border border-zinc-300 px-2 py-1 text-xs font-medium text-zinc-700 disabled:cursor-not-allowed disabled:opacity-40"
+                      disabled={index === rows.length - 1 || isClosed || isSaving}
+                      onClick={() => onMove(group, row.key, 1)}
+                      type="button"
+                    >
+                      Bajar
+                    </button>
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
       <div className="mt-3 flex justify-end">
         <button
-          className="rounded-md bg-zinc-950 px-3 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-400"
+          className="w-full rounded-md bg-zinc-950 px-3 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-400 sm:w-auto"
           disabled={isClosed || isSaving}
           onClick={() => onSave(group)}
           type="button"
@@ -2792,9 +3611,18 @@ function StandingOrderEditor({
   );
 }
 
+function StandingMobileMetric({ label, value }: { label: string; value: number | string }) {
+  return (
+    <div className="rounded-lg bg-zinc-50 px-1.5 py-2">
+      <dt className="font-medium uppercase text-zinc-500">{label}</dt>
+      <dd className="mt-1 font-semibold text-zinc-950">{value}</dd>
+    </div>
+  );
+}
+
 function MetricItem({ label, value }: { label: string; value: number | string }) {
   return (
-    <div className="min-w-20">
+    <div className="min-w-0 rounded-lg bg-white/70 px-2 py-1.5 text-center">
       <dt className="font-medium text-zinc-500">{label}</dt>
       <dd className="mt-1 font-semibold text-zinc-950">{value}</dd>
     </div>
@@ -2809,6 +3637,7 @@ function MatchPredictionForm({
   onDownloadSnapshot,
   onLoadSnapshot,
   onSave,
+  onSaveOutcome,
   onUpdateDraft,
   prediction,
   predictionCloseHoursBefore,
@@ -2827,6 +3656,7 @@ function MatchPredictionForm({
   onDownloadSnapshot: (matchID: string) => void;
   onLoadSnapshot: (matchID: string) => void;
   onSave: (event: FormEvent<HTMLFormElement>, match: Match) => void;
+  onSaveOutcome: (match: Match, outcome: MatchOutcome) => void;
   onUpdateDraft: (matchID: string, side: "home" | "away" | "outcome", value: string) => void;
   prediction?: Prediction;
   predictionCloseHoursBefore?: number;
@@ -2857,75 +3687,89 @@ function MatchPredictionForm({
   const activeUnderdogPoints = activeUnderdogOutcome ? underdogRule?.points ?? 0 : 0;
 
   return (
-    <div className="px-5 py-4">
+    <article className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
       <form
-        className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px_minmax(190px,auto)]"
+        className="grid gap-4"
         onSubmit={(event) => onSave(event, match)}
       >
-        <div>
-          <p className="text-xs font-medium text-zinc-500">Partido {match.match_number}</p>
-          <div className="mt-1 flex flex-wrap items-center gap-2 text-sm font-semibold text-zinc-950">
-            <TeamBadge label={homeName} team={homeTeam} />
-            <span className="text-zinc-400">vs</span>
-            <TeamBadge label={awayName} team={awayTeam} />
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
+          <div>
+            <p className="text-xs font-medium text-zinc-500">Partido {match.match_number}</p>
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-sm font-semibold text-zinc-950">
+              <TeamBadge label={homeName} team={homeTeam} />
+              <span className="text-zinc-400">vs</span>
+              <TeamBadge label={awayName} team={awayTeam} />
+            </div>
+            <p className="mt-1 text-xs text-zinc-500">
+              {formatMatchDate(match.starts_at)} - {match.venue}
+            </p>
           </div>
-          <p className="mt-1 text-xs text-zinc-500">
-            {formatMatchDate(match.starts_at)} - {match.venue}
-          </p>
+
+          <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+            <span
+              className={`rounded-md px-2 py-1 text-xs font-medium ${predictionStatusBadgeClass(
+                statusCode,
+              )}`}
+            >
+              {predictionStatusLabel(statusCode)}
+            </span>
+            {officialResult ? (
+              <span className="rounded-md bg-sky-50 px-2 py-1 text-xs font-medium text-sky-800">
+                Resultado {officialResult.home_score}-{officialResult.away_score}
+              </span>
+            ) : null}
+            {predictionStatus?.scored ? (
+              <span className="rounded-md bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-800">
+                {formatPoints(predictionStatus.points)}
+              </span>
+            ) : null}
+          </div>
         </div>
 
-        {predictionMode === "outcome" ? (
-          <OutcomePredictionControl
-            awayName={awayName}
-            closed={closed}
-            homeName={homeName}
-            matchID={match.id}
-            onUpdateDraft={onUpdateDraft}
-            underdogBonusPoints={activeUnderdogPoints}
-            underdogOutcome={activeUnderdogOutcome}
-            value={draft.outcome}
-          />
-        ) : (
-          <ScorePredictionControl
-            awayLabel={awayTeam?.short_name ?? matchSlotLabel(match, "away")}
-            awayName={awayName}
-            closed={closed}
-            draft={draft}
-            homeLabel={homeTeam?.short_name ?? matchSlotLabel(match, "home")}
-            homeName={homeName}
-            matchID={match.id}
-            onUpdateDraft={onUpdateDraft}
-            showDerivedOutcome={predictionMode === "score_with_outcome"}
-            underdogBonusPoints={activeUnderdogPoints}
-            underdogOutcome={activeUnderdogOutcome}
-          />
-        )}
-
-        <div className="flex flex-wrap items-end gap-2 lg:justify-end">
-          <span
-            className={`rounded-md px-2 py-1 text-xs font-medium ${predictionStatusBadgeClass(
-              statusCode,
-            )}`}
-          >
-            {predictionStatusLabel(statusCode)}
-          </span>
-          {officialResult ? (
-            <span className="rounded-md bg-sky-50 px-2 py-1 text-xs font-medium text-sky-800">
-              Resultado {officialResult.home_score}-{officialResult.away_score}
-            </span>
+        <div className="grid gap-3">
+          {predictionMode === "outcome" ? (
+            <OutcomePredictionControl
+              awayName={awayName}
+              awayLabel={awayTeam?.short_name ?? matchSlotLabel(match, "away")}
+              awayTeam={awayTeam}
+              closed={closed}
+              homeLabel={homeTeam?.short_name ?? matchSlotLabel(match, "home")}
+              homeName={homeName}
+              homeTeam={homeTeam}
+              matchID={match.id}
+              onSaveOutcome={(outcome) => onSaveOutcome(match, outcome)}
+              onUpdateDraft={onUpdateDraft}
+              saving={savingMatchID === match.id}
+              underdogBonusPoints={activeUnderdogPoints}
+              underdogOutcome={activeUnderdogOutcome}
+              value={draft.outcome}
+            />
+          ) : (
+            <ScorePredictionControl
+              awayLabel={awayTeam?.short_name ?? matchSlotLabel(match, "away")}
+              awayName={awayName}
+              awayTeam={awayTeam}
+              closed={closed}
+              draft={draft}
+              homeLabel={homeTeam?.short_name ?? matchSlotLabel(match, "home")}
+              homeName={homeName}
+              homeTeam={homeTeam}
+              matchID={match.id}
+              onUpdateDraft={onUpdateDraft}
+              showDerivedOutcome={predictionMode === "score_with_outcome"}
+              underdogBonusPoints={activeUnderdogPoints}
+              underdogOutcome={activeUnderdogOutcome}
+            />
+          )}
+          {predictionMode !== "outcome" ? (
+            <button
+              className="h-11 w-full rounded-md bg-zinc-950 px-4 text-sm font-semibold text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-400"
+              disabled={closed || savingMatchID === match.id}
+              type="submit"
+            >
+              {savingMatchID === match.id ? "Guardando" : "Guardar"}
+            </button>
           ) : null}
-          {predictionStatus?.scored ? (
-            <span className="rounded-md bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-800">
-              {formatPoints(predictionStatus.points)}
-            </span>
-          ) : null}
-          <button
-            className="h-10 rounded-md bg-zinc-950 px-3 text-sm font-semibold text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-400"
-            disabled={closed || savingMatchID === match.id}
-            type="submit"
-          >
-            {savingMatchID === match.id ? "Guardando" : "Guardar"}
-          </button>
         </div>
       </form>
 
@@ -2939,17 +3783,19 @@ function MatchPredictionForm({
           snapshot={snapshot}
         />
       ) : null}
-    </div>
+    </article>
   );
 }
 
 function ScorePredictionControl({
   awayLabel,
   awayName,
+  awayTeam,
   closed,
   draft,
   homeLabel,
   homeName,
+  homeTeam,
   matchID,
   onUpdateDraft,
   showDerivedOutcome,
@@ -2958,10 +3804,12 @@ function ScorePredictionControl({
 }: {
   awayLabel: string;
   awayName: string;
+  awayTeam: Match["away_team"];
   closed: boolean;
   draft: ScoreDrafts[string];
   homeLabel: string;
   homeName: string;
+  homeTeam: Match["home_team"];
   matchID: string;
   onUpdateDraft: (matchID: string, side: "home" | "away" | "outcome", value: string) => void;
   showDerivedOutcome: boolean;
@@ -2971,14 +3819,24 @@ function ScorePredictionControl({
   const derivedOutcome = outcomeFromDraftScore(draft);
 
   return (
-    <div>
-      <div className="grid grid-cols-2 gap-2">
+    <div className="grid min-w-0 justify-items-center">
+      <div className="inline-grid max-w-full grid-cols-[auto_3rem_3rem_auto] items-end gap-2 sm:grid-cols-[auto_4rem_4rem_auto] sm:gap-3">
+        <div className="min-w-0 self-center justify-self-end">
+          <span className="sm:hidden">
+            <TeamBadge label={homeLabel} size="md" team={homeTeam} />
+          </span>
+          <span className="hidden sm:inline-flex">
+            <TeamBadge label={homeLabel} size="lg" team={homeTeam} />
+          </span>
+        </div>
         <label className="grid gap-1 text-xs font-medium text-zinc-600">
-          <span>{homeLabel}</span>
+          <span className="sr-only">{homeLabel}</span>
           <input
             aria-label={`Marcador ${homeName}`}
-            className="h-10 rounded-md border border-zinc-300 px-3 text-base font-semibold text-zinc-950 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100 disabled:bg-zinc-100"
+            className="h-10 w-11 rounded-md border border-zinc-300 px-1 text-center text-base font-semibold text-zinc-950 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100 disabled:bg-zinc-100 sm:h-11 sm:w-16 sm:px-2"
             disabled={closed}
+            inputMode="numeric"
+            max={999}
             min={0}
             onChange={(event) => onUpdateDraft(matchID, "home", event.target.value)}
             step={1}
@@ -2987,11 +3845,13 @@ function ScorePredictionControl({
           />
         </label>
         <label className="grid gap-1 text-xs font-medium text-zinc-600">
-          <span>{awayLabel}</span>
+          <span className="sr-only">{awayLabel}</span>
           <input
             aria-label={`Marcador ${awayName}`}
-            className="h-10 rounded-md border border-zinc-300 px-3 text-base font-semibold text-zinc-950 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100 disabled:bg-zinc-100"
+            className="h-10 w-11 rounded-md border border-zinc-300 px-1 text-center text-base font-semibold text-zinc-950 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100 disabled:bg-zinc-100 sm:h-11 sm:w-16 sm:px-2"
             disabled={closed}
+            inputMode="numeric"
+            max={999}
             min={0}
             onChange={(event) => onUpdateDraft(matchID, "away", event.target.value)}
             step={1}
@@ -2999,6 +3859,14 @@ function ScorePredictionControl({
             value={draft.away}
           />
         </label>
+        <div className="min-w-0 self-center">
+          <span className="sm:hidden">
+            <TeamBadge label={awayLabel} size="md" team={awayTeam} />
+          </span>
+          <span className="hidden sm:inline-flex">
+            <TeamBadge label={awayLabel} size="lg" team={awayTeam} />
+          </span>
+        </div>
       </div>
       {showDerivedOutcome && derivedOutcome ? (
         <p className="mt-2 text-xs font-medium text-zinc-500">
@@ -3006,9 +3874,17 @@ function ScorePredictionControl({
         </p>
       ) : null}
       {underdogOutcome ? (
-        <p className="mt-2 inline-flex w-fit items-center gap-1 rounded-md bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-800">
+        <p className="mt-2 inline-flex max-w-full flex-wrap items-center gap-1 rounded-md bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-800">
           <span aria-hidden="true">★</span>
-          Sorpresa: {matchOutcomeLabel(underdogOutcome)} +{underdogBonusPoints} pts
+          <span>Sorpresa:</span>
+          {underdogOutcome === "home" ? (
+            <TeamBadge label={homeLabel} team={homeTeam} />
+          ) : underdogOutcome === "away" ? (
+            <TeamBadge label={awayLabel} team={awayTeam} />
+          ) : (
+            <span>{matchOutcomeLabel(underdogOutcome)}</span>
+          )}
+          <span className="ml-2">+{underdogBonusPoints} pts</span>
         </p>
       ) : null}
     </div>
@@ -3016,61 +3892,104 @@ function ScorePredictionControl({
 }
 
 function OutcomePredictionControl({
+  awayLabel,
   awayName,
+  awayTeam,
   closed,
+  homeLabel,
   homeName,
+  homeTeam,
   matchID,
+  onSaveOutcome,
   onUpdateDraft,
+  saving,
   underdogBonusPoints,
   underdogOutcome,
   value,
 }: {
+  awayLabel: string;
   awayName: string;
+  awayTeam: Match["away_team"];
   closed: boolean;
+  homeLabel: string;
   homeName: string;
+  homeTeam: Match["home_team"];
   matchID: string;
+  onSaveOutcome: (outcome: MatchOutcome) => void;
   onUpdateDraft: (matchID: string, side: "home" | "away" | "outcome", value: string) => void;
+  saving: boolean;
   underdogBonusPoints: number;
   underdogOutcome: MatchOutcome | "";
   value: MatchOutcome | "";
 }) {
-  const options: Array<{ value: MatchOutcome; label: string }> = [
-    { value: "home", label: "Local" },
-    { value: "draw", label: "Empate" },
-    { value: "away", label: "Visitante" },
+  const options: Array<{ value: MatchOutcome; label: string; shortLabel: string }> = [
+    { value: "home", label: "Local", shortLabel: "1" },
+    { value: "draw", label: "Empate", shortLabel: "E" },
+    { value: "away", label: "Visitante", shortLabel: "2" },
   ];
 
   return (
-    <fieldset className="grid gap-2">
+    <fieldset className="grid justify-items-center gap-3">
       <legend className="sr-only">
         Resultado {homeName} contra {awayName}
       </legend>
-      <div className="grid grid-cols-3 gap-2">
+      <div className="inline-grid max-w-full grid-cols-[auto_3.25rem_3.25rem_3.25rem_auto] items-center gap-2 sm:grid-cols-[auto_4rem_4rem_4rem_auto] sm:gap-3">
+        <div className="justify-self-end">
+          <TeamBadge label={homeLabel} size="md" team={homeTeam} />
+        </div>
         {options.map((option) => {
           const selected = value === option.value;
           const isUnderdog = underdogOutcome === option.value;
           return (
             <button
               aria-pressed={selected}
-              className={`h-10 rounded-md border px-2 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-60 ${
+              aria-label={`${option.label}: guardar ${homeName} contra ${awayName}`}
+              className={`relative grid h-12 w-full place-items-center rounded-md border text-sm font-bold disabled:cursor-not-allowed disabled:opacity-60 sm:h-14 ${
                 selected
                   ? "border-emerald-700 bg-emerald-700 text-white"
                   : "border-zinc-300 bg-white text-zinc-700 hover:border-zinc-400"
               }`}
-              disabled={closed}
+              disabled={closed || saving}
               key={option.value}
-              onClick={() => onUpdateDraft(matchID, "outcome", option.value)}
+              onClick={() => {
+                onUpdateDraft(matchID, "outcome", option.value);
+                onSaveOutcome(option.value);
+              }}
               title={isUnderdog ? `Bonus sorpresa +${underdogBonusPoints} puntos` : undefined}
               type="button"
             >
-              <span className="inline-flex items-center justify-center gap-1">
-                {option.label}
-                {isUnderdog ? <span aria-hidden="true">★</span> : null}
-              </span>
+              {isUnderdog ? (
+                <span
+                  aria-hidden="true"
+                  className={`pointer-events-none absolute inset-0 grid place-items-center text-[2rem] leading-none [-webkit-text-stroke:0.035em_currentColor] sm:text-[2.25rem] ${
+                    selected ? "text-white/55" : "text-slate-950/42"
+                  }`}
+                >
+                  ★
+                </span>
+              ) : null}
+              <span className="relative z-10">{option.shortLabel}</span>
             </button>
           );
         })}
+        <div>
+          <TeamBadge label={awayLabel} size="md" team={awayTeam} />
+        </div>
       </div>
+      {underdogOutcome ? (
+        <p className="inline-flex max-w-full flex-wrap items-center justify-center gap-1 rounded-md bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-800">
+          <span aria-hidden="true">★</span>
+          <span>Sorpresa:</span>
+          {underdogOutcome === "home" ? (
+            <TeamBadge label={homeLabel} team={homeTeam} />
+          ) : underdogOutcome === "away" ? (
+            <TeamBadge label={awayLabel} team={awayTeam} />
+          ) : (
+            <span>{matchOutcomeLabel(underdogOutcome)}</span>
+          )}
+          <span className="ml-2">+{underdogBonusPoints} pts</span>
+        </p>
+      ) : null}
     </fieldset>
   );
 }
@@ -3726,6 +4645,7 @@ function ensureStandingRow(
 
   const row = {
     key,
+    team,
     teamName: matchTeamName(team, slot),
     teamShortName: matchTeamShortName(team, slot),
     played: 0,
@@ -4254,7 +5174,11 @@ function rankingSearchLabel(entry: RankingEntry) {
 }
 
 function normalizeSearchText(value: string) {
-  return value.trim().toLowerCase();
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
 }
 
 function buildRankingManualTiebreakerSummary(
@@ -4315,7 +5239,7 @@ function ThemeLogo({ theme }: { theme: NormalizedTheme }) {
       // eslint-disable-next-line @next/next/no-img-element
       <img
         alt=""
-        className="h-16 w-16 rounded-md border border-zinc-200 bg-white object-contain p-2"
+        className="h-16 w-16 rounded-md object-contain"
         src={theme.logoURL}
       />
     );
@@ -4494,6 +5418,10 @@ function teamOptionLabel(value: string, teamOptions: TournamentTeamOption[]) {
     (option) => option.id === normalizedValue || option.name === normalizedValue,
   );
   return team?.name ?? normalizedValue;
+}
+
+function teamOptionValue(team: TournamentTeamOption) {
+  return team.id || team.name;
 }
 
 function pointEventTitle(detail: PointEventDetail) {

@@ -82,6 +82,7 @@ export type Team = {
   name: string;
   short_name: string;
   country_code: string;
+  aliases?: string[];
   logo_url?: string;
   primary_color?: string;
   secondary_color?: string;
