@@ -41,10 +41,10 @@ describe("Admin auth form", () => {
     fireEvent.change(screen.getByLabelText("Usuario o correo"), {
       target: { value: "admin@example.com" },
     });
-    fireEvent.change(screen.getByLabelText("Contrasena"), {
+    fireEvent.change(screen.getByLabelText("Contraseña"), {
       target: { value: "supersecret" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Iniciar sesion" }));
+    fireEvent.click(screen.getByRole("button", { name: "Iniciar sesión" }));
 
     expect(screen.getByRole("button", { name: "Enviando" })).toBeDisabled();
     await waitFor(() => {
@@ -80,14 +80,14 @@ describe("Admin auth form", () => {
     fireEvent.change(screen.getByLabelText("Usuario o correo"), {
       target: { value: "superadmin" },
     });
-    fireEvent.change(screen.getByLabelText("Contrasena"), {
+    fireEvent.change(screen.getByLabelText("Contraseña"), {
       target: { value: "wrongpass" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Iniciar sesion" }));
+    fireEvent.click(screen.getByRole("button", { name: "Iniciar sesión" }));
 
     await waitFor(() => {
       expect(screen.getByRole("alert")).toHaveTextContent(
-        "Credenciales invalidas",
+        "Credenciales inválidas",
       );
     });
 
@@ -99,10 +99,10 @@ describe("Admin auth form", () => {
     vi.stubGlobal("fetch", fetcher);
     render(<AdminLoginPage />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Iniciar sesion" }));
+    fireEvent.click(screen.getByRole("button", { name: "Iniciar sesión" }));
 
     expect(screen.getByLabelText("Usuario o correo")).toHaveAttribute("aria-invalid", "true");
-    expect(screen.getByLabelText("Contrasena")).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByLabelText("Contraseña")).toHaveAttribute("aria-invalid", "true");
     expect(screen.getAllByText("Completa este campo.")).toHaveLength(2);
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(fetcher).not.toHaveBeenCalled();
@@ -124,7 +124,7 @@ describe("Admin auth form", () => {
     fireEvent.change(screen.getByLabelText("Correo"), {
       target: { value: "admin@example.com" },
     });
-    fireEvent.change(screen.getByLabelText("Contrasena"), {
+    fireEvent.change(screen.getByLabelText("Contraseña"), {
       target: { value: "supersecret" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Crear cuenta" }));
@@ -151,7 +151,7 @@ describe("Admin auth form", () => {
         },
       },
     );
-    expect(screen.getByRole("link", { name: "Iniciar sesion" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Iniciar sesión" })).toHaveAttribute(
       "href",
       "/login",
     );

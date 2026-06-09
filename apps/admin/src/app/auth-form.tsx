@@ -25,7 +25,7 @@ export function AuthForm({
 }: AuthFormProps) {
   const router = useRouter();
   const isRegister = mode === "register";
-  const title = isRegister ? "Crear cuenta" : "Iniciar sesion";
+  const title = isRegister ? "Crear cuenta" : "Iniciar sesión";
   const [status, setStatus] = useState<SubmitStatus>("idle");
   const [message, setMessage] = useState("");
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
@@ -139,17 +139,17 @@ export function AuthForm({
             )}
 
             <Field
-              label="Contrasena"
+              label="Contraseña"
               name="password"
               type="password"
               autoComplete={isRegister ? "new-password" : "current-password"}
               error={fieldErrors.password}
               onChange={() => clearFieldError("password")}
-              placeholder="Contrasena"
+              placeholder="Contraseña"
               action={
                 !isRegister ? (
                   <Link className="text-xs text-[#10B981] hover:underline" href="/forgot-password">
-                    Olvide mi contrasena
+                    Olvidé mi contraseña
                   </Link>
                 ) : null
               }
@@ -192,12 +192,12 @@ export function AuthForm({
 
 function authErrorMessage(error: unknown, isRegister: boolean) {
   if (error instanceof PollavarAPIError && error.code === "invalid_credentials") {
-    return "Credenciales invalidas";
+    return "Credenciales inválidas";
   }
 
   return isRegister
     ? "No pudimos crear la cuenta en este momento. Revisa los datos e intenta nuevamente."
-    : "No pudimos iniciar sesion en este momento. Intenta nuevamente en unos segundos.";
+    : "No pudimos iniciar sesión en este momento. Intenta nuevamente en unos segundos.";
 }
 
 function AuthErrorBanner({ message }: { message: string }) {

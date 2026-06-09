@@ -6,7 +6,7 @@ export default function AdminRegisterPage() {
       appName="PollaVAR Admin"
       mode="register"
       alternateHref="/login"
-      alternateLabel="Iniciar sesion"
+      alternateLabel="Iniciar sesión"
     />
   );
 }

@@ -32,10 +32,10 @@ describe("Participants auth form", () => {
     fireEvent.change(screen.getByLabelText("Usuario o correo"), {
       target: { value: "participante@example.com" },
     });
-    fireEvent.change(screen.getByLabelText("Contrasena"), {
+    fireEvent.change(screen.getByLabelText("Contraseña"), {
       target: { value: "supersecret" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Iniciar sesion" }));
+    fireEvent.click(screen.getByRole("button", { name: "Iniciar sesión" }));
 
     expect(screen.getByRole("button", { name: "Enviando" })).toBeDisabled();
     await waitFor(() => {
@@ -83,7 +83,7 @@ describe("Participants auth form", () => {
     fireEvent.change(screen.getByLabelText("Correo"), {
       target: { value: "participante@example.com" },
     });
-    fireEvent.change(screen.getByLabelText("Contrasena"), {
+    fireEvent.change(screen.getByLabelText("Contraseña"), {
       target: { value: "supersecret" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Crear cuenta" }));
@@ -110,7 +110,7 @@ describe("Participants auth form", () => {
         },
       },
     );
-    expect(screen.getByRole("link", { name: "Iniciar sesion" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Iniciar sesión" })).toHaveAttribute(
       "href",
       "/login",
     );

@@ -39,7 +39,7 @@ export default function ParticipantsProfilePage() {
         clearStoredSession();
         setSession(null);
         setUser(null);
-        setStatus("Tu sesion ya no es valida. Inicia sesion nuevamente.");
+        setStatus("Tu sesion ya no es valida. Inicia sesión nuevamente.");
         redirectToLogin();
       });
   }, [session]);
@@ -82,7 +82,7 @@ export default function ParticipantsProfilePage() {
   async function changePassword(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!session) {
-      setMessage("Inicia sesion para cambiar tu contrasena.");
+      setMessage("Inicia sesión para cambiar tu contraseña.");
       return;
     }
 
@@ -91,7 +91,7 @@ export default function ParticipantsProfilePage() {
     const newPassword = String(formData.get("newPassword"));
     const confirmPassword = String(formData.get("confirmPassword"));
     if (newPassword !== confirmPassword) {
-      setMessage("La nueva contrasena y la confirmacion no coinciden.");
+      setMessage("La nueva contraseña y la confirmación no coinciden.");
       return;
     }
 
@@ -106,7 +106,7 @@ export default function ParticipantsProfilePage() {
       clearStoredSession();
       setSession(null);
       setUser(null);
-      setStatus("Contrasena actualizada. Inicia sesion nuevamente.");
+      setStatus("Contraseña actualizada. Inicia sesión nuevamente.");
       setMessage("");
       redirectToLogin();
     } catch (error) {
@@ -119,7 +119,7 @@ export default function ParticipantsProfilePage() {
   async function updateProfile(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!session) {
-      setProfileMessage("Inicia sesion para editar tu perfil.");
+      setProfileMessage("Inicia sesión para editar tu perfil.");
       return;
     }
     const formData = new FormData(event.currentTarget);
@@ -197,7 +197,7 @@ export default function ParticipantsProfilePage() {
 
         {!session && !status ? (
           <p className="rounded-xl bg-white px-4 py-3 text-sm text-slate-700 ring-1 ring-slate-950/10">
-            Inicia sesion para ver tu perfil.
+            Inicia sesión para ver tu perfil.
           </p>
         ) : null}
 
@@ -213,12 +213,12 @@ export default function ParticipantsProfilePage() {
               <ProfileMetric label="Nombre" value={user.name} />
               <ProfileMetric label="Usuario" value={`@${user.username}`} />
               <ProfileMetric label="Correo" value={user.email} />
-              <ProfileMetric label="Sesion expira" value={formatDateTime(session.expiresAt)} />
+              <ProfileMetric label="Sesión expira" value={formatDateTime(session.expiresAt)} />
             </section>
 
             <section className="overflow-hidden rounded-xl bg-white text-sm shadow-[0_10px_40px_rgba(15,23,42,0.08),0_1px_3px_rgba(15,23,42,0.04)] ring-1 ring-slate-950/10">
               <div className="border-b border-slate-200 px-4 py-4">
-                <h2 className="text-base font-semibold text-[#0f172a]">Datos basicos</h2>
+                <h2 className="text-base font-semibold text-[#0f172a]">Datos básicos</h2>
               </div>
               <form className="grid gap-4 px-4 py-4" onSubmit={updateProfile}>
                 <TextField defaultValue={user.name} label="Nombre" name="name" placeholder="Nombre completo" />
@@ -243,19 +243,19 @@ export default function ParticipantsProfilePage() {
 
             <section className="overflow-hidden rounded-xl bg-white text-sm shadow-[0_10px_40px_rgba(15,23,42,0.08),0_1px_3px_rgba(15,23,42,0.04)] ring-1 ring-slate-950/10">
               <div className="border-b border-slate-200 px-4 py-4">
-                <h2 className="text-base font-semibold text-[#0f172a]">Cambiar contrasena</h2>
+                <h2 className="text-base font-semibold text-[#0f172a]">Cambiar contraseña</h2>
               </div>
               <form className="grid gap-4 px-4 py-4" onSubmit={changePassword}>
-                <PasswordField label="Contrasena actual" name="currentPassword" placeholder="Contrasena actual" />
-                <PasswordField label="Nueva contrasena" name="newPassword" placeholder="Minimo 8 caracteres" />
-                <PasswordField label="Confirmar nueva contrasena" name="confirmPassword" placeholder="Repite la nueva contrasena" />
+                <PasswordField label="Contraseña actual" name="currentPassword" placeholder="Contraseña actual" />
+                <PasswordField label="Nueva contraseña" name="newPassword" placeholder="Mínimo 8 caracteres" />
+                <PasswordField label="Confirmar nueva contraseña" name="confirmPassword" placeholder="Repite la nueva contraseña" />
                 <div className="-mx-4 -mb-4 mt-1 flex justify-end border-t border-slate-200 bg-slate-50 px-4 py-3">
                   <button
                     className="min-h-10 rounded-md bg-[#10B981] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#059669] disabled:opacity-50"
                     disabled={saving}
                     type="submit"
                   >
-                    {saving ? "Guardando" : "Guardar contrasena"}
+                    {saving ? "Guardando" : "Guardar contraseña"}
                   </button>
                 </div>
               </form>
@@ -349,12 +349,12 @@ function formatDateTime(value: string) {
 
 function passwordErrorMessage(error: unknown) {
   if (error instanceof PollavarAPIError && error.status === 401) {
-    return "La contrasena actual no es correcta o la sesion expiro.";
+    return "La contraseña actual no es correcta o la sesion expiro.";
   }
   if (error instanceof PollavarAPIError && error.status === 400) {
-    return "La nueva contrasena debe tener entre 8 y 128 caracteres y ser diferente a la actual.";
+    return "La nueva contraseña debe tener entre 8 y 128 caracteres y ser diferente a la actual.";
   }
-  return "No pudimos cambiar la contrasena.";
+  return "No pudimos cambiar la contraseña.";
 }
 
 function profileErrorMessage(error: unknown) {
@@ -365,7 +365,7 @@ function profileErrorMessage(error: unknown) {
     return "Revisa nombre, usuario y correo.";
   }
   if (error instanceof PollavarAPIError && error.status === 401) {
-    return "Tu sesion expiro. Inicia sesion nuevamente.";
+    return "Tu sesion expiro. Inicia sesión nuevamente.";
   }
   return "No pudimos actualizar el perfil.";
 }

@@ -20,7 +20,7 @@ export default function ParticipantsResetPasswordPage() {
     const newPassword = String(formData.get("newPassword"));
     const confirmPassword = String(formData.get("confirmPassword"));
     if (newPassword !== confirmPassword) {
-      setMessage("La nueva contrasena y la confirmacion no coinciden.");
+      setMessage("La nueva contraseña y la confirmación no coinciden.");
       return;
     }
     setSaving(true);
@@ -30,7 +30,7 @@ export default function ParticipantsResetPasswordPage() {
         token,
         new_password: newPassword,
       });
-      setMessage("Contrasena actualizada. Ya puedes iniciar sesion.");
+      setMessage("Contraseña actualizada. Ya puedes iniciar sesión.");
       event.currentTarget.reset();
     } catch (error) {
       setMessage(resetPasswordMessage(error));
@@ -43,22 +43,22 @@ export default function ParticipantsResetPasswordPage() {
     <main className="min-h-screen bg-[#f8faf9] px-5 py-8 text-[#191b1f]">
       <section className="mx-auto grid min-h-[calc(100vh-4rem)] max-w-3xl items-center">
         <form
-          aria-label="Restablecer contrasena PollaVAR Participantes"
+          aria-label="Restablecer contraseña PollaVAR Participantes"
           className="rounded-lg border border-zinc-200 bg-white p-6 shadow-sm"
           onSubmit={resetPassword}
         >
           <p className="text-sm font-medium text-emerald-700">PollaVAR Participantes</p>
           <h1 className="mt-2 text-3xl font-semibold tracking-normal text-zinc-950">
-            Restablecer contrasena
+            Restablecer contraseña
           </h1>
           {!token ? (
             <p className="mt-4 rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-700" role="alert">
-              El enlace de recuperacion no contiene token.
+              El enlace de recuperación no contiene token.
             </p>
           ) : null}
           <div className="mt-6 grid gap-4">
-            <PasswordField label="Nueva contrasena" name="newPassword" />
-            <PasswordField label="Confirmar nueva contrasena" name="confirmPassword" />
+            <PasswordField label="Nueva contraseña" name="newPassword" />
+            <PasswordField label="Confirmar nueva contraseña" name="confirmPassword" />
           </div>
           <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <button
@@ -66,7 +66,7 @@ export default function ParticipantsResetPasswordPage() {
               disabled={saving || !token}
               type="submit"
             >
-              {saving ? "Guardando" : "Guardar contrasena"}
+              {saving ? "Guardando" : "Guardar contraseña"}
             </button>
             <Link className="text-sm font-medium text-emerald-700 hover:text-emerald-800" href="/login">
               Volver al login
@@ -102,10 +102,10 @@ function PasswordField({ label, name }: { label: string; name: string }) {
 
 function resetPasswordMessage(error: unknown) {
   if (error instanceof PollavarAPIError && error.status === 400) {
-    return "La nueva contrasena debe tener entre 8 y 128 caracteres.";
+    return "La nueva contraseña debe tener entre 8 y 128 caracteres.";
   }
   if (error instanceof PollavarAPIError && error.status === 401) {
     return "El enlace expiro o ya fue utilizado.";
   }
-  return "No pudimos actualizar la contrasena.";
+  return "No pudimos actualizar la contraseña.";
 }

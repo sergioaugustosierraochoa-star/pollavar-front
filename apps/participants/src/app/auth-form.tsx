@@ -25,7 +25,7 @@ export function AuthForm({
 }: AuthFormProps) {
   const router = useRouter();
   const isRegister = mode === "register";
-  const title = isRegister ? "Crear cuenta" : "Iniciar sesion";
+  const title = isRegister ? "Crear cuenta" : "Iniciar sesión";
   const [status, setStatus] = useState<SubmitStatus>("idle");
   const [message, setMessage] = useState("");
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
@@ -64,7 +64,7 @@ export function AuthForm({
       router.replace("/");
     } catch {
       setStatus("error");
-      setMessage("Credenciales invalidas");
+      setMessage("Credenciales inválidas");
     }
   }
 
@@ -92,7 +92,7 @@ export function AuthForm({
           <div className="mb-7">
             <h2 className="text-xl font-semibold tracking-normal text-[#0f172a]">{title}</h2>
             <p className="mt-1 text-sm text-slate-500">
-              Accede para completar pronosticos y seguir el ranking.
+              Accede para completar pronósticos y seguir el ranking.
             </p>
           </div>
 
@@ -110,17 +110,17 @@ export function AuthForm({
             )}
 
             <Field
-              label="Contrasena"
+              label="Contraseña"
               name="password"
               type="password"
               autoComplete={isRegister ? "new-password" : "current-password"}
               error={fieldErrors.password}
               onChange={() => clearFieldError("password")}
-              placeholder="Contrasena"
+              placeholder="Contraseña"
               action={
                 !isRegister ? (
                   <Link className="text-xs text-[#10B981] hover:underline" href="/forgot-password">
-                    Olvide mi contrasena
+                    Olvidé mi contraseña
                   </Link>
                 ) : null
               }

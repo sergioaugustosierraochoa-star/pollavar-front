@@ -17,7 +17,7 @@ export default function ParticipantsForgotPasswordPage() {
       await createPollavarClient().requestPasswordReset({
         identifier: String(formData.get("identifier")),
       });
-      setMessage("Si la cuenta existe, generamos un enlace temporal de recuperacion.");
+      setMessage("Si la cuenta existe, generamos un enlace temporal de recuperación.");
       event.currentTarget.reset();
     } catch (error) {
       setMessage(requestResetMessage(error));
@@ -30,13 +30,13 @@ export default function ParticipantsForgotPasswordPage() {
     <main className="min-h-screen bg-[#f8faf9] px-5 py-8 text-[#191b1f]">
       <section className="mx-auto grid min-h-[calc(100vh-4rem)] max-w-3xl items-center">
         <form
-          aria-label="Recuperar contrasena PollaVAR Participantes"
+          aria-label="Recuperar contraseña PollaVAR Participantes"
           className="rounded-lg border border-zinc-200 bg-white p-6 shadow-sm"
           onSubmit={requestReset}
         >
           <p className="text-sm font-medium text-emerald-700">PollaVAR Participantes</p>
           <h1 className="mt-2 text-3xl font-semibold tracking-normal text-zinc-950">
-            Recuperar contrasena
+            Recuperar contraseña
           </h1>
           <label className="mt-6 grid gap-2 text-sm font-medium text-zinc-700">
             <span>Usuario o correo</span>
@@ -72,7 +72,7 @@ export default function ParticipantsForgotPasswordPage() {
 
 function requestResetMessage(error: unknown) {
   if (error instanceof PollavarAPIError && error.status === 400) {
-    return "Ingresa un usuario o correo valido.";
+    return "Ingresa un usuario o correo válido.";
   }
-  return "No pudimos generar el enlace de recuperacion.";
+  return "No pudimos generar el enlace de recuperación.";
 }

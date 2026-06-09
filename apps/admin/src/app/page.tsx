@@ -290,7 +290,7 @@ const globalPredictionValueTypeOptions: Array<{
   { value: "team", label: "Equipo" },
   { value: "player", label: "Jugador" },
   { value: "text", label: "Texto" },
-  { value: "number", label: "Numero" },
+  { value: "number", label: "Número" },
   { value: "number_range", label: "Rango numerico" },
   { value: "boolean", label: "Si / No" },
 ];
@@ -300,7 +300,7 @@ const rankingTiebreakerLabels: Record<RankingTiebreakerCode, string> = {
   match_result: "Resultados correctos",
   group_position_exact: "Posiciones exactas",
   underdog_bonus: "Bonus sorpresa",
-  global_points: "Predicciones globales",
+  global_points: "Predicciónes globales",
   total_event_count: "Total de aciertos",
 };
 
@@ -322,7 +322,7 @@ type AdminSectionItem = {
   id: AdminSectionID;
   label: string;
   description: string;
-  group: "Base" | "Configuracion" | "Operacion" | "Reportes";
+  group: "Base" | "Configuración" | "Operación" | "Reportes";
   badge?: string;
 };
 
@@ -1284,7 +1284,7 @@ export default function AdminHome() {
       ...current,
       [code]: globalDefinitionDraft(nextDefinition),
     }));
-    setMessage("Prediccion custom agregada. Completa el nombre y guarda la configuracion.");
+    setMessage("Predicción custom agregada. Completa el nombre y guarda la configuracion.");
   }
 
   function updateGlobalResultDraft(
@@ -1309,7 +1309,7 @@ export default function AdminHome() {
 
     const definitions = parseGlobalDefinitionDrafts(globalDefinitionDrafts);
     if (!definitions) {
-      setMessage("Revisa la configuracion de predicciones globales.");
+      setMessage("Revisa la configuracion de predicciónes globales.");
       return;
     }
 
@@ -1322,23 +1322,23 @@ export default function AdminHome() {
         definitions,
       });
       await refreshGlobalPredictionState(session.token, pool.id);
-      setMessage("Predicciones globales actualizadas.");
+      setMessage("Predicciónes globales actualizadas.");
     } catch (error) {
       if (isUnauthorized(error)) {
         signOutAdmin();
         return;
       }
       if (isForbidden(error)) {
-        setMessage("No tienes permisos para configurar predicciones globales.");
+        setMessage("No tienes permisos para configurar predicciónes globales.");
         return;
       }
       if (error instanceof PollavarAPIError && error.code === "prediction_settings_locked") {
         setMessage(
-          "No puedes cambiar el tipo de una prediccion global que ya tiene pronosticos o resultado.",
+          "No puedes cambiar el tipo de una predicción global que ya tiene pronósticos o resultado.",
         );
         return;
       }
-      setMessage("No pudimos actualizar las predicciones globales.");
+      setMessage("No pudimos actualizar las predicciónes globales.");
     } finally {
       setSavingGlobalDefinitions(false);
     }
@@ -1349,7 +1349,7 @@ export default function AdminHome() {
       return;
     }
     if (!isGlobalDefinitionClosed(definition)) {
-      setMessage("La prediccion global todavia no cerro.");
+      setMessage("La predicción global todavía no cerró.");
       return;
     }
 
@@ -1386,7 +1386,7 @@ export default function AdminHome() {
         return;
       }
       if (error instanceof PollavarAPIError && error.code === "prediction_open") {
-        setMessage("La prediccion global todavia no cerro.");
+        setMessage("La predicción global todavía no cerró.");
         return;
       }
       setMessage("No pudimos actualizar el resultado global.");
@@ -1545,7 +1545,7 @@ export default function AdminHome() {
         return;
       }
       if (error instanceof PollavarAPIError && error.code === "prediction_open") {
-        setMessage("El partido todavia no cerro para pronosticos.");
+        setMessage("El partido todavía no cerró para pronósticos.");
         return;
       }
       setMessage("No pudimos actualizar el resultado oficial.");
@@ -1577,7 +1577,7 @@ export default function AdminHome() {
         ...current,
         [match.id]: snapshot,
       }));
-      setMessage("Snapshot de pronosticos generado.");
+      setMessage("Snapshot de pronósticos generado.");
     } catch (error) {
       if (isUnauthorized(error)) {
         signOutAdmin();
@@ -1588,10 +1588,10 @@ export default function AdminHome() {
         return;
       }
       if (error instanceof PollavarAPIError && error.code === "prediction_open") {
-        setMessage("El partido todavia no cerro para pronosticos.");
+        setMessage("El partido todavía no cerró para pronósticos.");
         return;
       }
-      setMessage("No pudimos generar el snapshot de pronosticos.");
+      setMessage("No pudimos generar el snapshot de pronósticos.");
     } finally {
       setGeneratingSnapshotMatchID("");
     }
@@ -1621,10 +1621,10 @@ export default function AdminHome() {
         return;
       }
       if (isForbidden(error)) {
-        setMessage("No tienes permisos para ver la auditoria de resultados.");
+        setMessage("No tienes permisos para ver la auditoría de resultados.");
         return;
       }
-      setMessage("No pudimos cargar la auditoria del resultado.");
+      setMessage("No pudimos cargar la auditoría del resultado.");
     } finally {
       setLoadingAuditMatchID("");
     }
@@ -1745,10 +1745,10 @@ export default function AdminHome() {
         return;
       }
       if (isForbidden(error)) {
-        setMessage("No tienes permisos para ver la auditoria de posiciones.");
+        setMessage("No tienes permisos para ver la auditoría de posiciones.");
         return;
       }
-      setMessage("No pudimos cargar la auditoria de posiciones.");
+      setMessage("No pudimos cargar la auditoría de posiciones.");
     } finally {
       setLoadingOfficialStandingAuditScope("");
     }
@@ -1819,7 +1819,7 @@ export default function AdminHome() {
         return;
       }
       if (isForbidden(error)) {
-        setMessage("No tienes permisos para refrescar predicciones globales.");
+        setMessage("No tienes permisos para refrescar predicciónes globales.");
       }
     }
   }
@@ -1997,13 +1997,13 @@ export default function AdminHome() {
     try {
       const csv = await createPollavarClient().downloadPredictionsReportCSV(session.token, pool.id);
       downloadTextFile(csv, `predictions-${fileNamePart(pool.id)}.csv`, "text/csv;charset=utf-8");
-      setMessage("Reporte de predicciones descargado.");
+      setMessage("Reporte de predicciónes descargado.");
     } catch (error) {
       if (isUnauthorized(error)) {
         signOutAdmin();
         return;
       }
-      setMessage(isForbidden(error) ? "No tienes permisos para exportar reportes." : "No pudimos exportar predicciones.");
+      setMessage(isForbidden(error) ? "No tienes permisos para exportar reportes." : "No pudimos exportar predicciónes.");
     } finally {
       setReportsBusy(false);
     }
@@ -2053,7 +2053,7 @@ export default function AdminHome() {
         signOutAdmin();
         return;
       }
-      setMessage(isForbidden(error) ? "No tienes permisos para ver auditoria." : "No pudimos cargar la auditoria.");
+      setMessage(isForbidden(error) ? "No tienes permisos para ver auditoría." : "No pudimos cargar la auditoría.");
     } finally {
       setReportsBusy(false);
     }
@@ -2081,7 +2081,7 @@ export default function AdminHome() {
         signOutAdmin();
         return;
       }
-      setMessage(isForbidden(error) ? "No tienes permisos para recalcular." : "No pudimos registrar el recalculo.");
+      setMessage(isForbidden(error) ? "No tienes permisos para recalcular." : "No pudimos registrar el recálculo.");
     } finally {
       setReportsBusy(false);
     }
@@ -2362,23 +2362,23 @@ export default function AdminHome() {
       setScoringRules(nextScoringRules);
       setEffectiveMatchSettings(nextEffectiveMatchSettings);
       setPredictionSettingsDraft(defaultPredictionSettingsDraft(updatedPool, nextScoringRules));
-      setMessage("Configuracion de pronosticos actualizada.");
+      setMessage("Configuración de pronósticos actualizada.");
     } catch (error) {
       if (isUnauthorized(error)) {
         signOutAdmin();
         return;
       }
       if (isForbidden(error)) {
-        setMessage("No tienes permisos para configurar pronosticos.");
+        setMessage("No tienes permisos para configurar pronósticos.");
         return;
       }
       if (error instanceof PollavarAPIError && error.code === "prediction_settings_locked") {
         setMessage(
-          "No pudimos cambiar los modos porque la polla ya tiene pronosticos o resultados.",
+          "No pudimos cambiar los modos porque la polla ya tiene pronósticos o resultados.",
         );
         return;
       }
-      setMessage("No pudimos actualizar la configuracion de pronosticos.");
+      setMessage("No pudimos actualizar la configuración de pronósticos.");
     } finally {
       setSavingPredictionSettings(false);
     }
@@ -2391,7 +2391,7 @@ export default function AdminHome() {
 
     const overrides = parsePredictionSettingsOverrideDrafts(predictionSettingsOverrideDrafts);
     if (!overrides) {
-      setMessage("Revisa los overrides de pronosticos.");
+      setMessage("Revisa los overrides de pronósticos.");
       return;
     }
 
@@ -2411,19 +2411,19 @@ export default function AdminHome() {
         hydratePredictionSettingsOverrideDrafts(nextOverrides),
       );
       setEffectiveMatchSettings(nextEffectiveMatchSettings);
-      setMessage("Overrides de pronosticos actualizados.");
+      setMessage("Overrides de pronósticos actualizados.");
     } catch (error) {
       if (isUnauthorized(error)) {
         signOutAdmin();
         return;
       }
       if (isForbidden(error)) {
-        setMessage("No tienes permisos para configurar overrides de pronosticos.");
+        setMessage("No tienes permisos para configurar overrides de pronósticos.");
         return;
       }
       if (error instanceof PollavarAPIError && error.code === "prediction_settings_locked") {
         setMessage(
-          "No pudimos cambiar overrides de modo porque la polla ya tiene pronosticos o resultados.",
+          "No pudimos cambiar overrides de modo porque la polla ya tiene pronósticos o resultados.",
         );
         return;
       }
@@ -2431,7 +2431,7 @@ export default function AdminHome() {
         setMessage("No puedes cambiar overrides de bonus en rondas o partidos cerrados.");
         return;
       }
-      setMessage("No pudimos actualizar los overrides de pronosticos.");
+      setMessage("No pudimos actualizar los overrides de pronósticos.");
     } finally {
       setSavingPredictionOverrides(false);
     }
@@ -2542,7 +2542,7 @@ export default function AdminHome() {
                   <span className="min-w-0 max-w-40 truncate">{session.user.name}</span>
                 </button>
                 {userMenuOpen ? (
-                  <div className="absolute right-0 z-20 mt-3 grid min-w-52 overflow-hidden rounded-lg border border-zinc-200 bg-white py-2 text-sm text-zinc-700 shadow-xl ring-1 ring-zinc-950/5">
+                  <div className="absolute right-0 z-[80] mt-3 grid min-w-52 overflow-hidden rounded-lg border border-zinc-200 bg-white py-2 text-sm text-zinc-700 shadow-xl ring-1 ring-zinc-950/5">
                     <Link
                       className="flex items-center gap-3 px-4 py-3 hover:bg-zinc-100"
                       href="/profile"
@@ -3268,7 +3268,7 @@ export default function AdminHome() {
                     >
                       <div className="border-b border-zinc-200 px-5 py-4">
                         <h2 className="text-lg font-semibold text-zinc-950">
-                          Reportes y auditoria
+                          Reportes y auditoría
                         </h2>
                         <p className="text-sm text-zinc-600">
                           Exportaciones administrativas y bitacora filtrable de la polla.
@@ -3285,7 +3285,7 @@ export default function AdminHome() {
                                 type="button"
                                 onClick={() => void downloadPredictionsReportCSV()}
                               >
-                                Predicciones CSV
+                                Predicciónes CSV
                               </button>
                               <button
                                 className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:border-zinc-400 disabled:cursor-not-allowed disabled:text-zinc-400"
@@ -3321,7 +3321,7 @@ export default function AdminHome() {
                               type="button"
                               onClick={() => void requestPoolRecalculation()}
                             >
-                              Registrar recalculo
+                              Registrar recálculo
                             </button>
                           </div>
                         </div>
@@ -3785,7 +3785,7 @@ function CreatePoolModal({
               Nueva polla
             </p>
             <p className="mt-2 text-sm text-slate-400">
-              Define torneo, entrada y cierre inicial de pronosticos.
+              Define torneo, entrada y cierre inicial de pronósticos.
             </p>
           </div>
           <button
@@ -3935,7 +3935,7 @@ function PoolThemeOverview({
                           ) : null}
                         </div>
                         <p className="mt-1 text-xs text-zinc-500">
-                          Codigo {item.invite_code} · {formatMoney(item.entry_fee_cents, item.currency)} por entrada
+                          Código {item.invite_code} · {formatMoney(item.entry_fee_cents, item.currency)} por entrada
                         </p>
                       </div>
                     </div>
@@ -3982,8 +3982,8 @@ function AdminSectionNavigation({
 }) {
   const groups: AdminSectionItem["group"][] = [
     "Base",
-    "Configuracion",
-    "Operacion",
+    "Configuración",
+    "Operación",
     "Reportes",
   ];
   const activeItem = items.find((item) => item.id === activeSection) ?? items[0];
@@ -4169,7 +4169,7 @@ function AdminPoolStickyHeader({
           <p className="mt-1 text-sm text-zinc-600">{activeItem.description}</p>
         </div>
         <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-          <CompactMetric label="Codigo" value={pool.invite_code} />
+          <CompactMetric label="Código" value={pool.invite_code} />
           <CompactMetric label="Jugadores" value={String(pool.participants.length)} />
           <CompactMetric label="Pagados" value={String(totals.confirmedCount)} />
           <CompactMetric
@@ -4213,7 +4213,7 @@ function isAdminErrorMessage(message: string) {
     message.includes("Elige") ||
     message.includes("Selecciona") ||
     message.includes("Solo puedes") ||
-    message.includes("La prediccion") ||
+    message.includes("La predicción") ||
     message.includes("El partido")
   );
 }
@@ -4325,78 +4325,78 @@ function buildAdminSections({
     {
       id: "resumen",
       label: "Resumen",
-      description: "Vista rapida de recaudo, resultados y tareas pendientes.",
+      description: "Vista rápida de recaudo, resultados y tareas pendientes.",
       group: "Base",
     },
     {
       id: "tema",
       label: "Identidad",
       description: "Marca, colores, logo y visuales de la polla.",
-      group: "Configuracion",
+      group: "Configuración",
     },
     {
       id: "torneo",
       label: "Torneo",
       description: "Equipos, grupos, partidos y reglas de avance.",
-      group: "Configuracion",
+      group: "Configuración",
       badge: String(pool ? resultGroups.length : 0),
     },
     {
       id: "pronosticos",
       label: "Juego",
       description: "Reglas base para partidos, bonus y posiciones.",
-      group: "Configuracion",
+      group: "Configuración",
       badge: pool?.prediction_mode === "outcome" ? "LEV" : "Score",
     },
     {
       id: "overrides",
       label: "Overrides",
       description: "Ajustes especiales por fase, grupo o partido.",
-      group: "Configuracion",
+      group: "Configuración",
     },
     {
       id: "llaves",
       label: "Llaves",
-      description: "Generacion y ajuste manual de brackets.",
-      group: "Configuracion",
+      description: "Generación y ajuste manual de brackets.",
+      group: "Configuración",
     },
     {
       id: "globales",
       label: "Globales",
-      description: "Pronosticos especiales como campeon, goleador y totales.",
-      group: "Configuracion",
+      description: "Pronósticos especiales como campeón, goleador y totales.",
+      group: "Configuración",
       badge: String(globalPredictionDefinitions.length),
     },
     {
       id: "resultados",
       label: "Resultados",
       description: "Marcadores oficiales, bonus sorpresa y snapshots.",
-      group: "Operacion",
+      group: "Operación",
       badge: `${resolvedMatches}/${totalMatches}`,
     },
     {
       id: "posiciones",
       label: "Posiciones",
       description: "Tablas oficiales por grupo, liga o fase.",
-      group: "Operacion",
+      group: "Operación",
     },
     {
       id: "premios",
       label: "Premios",
       description: "Porcentajes, desempates y vista previa de pagos.",
-      group: "Operacion",
+      group: "Operación",
       badge: String(ranking.length),
     },
     {
       id: "reportes",
       label: "Reportes",
-      description: "Exportaciones CSV, auditoria y recalculo manual.",
+      description: "Exportaciones CSV, auditoría y recálculo manual.",
       group: "Reportes",
     },
     {
       id: "recaudo",
       label: "Recaudo",
-      description: "Participantes, estados de pago y exportacion.",
+      description: "Participantes, estados de pago y exportación.",
       group: "Reportes",
       badge: `${totals.confirmedCount}/${pool?.participants.length ?? 0}`,
     },
@@ -5255,7 +5255,7 @@ function PredictionSettingsOverrideTable({
                       }
                       value={bonusPointsMode}
                     >
-                      <option value="inherit">Heredar puntos</option>
+                      <option value="inherit">Heredar</option>
                       <option value="custom">Personalizar</option>
                     </select>
                   </div>
@@ -5420,7 +5420,7 @@ function BracketGeneratorPanel({
             />
             <TextInput
               disabled={!canManage || saving}
-              label="Numero inicial"
+              label="Número inicial"
               onChange={(value) => update({ matchNumberStart: value })}
               type="number"
               value={draft.matchNumberStart}
@@ -5520,7 +5520,7 @@ function BracketGeneratorPanel({
       <div className="border-t border-zinc-200 p-5">
         <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
           <div>
-            <h3 className="text-sm font-semibold text-zinc-950">Edicion manual de cruces</h3>
+            <h3 className="text-sm font-semibold text-zinc-950">Edición manual de cruces</h3>
             <p className="text-sm text-zinc-600">
               Ajusta equipos por slot. Si mueves un equipo dentro de la misma fase, el backend lo
               libera del cruce original.
@@ -5742,9 +5742,9 @@ function GlobalPredictionAdminPanel({
     >
       <div className="flex flex-col gap-3 border-b border-zinc-200 px-5 py-4 md:flex-row md:items-center md:justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-zinc-950">Pronosticos globales</h2>
+          <h2 className="text-lg font-semibold text-zinc-950">Pronósticos globales</h2>
           <p className="text-sm text-zinc-600">
-            Especiales de la polla: campeon, goleador, totales, rangos o reglas custom.
+            Especiales de la polla: campeón, goleador, totales, rangos o reglas custom.
           </p>
         </div>
         <span
@@ -5760,7 +5760,7 @@ function GlobalPredictionAdminPanel({
         {canManage ? (
           <GlobalAccordionSection
             count={`${templates.length} disponibles`}
-            description="Opcional y avanzado: administra la biblioteca de opciones que pueden agregarse despues a una polla."
+            description="Opcional y avanzado: administra la biblioteca de opciones que pueden agregarse después a una polla."
             open={openGlobalSections.templates}
             onToggle={() =>
               setOpenGlobalSections((current) => ({
@@ -5783,7 +5783,7 @@ function GlobalPredictionAdminPanel({
 
         <GlobalAccordionSection
           count={`${sortedDefinitions.length} configurados`}
-          description="Aqui decides que pronosticos aplican en esta polla, cuantos puntos dan y si entregan premio especial."
+          description="Aquí decides qué pronósticos aplican en esta polla, cuántos puntos dan y si entregan premio especial."
           open={openGlobalSections.poolGlobals}
           onToggle={() =>
             setOpenGlobalSections((current) => ({
@@ -5791,7 +5791,7 @@ function GlobalPredictionAdminPanel({
               poolGlobals: !current.poolGlobals,
             }))
           }
-          title="Pronosticos globales de esta polla"
+          title="Pronósticos globales de esta polla"
         >
           {canManage ? (
             <div className="mb-5 grid gap-4 rounded-lg border border-zinc-200 bg-zinc-50/60 p-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
@@ -5806,7 +5806,7 @@ function GlobalPredictionAdminPanel({
                       setTemplateAutocompleteOpen(true);
                     }}
                     onFocus={() => setTemplateAutocompleteOpen(true)}
-                    placeholder="Campeon, goleador, total amarillas..."
+                    placeholder="Campeón, goleador, total amarillas..."
                     value={templateSearch}
                   />
                   {templateAutocompleteOpen ? (
@@ -5855,7 +5855,7 @@ function GlobalPredictionAdminPanel({
 
           {sortedDefinitions.length === 0 ? (
             <div className="text-sm text-zinc-600">
-              Esta polla aun no tiene pronosticos globales configurados.
+              Esta polla aún no tiene pronósticos globales configurados.
             </div>
           ) : (
             <div className="space-y-5">
@@ -6465,9 +6465,9 @@ function GlobalTemplateCatalogPanel({
               <div className="grid gap-4 border-t border-zinc-200 bg-zinc-50/50 p-4">
                 <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                 <label className="grid gap-1 text-xs font-semibold uppercase text-zinc-500">
-                  Codigo
+                  Código
                   <input
-                    aria-label={`Codigo plantilla ${template.label}`}
+                    aria-label={`Código plantilla ${template.label}`}
                     className="min-h-10 rounded-md border border-zinc-300 px-3 py-2 text-sm font-normal normal-case text-zinc-950 disabled:bg-zinc-100"
                     disabled={isSaving || !canEditCode}
                     onChange={(event) =>
@@ -6740,7 +6740,7 @@ function GlobalResultInput({
     return (
       <label className="grid gap-2 text-sm font-medium text-zinc-700">
         <span>
-          {definition.value_type === "number_range" ? "Resultado exacto" : "Numero oficial"}
+          {definition.value_type === "number_range" ? "Resultado exacto" : "Número oficial"}
         </span>
         <input
           aria-label={`Resultado oficial ${definition.label}`}
@@ -7051,7 +7051,7 @@ function OfficialStandingsPanel({
                     onClick={() => onLoadAudit(scope)}
                     type="button"
                   >
-                    {isLoadingAudit ? "Cargando..." : "Ver auditoria"}
+                    {isLoadingAudit ? "Cargando..." : "Ver auditoría"}
                   </button>
                   {latestAuditLog ? (
                     <span className="text-xs text-zinc-500">
@@ -7439,7 +7439,7 @@ function ResultsPanel({
                               </div>
                             ) : (
                               <p className="text-xs text-zinc-500">
-                                Genera evidencia despues del cierre.
+                                Genera evidencia después del cierre.
                               </p>
                             )}
                             <button
@@ -7457,7 +7457,7 @@ function ResultsPanel({
                             </div>
 
                             <div className="grid gap-2 rounded-md bg-zinc-50 p-3">
-                            <p className="text-xs font-semibold uppercase text-zinc-500">Auditoria</p>
+                            <p className="text-xs font-semibold uppercase text-zinc-500">Auditoría</p>
                             {latestAuditLog ? (
                               <div>
                                 <p className="text-xs font-semibold text-zinc-950">
@@ -7480,7 +7480,7 @@ function ResultsPanel({
                               onClick={() => onLoadAudit(match.id)}
                               type="button"
                             >
-                              {isLoadingAudit ? "Cargando" : "Ver auditoria"}
+                              {isLoadingAudit ? "Cargando" : "Ver auditoría"}
                             </button>
                             </div>
                           </div>
@@ -8643,7 +8643,7 @@ function globalCustomDefinition(
     id: `draft-${code}`,
     pool_id: poolID,
     code,
-    label: "Nueva prediccion",
+    label: "Nueva predicción",
     value_type: "text",
     enabled: true,
     points_enabled: true,
@@ -9084,7 +9084,7 @@ function globalValueTypeLabel(valueType: GlobalPredictionValueType) {
     case "player":
       return "Jugador";
     case "number":
-      return "Numero exacto";
+      return "Número exacto";
     case "number_range":
       return "Rango numerico";
     case "boolean":

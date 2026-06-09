@@ -2,6 +2,14 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { afterEach, describe, expect, it, vi } from "vitest";
 import ParticipantsHome from "./page";
 
+const routerPush = vi.hoisted(() => vi.fn());
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({
+    push: routerPush,
+  }),
+}));
+
 const session = {
   token: "token",
   expiresAt: "2099-05-28T01:00:00Z",
@@ -669,6 +677,7 @@ const byeSlotMatch = {
 describe("Participants home", () => {
   afterEach(() => {
     vi.useRealTimers();
+    routerPush.mockClear();
     window.localStorage.clear();
     vi.unstubAllGlobals();
   });
@@ -723,7 +732,7 @@ describe("Participants home", () => {
     expect(screen.getByText("ABC123")).toBeInTheDocument();
     expect(screen.getAllByText("6h antes").length).toBeGreaterThan(0);
     const accessNav = screen.getByRole("navigation", { name: "Accesos de la polla" });
-    expect(within(accessNav).getByText("Pronosticos")).toBeInTheDocument();
+    expect(within(accessNav).getByText("Pronósticos")).toBeInTheDocument();
     expect(within(accessNav).getByText("Posiciones")).toBeInTheDocument();
     expect(within(accessNav).getByText("Globales")).toBeInTheDocument();
     expect(within(accessNav).getByText("Participantes")).toBeInTheDocument();
@@ -758,7 +767,7 @@ describe("Participants home", () => {
       .getByRole("heading", { name: "Predicciones globales" })
       .closest("section");
     expect(globalSection).not.toBeNull();
-    expect(within(globalSection as HTMLElement).getByText("1 de 2 pronosticos completos.")).toBeInTheDocument();
+    expect(within(globalSection as HTMLElement).getByText("1 de 2 pronósticos completos.")).toBeInTheDocument();
     expect(within(globalSection as HTMLElement).getByText("Campeon")).toBeInTheDocument();
     expect(within(globalSection as HTMLElement).getByText("Premio especial")).toBeInTheDocument();
     expect(within(globalSection as HTMLElement).getByText("Resultado oficial: Mexico")).toBeInTheDocument();
@@ -769,7 +778,7 @@ describe("Participants home", () => {
     expect(within(participantsSection as HTMLElement).getByText("Pago pendiente")).toBeInTheDocument();
     const rankingSection = screen.getByRole("heading", { name: "Ranking general" }).closest("section");
     expect(rankingSection).not.toBeNull();
-    expect(within(rankingSection as HTMLElement).getByText("Tu posicion actual")).toBeInTheDocument();
+    expect(within(rankingSection as HTMLElement).getByText("Tu posición actual")).toBeInTheDocument();
     expect(within(rankingSection as HTMLElement).getByText("Premios ranking")).toBeInTheDocument();
     expect(within(rankingSection as HTMLElement).getByText("posiciones premiadas")).toBeInTheDocument();
     expect(within(rankingSection as HTMLElement).getByText("COP 15.000")).toBeInTheDocument();
@@ -862,7 +871,7 @@ describe("Participants home", () => {
     render(<ParticipantsHome />);
 
     await screen.findByRole("heading", { name: "Unirse a una polla" });
-    fireEvent.change(screen.getByLabelText("Codigo de invitacion"), {
+    fireEvent.change(screen.getByLabelText("Código de invitación"), {
       target: { value: "ABC123" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Unirme" }));
@@ -882,6 +891,7 @@ describe("Participants home", () => {
       }),
     );
     expect(screen.getByRole("heading", { name: "Oficina FC" })).toBeInTheDocument();
+    expect(routerPush).toHaveBeenCalledWith("/pools/pool-id");
   });
 
   it("shows configured bye slot labels before teams are resolved", async () => {
@@ -926,13 +936,13 @@ describe("Participants home", () => {
     render(<ParticipantsHome />);
 
     expect(await screen.findByRole("heading", { name: "Oficina FC" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Ver pronosticos" }));
+    fireEvent.click(screen.getByRole("button", { name: "Ver pronósticos" }));
 
     await waitFor(() => {
       expect(screen.getByText("Sin marcador")).toBeInTheDocument();
     });
     expect(screen.getAllByText("Pronosticado")).toHaveLength(2);
-    expect(screen.getByText("Sin pronostico")).toBeInTheDocument();
+    expect(screen.getByText("Sin pronóstico")).toBeInTheDocument();
     expect(screen.getByText("2-1")).toBeInTheDocument();
     expect(screen.getByText("Solo resultado")).toBeInTheDocument();
     expect(screen.getByText("Visitante")).toBeInTheDocument();
@@ -1290,7 +1300,7 @@ describe("Participants home", () => {
     fireEvent.click(within(form as HTMLFormElement).getByRole("button", { name: "Guardar" }));
 
     await waitFor(() => {
-      expect(screen.getByRole("status")).toHaveTextContent("Pronostico guardado.");
+      expect(screen.getByRole("status")).toHaveTextContent("Pronóstico guardado.");
     });
     expect(fetcher).toHaveBeenCalledWith(
       "/api/v1/pools/pool-id/predictions/match-2",
@@ -1321,10 +1331,10 @@ describe("Participants home", () => {
 
     const championInput = await screen.findByLabelText("Pronostico global Campeon");
     fireEvent.change(championInput, { target: { value: "CAN" } });
-    fireEvent.click(screen.getByRole("button", { name: "Guardar prediccion global Campeon" }));
+    fireEvent.click(screen.getByRole("button", { name: "Guardar predicción global Campeon" }));
 
     await waitFor(() => {
-      expect(screen.getByRole("status")).toHaveTextContent("Pronostico global guardado.");
+      expect(screen.getByRole("status")).toHaveTextContent("Pronóstico global guardado.");
     });
     expect(fetcher).toHaveBeenCalledWith(
       "/api/v1/pools/pool-id/global-predictions/global_champion",
@@ -1373,11 +1383,11 @@ describe("Participants home", () => {
     const booleanInput = await screen.findByLabelText("Pronostico global Final con alargue");
     fireEvent.change(booleanInput, { target: { value: "1" } });
     fireEvent.click(
-      screen.getByRole("button", { name: "Guardar prediccion global Final con alargue" }),
+      screen.getByRole("button", { name: "Guardar predicción global Final con alargue" }),
     );
 
     await waitFor(() => {
-      expect(screen.getByRole("status")).toHaveTextContent("Pronostico global guardado.");
+      expect(screen.getByRole("status")).toHaveTextContent("Pronóstico global guardado.");
     });
     expect(fetcher).toHaveBeenCalledWith(
       "/api/v1/pools/pool-id/global-predictions/custom_final_extra_time",
@@ -1427,7 +1437,7 @@ describe("Participants home", () => {
     fireEvent.click(within(groupB as HTMLElement).getByRole("button", { name: "Guardar" }));
 
     await waitFor(() => {
-      expect(screen.getByRole("status")).toHaveTextContent("Pronostico guardado.");
+      expect(screen.getByRole("status")).toHaveTextContent("Pronóstico guardado.");
     });
     expect(fetcher).toHaveBeenCalledWith(
       "/api/v1/pools/pool-id/predictions/match-2",
@@ -1477,7 +1487,7 @@ describe("Participants home", () => {
     fireEvent.click(within(groupB as HTMLElement).getByRole("button", { name: "Guardar" }));
 
     await waitFor(() => {
-      expect(screen.getByRole("status")).toHaveTextContent("Pronostico guardado.");
+      expect(screen.getByRole("status")).toHaveTextContent("Pronóstico guardado.");
     });
     expect(fetcher).toHaveBeenCalledWith(
       "/api/v1/pools/pool-id/predictions/match-2",
@@ -1530,7 +1540,7 @@ describe("Participants home", () => {
 
     render(<ParticipantsHome />);
 
-    expect(await screen.findByText("No pudimos cargar tu informacion")).toBeInTheDocument();
+    expect(await screen.findByText("No pudimos cargar tu información")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Reintentar" })).toBeInTheDocument();
   });
 

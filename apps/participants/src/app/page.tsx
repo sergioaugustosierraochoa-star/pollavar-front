@@ -124,7 +124,7 @@ type ParticipantSectionID =
   | "reglas";
 
 const participantSections: Array<{ id: ParticipantSectionID; label: string }> = [
-  { id: "pronosticos", label: "Pronosticos" },
+  { id: "pronosticos", label: "Pronósticos" },
   { id: "participantes", label: "Participantes" },
   { id: "ranking", label: "Ranking" },
   { id: "premios", label: "Premios" },
@@ -204,6 +204,49 @@ export function ParticipantsApp({
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const dashboardRequestID = useRef(0);
   const userMenuRef = useRef<HTMLDivElement | null>(null);
+
+  const toastItems = [
+    message && status !== "error"
+      ? {
+          id: "general",
+          message,
+          onDismiss: () => setMessage(""),
+          type: participantToastType(message),
+        }
+      : null,
+    saveMessage
+      ? {
+          id: "prediction",
+          message: saveMessage,
+          onDismiss: () => setSaveMessage(""),
+          type: participantToastType(saveMessage),
+        }
+      : null,
+    standingSaveMessage
+      ? {
+          id: "standing",
+          message: standingSaveMessage,
+          onDismiss: () => setStandingSaveMessage(""),
+          type: participantToastType(standingSaveMessage),
+        }
+      : null,
+    globalSaveMessage
+      ? {
+          id: "global",
+          message: globalSaveMessage,
+          onDismiss: () => setGlobalSaveMessage(""),
+          type: participantToastType(globalSaveMessage),
+        }
+      : null,
+    pointDetailsMessage
+      ? {
+          id: "points",
+          message: pointDetailsMessage,
+          onDismiss: () => setPointDetailsMessage(""),
+          type: participantToastType(pointDetailsMessage),
+        }
+      : null,
+  ].filter((item): item is ParticipantToastItem => item !== null);
 
   const predictionsByMatch = useMemo(() => indexPredictions(predictions), [predictions]);
   const predictionStatusesByMatch = useMemo(
@@ -545,6 +588,30 @@ export function ParticipantsApp({
   }, [status]);
 
   useEffect(() => {
+    if (!message || status === "error") {
+      return;
+    }
+
+    const timeoutID = window.setTimeout(() => setMessage(""), 4000);
+    return () => window.clearTimeout(timeoutID);
+  }, [message, status]);
+
+  useEffect(() => {
+    if (!saveMessage && !standingSaveMessage && !globalSaveMessage && !pointDetailsMessage) {
+      return;
+    }
+
+    const timeoutID = window.setTimeout(() => {
+      setSaveMessage("");
+      setStandingSaveMessage("");
+      setGlobalSaveMessage("");
+      setPointDetailsMessage("");
+    }, 4000);
+
+    return () => window.clearTimeout(timeoutID);
+  }, [globalSaveMessage, pointDetailsMessage, saveMessage, standingSaveMessage]);
+
+  useEffect(() => {
     if (!userMenuOpen) {
       return;
     }
@@ -599,9 +666,9 @@ export function ParticipantsApp({
       return;
     }
 
-    const inviteCode = joinInviteCode.trim();
+    const inviteCode = joinInviteCode.trim().toUpperCase();
     if (!inviteCode) {
-      setMessage("Ingresa el codigo de invitacion.");
+      setMessage("Ingresa el código de invitación.");
       return;
     }
 
@@ -612,19 +679,20 @@ export function ParticipantsApp({
         invite_code: inviteCode,
       });
       setJoinInviteCode("");
-      router.push(`/pools/${joinedPool.id}`);
+      await loadDashboard(session.token, joinedPool.id);
       setMessage("Te uniste a la polla.");
+      router.push(`/pools/${joinedPool.id}`);
     } catch (error) {
       if (isUnauthorizedError(error)) {
         signOutParticipant();
         return;
       }
       if (error instanceof PollavarAPIError && error.status === 400) {
-        setMessage("Revisa el codigo de invitacion.");
+        setMessage("Revisa el código de invitación.");
         return;
       }
       if (error instanceof PollavarAPIError && error.status === 404) {
-        setMessage("No encontramos una polla con ese codigo.");
+        setMessage("No encontramos una polla con ese código.");
         return;
       }
       setMessage("No pudimos unirte a la polla.");
@@ -788,7 +856,7 @@ export function ParticipantsApp({
       setSaveMessage(
         predictionMode === "outcome"
           ? "Elige local, empate o visitante."
-          : "Completa ambos marcadores con numeros validos.",
+          : "Completa ambos marcadores con números válidos.",
       );
       return;
     }
@@ -806,13 +874,13 @@ export function ParticipantsApp({
       if (dashboardRequestID.current !== requestID) {
         return;
       }
-      setSaveMessage("Pronostico guardado.");
+      setSaveMessage("Pronóstico guardado.");
     } catch (error) {
       if (isUnauthorizedError(error)) {
         signOutParticipant();
         return;
       }
-      setSaveMessage("No pudimos guardar el pronostico.");
+      setSaveMessage("No pudimos guardar el pronóstico.");
     } finally {
       if (dashboardRequestID.current === requestID) {
         setSavingMatchID("");
@@ -866,7 +934,7 @@ export function ParticipantsApp({
       return;
     }
     if (isStandingPredictionClosed(group.matches, pool.prediction_close_hours_before)) {
-      setStandingSaveMessage("El pronostico de posiciones de este grupo esta cerrado.");
+      setStandingSaveMessage("El pronóstico de posiciones de este grupo está cerrado.");
       return;
     }
 
@@ -893,7 +961,7 @@ export function ParticipantsApp({
         return;
       }
       if (isPredictionClosedError(error)) {
-        setStandingSaveMessage("El pronostico de posiciones de este grupo esta cerrado.");
+        setStandingSaveMessage("El pronóstico de posiciones de este grupo está cerrado.");
         return;
       }
       setStandingSaveMessage("No pudimos guardar el orden de posiciones.");
@@ -925,7 +993,7 @@ export function ParticipantsApp({
       return;
     }
     if (isGlobalDefinitionClosed(definition)) {
-      setGlobalSaveMessage("Este pronostico global ya esta cerrado.");
+      setGlobalSaveMessage("Este pronóstico global ya está cerrado.");
       return;
     }
 
@@ -935,7 +1003,7 @@ export function ParticipantsApp({
     };
     const input = globalPredictionInputFromDraft(definition, draft);
     if (!input) {
-      setGlobalSaveMessage("Revisa el valor del pronostico global.");
+      setGlobalSaveMessage("Revisa el valor del pronóstico global.");
       return;
     }
 
@@ -958,17 +1026,17 @@ export function ParticipantsApp({
         ...current,
         [definition.code]: globalPredictionDraft(savedPrediction),
       }));
-      setGlobalSaveMessage("Pronostico global guardado.");
+      setGlobalSaveMessage("Pronóstico global guardado.");
     } catch (error) {
       if (isUnauthorizedError(error)) {
         signOutParticipant();
         return;
       }
       if (isPredictionClosedError(error)) {
-        setGlobalSaveMessage("Este pronostico global ya esta cerrado.");
+        setGlobalSaveMessage("Este pronóstico global ya está cerrado.");
         return;
       }
-      setGlobalSaveMessage("No pudimos guardar el pronostico global.");
+      setGlobalSaveMessage("No pudimos guardar el pronóstico global.");
     } finally {
       if (dashboardRequestID.current === requestID) {
         setSavingGlobalDefinitionCode("");
@@ -979,7 +1047,7 @@ export function ParticipantsApp({
   return (
     <main className="min-h-screen bg-[#f8fafc] text-[#0f172a]">
       <header className="border-b border-[#10B981]/35 bg-[#0f172a] text-white shadow-sm">
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-5 py-4">
+        <div className="mx-auto flex max-w-[96rem] items-center justify-between gap-4 px-5 py-4">
           <Link className="flex min-w-0 items-center gap-3" href="/">
             <span className="truncate text-lg font-semibold tracking-normal text-[#10B981]">
               PollaVAR
@@ -1003,7 +1071,7 @@ export function ParticipantsApp({
                 <span className="hidden max-w-40 truncate sm:block">{session.user.name}</span>
               </button>
               {userMenuOpen ? (
-                <div className="absolute right-0 z-20 mt-3 grid min-w-48 overflow-hidden rounded-lg border border-zinc-200 bg-white py-2 text-sm text-zinc-700 shadow-xl ring-1 ring-zinc-950/5">
+                <div className="absolute right-0 z-[80] mt-3 grid min-w-48 overflow-hidden rounded-lg border border-zinc-200 bg-white py-2 text-sm text-zinc-700 shadow-xl ring-1 ring-zinc-950/5">
                   <Link
                     className="flex items-center gap-3 px-4 py-3 hover:bg-zinc-100"
                     href="/profile"
@@ -1017,22 +1085,6 @@ export function ParticipantsApp({
                     </span>
                     Mi perfil
                   </Link>
-                  <button
-                    className="flex items-center gap-3 px-4 py-3 text-left hover:bg-zinc-100"
-                    onClick={() => {
-                      setUserMenuOpen(false);
-                      void loadDashboard(session.token, selectedPoolID);
-                    }}
-                    type="button"
-                  >
-                    <span aria-hidden="true" className="grid size-5 place-items-center">
-                      <svg fill="none" height="18" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24" width="18">
-                        <path d="M21 12a9 9 0 1 1-2.64-6.36" />
-                        <path d="M21 3v6h-6" />
-                      </svg>
-                    </span>
-                    Actualizar
-                  </button>
                   <button
                     className="flex items-center gap-3 px-4 py-3 text-left hover:bg-zinc-100"
                     onClick={signOutParticipant}
@@ -1050,7 +1102,7 @@ export function ParticipantsApp({
               ) : null}
             </div>
           ) : (
-            <nav aria-label="Autenticacion participantes" className="flex items-center gap-2">
+            <nav aria-label="Autenticación participantes" className="flex items-center gap-2">
               <Link
                 className="rounded-md border border-white/25 bg-white/10 px-3 py-2 text-sm font-medium text-white backdrop-blur hover:bg-white/15"
                 href="/login"
@@ -1072,7 +1124,7 @@ export function ParticipantsApp({
       {status === "signed-out" ? <SignedOutState /> : null}
       {status === "error" ? (
         <StatusState
-          title="No pudimos cargar tu informacion"
+          title="No pudimos cargar tu información"
           message={message}
           action={
             session
@@ -1084,11 +1136,10 @@ export function ParticipantsApp({
         />
       ) : null}
       {status === "ready" && session && mode === "lobby" ? (
-        <section className="mx-auto grid max-w-7xl gap-5 px-5 py-6">
+        <section className="mx-auto grid w-full max-w-[96rem] gap-5 px-5 py-6">
           <JoinPoolPanel
             inviteCode={joinInviteCode}
             joining={joiningPool}
-            message={message}
             onChange={setJoinInviteCode}
             onJoin={() => void joinPool()}
           />
@@ -1129,8 +1180,6 @@ export function ParticipantsApp({
             globalPredictionResults={globalPredictionResults}
             globalPredictions={globalPredictions}
             globalPrizePreview={globalPrizePreview}
-            globalSaveMessage={globalSaveMessage}
-            saveMessage={saveMessage}
             savingGlobalDefinitionCode={savingGlobalDefinitionCode}
             savingMatchID={savingMatchID}
             savingStandingGroupID={savingStandingGroupID}
@@ -1142,12 +1191,12 @@ export function ParticipantsApp({
             snapshotsByMatchID={snapshotsByMatchID}
             standingDrafts={standingDrafts}
             standingPredictionsByGroup={standingPredictionsByGroup}
-            standingSaveMessage={standingSaveMessage}
             summary={summary}
             tournament={tournament}
           />
         </>
       ) : null}
+      <ParticipantToastStack items={toastItems} />
     </main>
   );
 }
@@ -1155,39 +1204,31 @@ export function ParticipantsApp({
 function JoinPoolPanel({
   inviteCode,
   joining,
-  message,
   onChange,
   onJoin,
 }: {
   inviteCode: string;
   joining: boolean;
-  message: string;
   onChange: (value: string) => void;
   onJoin: () => void;
 }) {
-  const isError =
-    message.includes("No pudimos") ||
-    message.includes("No encontramos") ||
-    message.includes("Revisa") ||
-    message.includes("Ingresa");
-
   return (
     <section className="rounded-xl bg-white p-5 shadow-[0_10px_40px_rgba(15,23,42,0.08),0_1px_3px_rgba(15,23,42,0.04)] ring-1 ring-slate-950/10">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <h2 className="text-lg font-semibold text-[#0f172a]">Unirse a una polla</h2>
           <p className="text-sm text-slate-500">
-            Ingresa el codigo que te compartio el administrador.
+            Ingresa el código que te compartió el administrador.
           </p>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
           <label className="grid gap-2 text-sm font-medium text-slate-700">
-            <span>Codigo de invitacion</span>
+            <span>Código de invitación</span>
             <input
               className="min-h-11 w-full rounded-xl border border-[#e2e8f0] px-3 py-2 text-sm uppercase text-[#0f172a] outline-none transition placeholder:text-slate-400 focus:border-[#22D3EE] focus:ring-4 focus:ring-[#22D3EE]/10 disabled:bg-slate-100 sm:w-56"
               disabled={joining}
-              onChange={(event) => onChange(event.target.value)}
-              placeholder="CODIGO"
+              onChange={(event) => onChange(event.target.value.toUpperCase())}
+              placeholder="CÓDIGO"
               value={inviteCode}
             />
           </label>
@@ -1201,19 +1242,68 @@ function JoinPoolPanel({
           </button>
         </div>
       </div>
-      {message ? (
-        <p
-          className={`mt-3 rounded-xl border px-4 py-2.5 text-sm font-medium ${
-            isError
-              ? "border-[#F59E0B]/20 bg-[#F59E0B]/10 text-[#b45309]"
-              : "border-green-500/20 bg-green-500/10 text-green-700"
-          }`}
-          role={isError ? "alert" : "status"}
-        >
-          {message}
-        </p>
-      ) : null}
     </section>
+  );
+}
+
+type ParticipantToastItem = {
+  id: string;
+  message: string;
+  onDismiss: () => void;
+  type: "success" | "error";
+};
+
+function ParticipantToastStack({ items }: { items: ParticipantToastItem[] }) {
+  if (items.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="fixed bottom-4 right-4 z-[200] grid w-[min(22rem,calc(100vw-2rem))] gap-2">
+      {items.map((item) => {
+        const isSuccess = item.type === "success";
+        return (
+          <div
+            className={[
+              "flex items-start justify-between gap-3 rounded-lg border px-4 py-3 text-sm shadow-lg backdrop-blur",
+              isSuccess
+                ? "border-green-500/30 bg-green-500/15 text-green-700"
+                : "border-[#F59E0B]/30 bg-[#F59E0B]/15 text-[#b45309]",
+            ].join(" ")}
+            key={item.id}
+            role={isSuccess ? "status" : "alert"}
+          >
+            <span>{item.message}</span>
+            <button
+              aria-label="Cerrar mensaje"
+              className="rounded-full px-1 text-current opacity-70 transition hover:opacity-100"
+              onClick={item.onDismiss}
+              type="button"
+            >
+              ×
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function participantToastType(message: string): "success" | "error" {
+  return isParticipantErrorMessage(message) ? "error" : "success";
+}
+
+function isParticipantErrorMessage(message: string) {
+  return (
+    message.includes("No pudimos") ||
+    message.includes("No encontramos") ||
+    message.includes("Revisa") ||
+    message.includes("Ingresa") ||
+    message.includes("Completa") ||
+    message.includes("cerrado") ||
+    message.includes("cerrada") ||
+    message.includes("Elige") ||
+    message.includes("Necesitas")
   );
 }
 
@@ -1222,7 +1312,7 @@ function ParticipantPoolLobby({ pools }: { pools: Pool[] }) {
     return (
       <section className="rounded-xl bg-white p-6 text-sm text-slate-600 shadow-[0_10px_40px_rgba(15,23,42,0.08),0_1px_3px_rgba(15,23,42,0.04)] ring-1 ring-slate-950/10">
         <h2 className="text-xl font-bold text-[#0f172a]">Mis pollas</h2>
-        <p className="mt-2">Cuando te unas a una polla, aparecera aqui para entrar a jugar.</p>
+        <p className="mt-2">Cuando te unas a una polla, aparecerá aquí para entrar a jugar.</p>
       </section>
     );
   }
@@ -1232,10 +1322,10 @@ function ParticipantPoolLobby({ pools }: { pools: Pool[] }) {
       <div>
         <h2 className="text-2xl font-bold tracking-tight text-[#0f172a]">Mis pollas</h2>
         <p className="mt-1 text-sm text-slate-500">
-          Elige una polla para ver sus pronosticos, ranking, premios y reglas.
+          Elige una polla para ver sus pronósticos, ranking, premios y reglas.
         </p>
       </div>
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
         {pools.map((pool) => {
           const theme = normalizedPoolTheme(pool.theme);
           const paidCount = pool.participants.filter(
@@ -1262,7 +1352,7 @@ function ParticipantPoolLobby({ pools }: { pools: Pool[] }) {
                         {poolDisplayName(pool)}
                       </h3>
                       <p className="mt-1 text-xs text-slate-500">
-                        Codigo {pool.invite_code}
+                        Código {pool.invite_code}
                       </p>
                     </div>
                   </div>
@@ -1293,9 +1383,6 @@ function ParticipantPoolLobby({ pools }: { pools: Pool[] }) {
                   <LobbyMetric label="Pagados" value={String(paidCount)} />
                   <LobbyMetric label="Cierre" value={`${pool.prediction_close_hours_before}h antes`} />
                 </div>
-                <span className="inline-flex w-fit rounded-xl bg-[#10B981] px-4 py-2 text-sm font-semibold text-white transition group-hover:bg-[#059669]">
-                  Entrar
-                </span>
               </div>
             </Link>
           );
@@ -1325,7 +1412,6 @@ function Dashboard({
   globalPredictionResults,
   globalPredictions,
   globalPrizePreview,
-  globalSaveMessage,
   underdogBonusesByMatch,
   onDownloadSnapshot,
   onLoadSnapshot,
@@ -1348,7 +1434,6 @@ function Dashboard({
   rankingManualTiebreakers,
   rankingTiebreakers,
   scoringRules,
-  saveMessage,
   savingGlobalDefinitionCode,
   savingMatchID,
   savingStandingGroupID,
@@ -1359,7 +1444,6 @@ function Dashboard({
   snapshotsByMatchID,
   standingDrafts,
   standingPredictionsByGroup,
-  standingSaveMessage,
   summary,
   tournament,
 }: {
@@ -1373,7 +1457,6 @@ function Dashboard({
   globalPredictionResults: GlobalPredictionResult[];
   globalPredictions: GlobalPrediction[];
   globalPrizePreview: GlobalPredictionPrizePreview | null;
-  globalSaveMessage: string;
   underdogBonusesByMatch: Map<string, MatchUnderdogBonus>;
   onDownloadSnapshot: (matchID: string) => void;
   onLoadSnapshot: (matchID: string) => void;
@@ -1400,7 +1483,6 @@ function Dashboard({
   rankingManualTiebreakers: RankingManualTiebreaker[];
   rankingTiebreakers: RankingTiebreaker[];
   scoringRules: ScoringRule[];
-  saveMessage: string;
   savingGlobalDefinitionCode: string;
   savingMatchID: string;
   savingStandingGroupID: string;
@@ -1411,7 +1493,6 @@ function Dashboard({
   snapshotsByMatchID: Record<string, PredictionSnapshot>;
   standingDrafts: StandingDrafts;
   standingPredictionsByGroup: Map<string, StandingPrediction>;
-  standingSaveMessage: string;
   summary: PredictionSummary | null;
   tournament: Tournament | null;
 }) {
@@ -1499,7 +1580,6 @@ function Dashboard({
                 predictionGroups={visiblePredictionGroups}
                 predictionsByMatch={predictionsByMatch}
                 predictionStatusesByMatch={predictionStatusesByMatch}
-                saveMessage={saveMessage}
                 savingMatchID={savingMatchID}
                 savingStandingGroupID={savingStandingGroupID}
                 snapshotDownloadingMatchID={snapshotDownloadingMatchID}
@@ -1508,7 +1588,6 @@ function Dashboard({
                 snapshotsByMatchID={snapshotsByMatchID}
                 standingDrafts={standingDrafts}
                 standingPredictionsByGroup={standingPredictionsByGroup}
-                standingSaveMessage={standingSaveMessage}
                 tournament={tournament}
               />
               <GlobalPredictionsPanel
@@ -1517,7 +1596,6 @@ function Dashboard({
                 onSave={onSaveGlobalPrediction}
                 onUpdateDraft={onUpdateGlobalDraft}
                 results={globalPredictionResults}
-                saveMessage={globalSaveMessage}
                 savingDefinitionCode={savingGlobalDefinitionCode}
                 tournament={tournament}
                 userPredictions={globalPredictions}
@@ -1533,7 +1611,6 @@ function Dashboard({
               loadingUserID={pointDetailsLoadingUserID}
               message={pointDetailsMessage}
               onSelectUser={onSelectRankingUser}
-              prizePreview={prizePreview}
               ranking={ranking}
               selectedUserID={selectedRankingUserID}
             />
@@ -1610,7 +1687,7 @@ function ParticipantPoolHero({
               {poolDisplayName(pool)}
             </h1>
             <p className="mt-1 text-sm text-slate-600">
-              Codigo {pool.invite_code} · {formatMoney(pool.entry_fee_cents, pool.currency)} por entrada
+              Código {pool.invite_code} · {formatMoney(pool.entry_fee_cents, pool.currency)} por entrada
             </p>
           </div>
         </div>
@@ -1803,7 +1880,7 @@ function participantSectionDescription(sectionID: ParticipantSectionID) {
     case "pronosticos":
       return "Partidos, globales y posiciones configuradas.";
     case "ranking":
-      return "Posiciones, puntos y pronosticos cerrados.";
+      return "Posiciones, puntos y pronósticos cerrados.";
     case "premios":
       return "Bolsa, ganadores y premios especiales.";
     case "participantes":
@@ -2180,17 +2257,28 @@ function PrizePanel({
   }
 
   return (
-    <section className="rounded-lg border border-zinc-200 bg-white shadow-sm" id="premios">
-      <div className="flex flex-col gap-2 border-b border-zinc-200 px-5 py-4 md:flex-row md:items-center md:justify-between">
+    <section className="overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-sm" id="premios">
+      <div className="grid gap-4 border-b border-zinc-200 bg-zinc-50/70 px-5 py-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
         <div>
           <h2 className="text-lg font-semibold text-zinc-950">Premios</h2>
-          <p className="text-sm text-zinc-600">
-            Bolsa confirmada: {formatMoney(confirmedTotalCents, currency)}
-          </p>
+          <p className="mt-1 text-sm text-zinc-600">Distribucion de bolsa y premios especiales.</p>
         </div>
-        <span className="w-fit rounded-md bg-sky-100 px-2 py-1 text-xs font-medium text-sky-800">
-          {payouts.length} ranking · {globalPrizes.length} globales
-        </span>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <div className="rounded-lg border border-white bg-white px-4 py-3 shadow-sm">
+            <p className="text-xs font-semibold uppercase text-emerald-700">Bolsa</p>
+            <p className="mt-1 text-lg font-semibold text-zinc-950">
+              {formatMoney(confirmedTotalCents, currency)}
+            </p>
+          </div>
+          <div className="rounded-lg border border-white bg-white px-4 py-3 shadow-sm">
+            <p className="text-xs font-semibold uppercase text-sky-700">Ranking</p>
+            <p className="mt-1 text-lg font-semibold text-zinc-950">{payouts.length}</p>
+          </div>
+          <div className="rounded-lg border border-white bg-white px-4 py-3 shadow-sm">
+            <p className="text-xs font-semibold uppercase text-amber-700">Globales</p>
+            <p className="mt-1 text-lg font-semibold text-zinc-950">{globalPrizes.length}</p>
+          </div>
+        </div>
       </div>
       {preview?.ranking_tie_policy === "automatic" && activeTiebreakers.length > 0 ? (
         <div className="border-b border-zinc-200 px-5 py-3 text-xs text-zinc-600">
@@ -2206,31 +2294,69 @@ function PrizePanel({
         </div>
       ) : null}
       {payouts.length > 0 ? (
-        <div className="grid divide-y divide-zinc-200 md:grid-cols-2 md:divide-x md:divide-y-0">
-          {rankingPayouts.map((payout) => (
-            <div key={`${payout.position}-${payout.description}`} className="px-5 py-4">
-              <p className="text-sm font-semibold text-zinc-950">
-                {payout.description || `Posicion ${payout.position}`}
-              </p>
-              <p className="mt-1 text-xs text-zinc-500">{payout.percentage}% de la bolsa</p>
-              <p className="mt-3 text-xl font-semibold text-zinc-950">
-                {formatMoney(payout.estimated_amount_cents, currency)}
-              </p>
-              {payout.winners.length > 0 ? (
-                <div className="mt-3 space-y-1 text-xs text-zinc-600">
-                  {payout.split ? (
-                    <p>Premio dividido entre {payout.winners.length} empatados.</p>
-                  ) : null}
-                  {payout.winners.map((winner) => (
-                    <p key={`${payout.position}-${winner.user_id}`}>
-                      {rankingDisplayName(winner)} ·{" "}
-                      {formatMoney(winner.estimated_amount_cents, currency)}
-                    </p>
-                  ))}
-                </div>
-              ) : null}
+        <div className="px-5 py-5">
+          <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h3 className="text-base font-semibold text-zinc-950">Premios por ranking</h3>
+              <p className="text-sm text-zinc-600">Se asignan segun la posicion final en la polla.</p>
             </div>
-          ))}
+            <span className="w-fit rounded-md bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-800">
+              {rankingPayouts.length} posiciones
+            </span>
+          </div>
+          <div className="grid gap-4 lg:grid-cols-3">
+            {rankingPayouts.map((payout) => (
+              <article
+                key={`${payout.position}-${payout.description}`}
+                className={`rounded-xl border p-4 shadow-sm ${
+                  payout.position === 1
+                    ? "border-emerald-200 bg-emerald-50/70"
+                    : "border-zinc-200 bg-white"
+                }`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-zinc-950">
+                      {payout.description || `Posicion ${payout.position}`}
+                    </p>
+                    <p className="mt-1 text-xs text-zinc-500">{payout.percentage}% de la bolsa</p>
+                  </div>
+                  <span className="rounded-full bg-white px-3 py-1 text-sm font-semibold text-zinc-950 shadow-sm">
+                    #{payout.position}
+                  </span>
+                </div>
+                <p className="mt-5 text-2xl font-semibold text-zinc-950">
+                  {formatMoney(payout.estimated_amount_cents, currency)}
+                </p>
+                {payout.winners.length > 0 ? (
+                  <div className="mt-4 space-y-2 text-xs text-zinc-600">
+                    {payout.split ? (
+                      <p className="rounded-md bg-white/80 px-3 py-2">
+                        Premio dividido entre {payout.winners.length} empatados.
+                      </p>
+                    ) : null}
+                    {payout.winners.map((winner) => (
+                      <div
+                        className="flex items-center justify-between gap-3 rounded-md bg-white/80 px-3 py-2"
+                        key={`${payout.position}-${winner.user_id}`}
+                      >
+                        <span className="min-w-0 truncate font-medium text-zinc-800">
+                          {rankingDisplayName(winner)}
+                        </span>
+                        <span className="shrink-0 font-semibold text-emerald-800">
+                          {formatMoney(winner.estimated_amount_cents, currency)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-4 rounded-md bg-zinc-50 px-3 py-2 text-xs text-zinc-500">
+                    Sin ganador asignado todavia.
+                  </p>
+                )}
+              </article>
+            ))}
+          </div>
         </div>
       ) : null}
       {globalPrizes.length > 0 ? (
@@ -2306,7 +2432,6 @@ function GlobalPredictionsPanel({
   onSave,
   onUpdateDraft,
   results,
-  saveMessage,
   savingDefinitionCode,
   tournament,
   userPredictions,
@@ -2320,7 +2445,6 @@ function GlobalPredictionsPanel({
     value: string,
   ) => void;
   results: GlobalPredictionResult[];
-  saveMessage: string;
   savingDefinitionCode: string;
   tournament: Tournament | null;
   userPredictions: GlobalPrediction[];
@@ -2357,15 +2481,10 @@ function GlobalPredictionsPanel({
         <div>
           <h2 className="text-lg font-semibold text-zinc-950">Predicciones globales</h2>
           <p className="mt-1 text-sm text-zinc-500">
-            {completedCount} de {enabledDefinitions.length} pronosticos completos.
+            {completedCount} de {enabledDefinitions.length} pronósticos completos.
           </p>
         </div>
         <span className="flex items-center gap-3 text-sm text-zinc-600">
-          {saveMessage ? (
-            <span className="hidden font-medium text-emerald-700 sm:inline" role="status">
-              {saveMessage}
-            </span>
-          ) : null}
           <span className="grid h-10 w-10 place-items-center rounded-full border border-zinc-200 text-base font-semibold">
             {open ? "⌃" : "⌄"}
           </span>
@@ -2576,7 +2695,7 @@ function GlobalPredictionInput({
   if (definition.value_type === "team" && teamOptions.length > 0) {
     return (
       <TeamAutocomplete
-        ariaLabel={`Pronostico global ${definition.label}`}
+        ariaLabel={`Pronóstico global ${definition.label}`}
         disabled={closed}
         label="Equipo"
         onChange={(value) => onUpdateDraft(definition.code, "valueText", value)}
@@ -2592,7 +2711,7 @@ function GlobalPredictionInput({
       <label className="grid gap-1 text-xs font-medium text-zinc-600">
         <span>Valor exacto</span>
         <input
-          aria-label={`Pronostico global ${definition.label}`}
+          aria-label={`Pronóstico global ${definition.label}`}
           className="h-10 rounded-md border border-zinc-300 px-3 text-sm text-zinc-950 disabled:bg-zinc-100"
           disabled={closed}
           min={0}
@@ -2613,7 +2732,7 @@ function GlobalPredictionInput({
         <label className="grid gap-1 text-xs font-medium text-zinc-600">
           <span>Desde</span>
           <input
-            aria-label={`Pronostico global desde ${definition.label}`}
+            aria-label={`Pronóstico global desde ${definition.label}`}
             className="h-10 rounded-md border border-zinc-300 px-3 text-sm text-zinc-950 disabled:bg-zinc-100"
             disabled={closed}
             min={0}
@@ -2626,7 +2745,7 @@ function GlobalPredictionInput({
         <label className="grid gap-1 text-xs font-medium text-zinc-600">
           <span>Hasta</span>
           <input
-            aria-label={`Pronostico global hasta ${definition.label}`}
+            aria-label={`Pronóstico global hasta ${definition.label}`}
             className="h-10 rounded-md border border-zinc-300 px-3 text-sm text-zinc-950 disabled:bg-zinc-100"
             disabled={closed}
             min={0}
@@ -2645,7 +2764,7 @@ function GlobalPredictionInput({
       <label className="grid gap-1 text-xs font-medium text-zinc-600">
         <span>Respuesta</span>
         <select
-          aria-label={`Pronostico global ${definition.label}`}
+          aria-label={`Pronóstico global ${definition.label}`}
           className="h-10 rounded-md border border-zinc-300 bg-white px-3 text-sm text-zinc-950 disabled:bg-zinc-100"
           disabled={closed}
           onChange={(event) =>
@@ -2665,7 +2784,7 @@ function GlobalPredictionInput({
     <label className="grid gap-1 text-xs font-medium text-zinc-600">
       <span>{definition.value_type === "team" ? "Equipo" : "Respuesta"}</span>
       <input
-        aria-label={`Pronostico global ${definition.label}`}
+        aria-label={`Pronóstico global ${definition.label}`}
         className="h-10 rounded-md border border-zinc-300 px-3 text-sm text-zinc-950 disabled:bg-zinc-100"
         disabled={closed}
         list={definition.value_type === "team" ? "global-team-options" : undefined}
@@ -2683,9 +2802,20 @@ function ParticipantsPanel({
   currentUserID: string;
   pool: Pool | null;
 }) {
+  const [participantSearch, setParticipantSearch] = useState("");
   if (!pool) {
     return null;
   }
+  const normalizedSearch = normalizeSearchText(participantSearch);
+  const filteredParticipants = normalizedSearch
+    ? pool.participants.filter((participant) =>
+        normalizeSearchText(
+          `${poolParticipantDisplayName(participant)} ${poolParticipantHandle(participant)} ${paymentStatusLabel(
+            participant.payment_status,
+          )}`,
+        ).includes(normalizedSearch),
+      )
+    : pool.participants;
 
   return (
     <section className="rounded-lg border border-zinc-200 bg-white shadow-sm" id="participantes">
@@ -2700,19 +2830,30 @@ function ParticipantsPanel({
           {pool.participants.length} {pool.participants.length === 1 ? "inscrito" : "inscritos"}
         </span>
       </div>
+      <div className="border-b border-zinc-200 px-5 py-4">
+        <label className="text-sm font-medium text-zinc-800" htmlFor="participants-search">
+          Buscar participante
+        </label>
+        <input
+          autoComplete="off"
+          className="mt-2 min-h-10 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
+          id="participants-search"
+          onChange={(event) => setParticipantSearch(event.target.value)}
+          placeholder="Filtrar por nombre, usuario o estado de pago"
+          type="text"
+          value={participantSearch}
+        />
+      </div>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[720px] border-collapse text-left text-sm">
+        <table className="w-full min-w-[520px] border-collapse text-left text-sm">
           <thead>
             <tr className="border-b border-zinc-200 text-xs uppercase text-zinc-500">
               <th className="px-5 py-3 font-medium">Participante</th>
-              <th className="px-5 py-3 font-medium">Rol</th>
               <th className="px-5 py-3 font-medium">Pago</th>
-              <th className="px-5 py-3 font-medium">Premio</th>
-              <th className="px-5 py-3 text-right font-medium">Ingreso</th>
             </tr>
           </thead>
           <tbody>
-            {pool.participants.map((participant) => (
+            {filteredParticipants.map((participant) => (
               <tr className="border-b border-zinc-100" key={participant.user_id}>
                 <td className="px-5 py-3">
                   <span className="flex min-w-0 flex-wrap items-center gap-2">
@@ -2729,22 +2870,20 @@ function ParticipantsPanel({
                     {poolParticipantHandle(participant)}
                   </span>
                 </td>
-                <td className="px-5 py-3 text-zinc-700">
-                  {participantRoleLabel(participant.role)}
-                </td>
                 <td className="px-5 py-3">
                   <span className="rounded-md bg-zinc-100 px-2 py-1 text-xs font-medium text-zinc-700">
                     {paymentStatusLabel(participant.payment_status)}
                   </span>
                 </td>
-                <td className="px-5 py-3 text-zinc-700">
-                  {participant.prize_eligible ? "Elegible" : "Sin premio"}
-                </td>
-                <td className="px-5 py-3 text-right text-zinc-500">
-                  {formatShortDate(participant.joined_at)}
-                </td>
               </tr>
             ))}
+            {filteredParticipants.length === 0 ? (
+              <tr>
+                <td className="px-5 py-5 text-sm text-zinc-600" colSpan={2}>
+                  No encontramos participantes con ese filtro.
+                </td>
+              </tr>
+            ) : null}
           </tbody>
         </table>
       </div>
@@ -2869,7 +3008,6 @@ function RankingPanel({
   loadingUserID,
   message,
   onSelectUser,
-  prizePreview,
   ranking,
   selectedUserID,
 }: {
@@ -2879,39 +3017,19 @@ function RankingPanel({
   loadingUserID: string;
   message: string;
   onSelectUser: (userID: string) => void;
-  prizePreview: PrizePreview | null;
   ranking: RankingEntry[];
   selectedUserID: string;
 }) {
   const [participantSearch, setParticipantSearch] = useState("");
-  const selectedEntry = ranking.find((entry) => entry.user_id === selectedUserID) ?? null;
-  const currentUserEntry = ranking.find((entry) => entry.user_id === currentUserID) ?? null;
   const selectedDetails = selectedUserID ? detailsByUserID[selectedUserID] : undefined;
   const selectedClosedPredictions = selectedUserID
     ? closedPredictionsByUserID[selectedUserID]
     : undefined;
   const isLoading = selectedUserID !== "" && loadingUserID === selectedUserID;
-  const participantOptions = ranking.map((entry) => ({
-    entry,
-    value: rankingSearchLabel(entry),
-  }));
-  const rankingPrizePayouts = buildRankingPrizePayouts(prizePreview, ranking);
-  const prizeCurrency = prizePreview?.currency ?? "COP";
-  const confirmedTotalCents = prizePreview?.confirmed_total_cents ?? 0;
-
-  function updateParticipantSearch(value: string) {
-    setParticipantSearch(value);
-    const normalizedValue = normalizeSearchText(value);
-    const option = participantOptions.find(
-      ({ entry, value: optionValue }) =>
-        normalizeSearchText(optionValue) === normalizedValue ||
-        normalizeSearchText(rankingDisplayName(entry)) === normalizedValue ||
-        normalizeSearchText(participantHandle(entry)) === normalizedValue,
-    );
-    if (option) {
-      onSelectUser(option.entry.user_id);
-    }
-  }
+  const normalizedSearch = normalizeSearchText(participantSearch);
+  const filteredRanking = normalizedSearch
+    ? ranking.filter((entry) => normalizeSearchText(rankingSearchLabel(entry)).includes(normalizedSearch))
+    : ranking;
 
   return (
     <section className="rounded-lg border border-zinc-200 bg-white shadow-sm" id="ranking">
@@ -2933,81 +3051,6 @@ function RankingPanel({
         </div>
       ) : (
         <div>
-          <div className="grid gap-4 border-b border-zinc-200 px-5 py-4 lg:grid-cols-[minmax(0,0.8fr)_minmax(300px,1fr)] lg:items-end">
-            <div className="rounded-lg border border-sky-100 bg-sky-50 px-4 py-3">
-              <p className="text-xs font-semibold uppercase text-sky-800">Tu posicion actual</p>
-              {currentUserEntry ? (
-                <div className="mt-2 grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3">
-                  <span className="text-3xl font-semibold text-sky-950">
-                    #{currentUserEntry.position}
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block truncate text-sm font-semibold text-zinc-950">
-                      {rankingDisplayName(currentUserEntry)}
-                    </span>
-                    <span className="text-xs text-zinc-600">
-                      {currentUserEntry.event_count} eventos puntuados
-                    </span>
-                  </span>
-                  <span className="text-right">
-                    <span className="block text-2xl font-semibold text-zinc-950">
-                      {currentUserEntry.points}
-                    </span>
-                    <span className="text-xs text-zinc-600">pts</span>
-                  </span>
-                </div>
-              ) : (
-                <p className="mt-2 text-sm text-sky-900">Aun no tienes puntos registrados.</p>
-              )}
-            </div>
-            <div className="rounded-lg border border-emerald-100 bg-emerald-50 px-4 py-3">
-              <p className="text-xs font-semibold uppercase text-emerald-800">Premios ranking</p>
-              <div className="mt-2 grid gap-3 sm:grid-cols-3">
-                <div>
-                  <p className="text-2xl font-semibold text-zinc-950">{ranking.length}</p>
-                  <p className="text-xs text-zinc-600">participantes</p>
-                </div>
-                <div>
-                  <p className="text-2xl font-semibold text-zinc-950">
-                    {rankingPrizePayouts.length}
-                  </p>
-                  <p className="text-xs text-zinc-600">posiciones premiadas</p>
-                </div>
-                <div>
-                  <p className="text-lg font-semibold text-zinc-950">
-                    {formatMoney(confirmedTotalCents, prizeCurrency)}
-                  </p>
-                  <p className="text-xs text-zinc-600">bolsa confirmada</p>
-                </div>
-              </div>
-              {rankingPrizePayouts.length > 0 ? (
-                <ul className="mt-3 grid gap-2">
-                  {rankingPrizePayouts.map((payout) => (
-                    <li
-                      className="flex items-center justify-between gap-3 rounded-md bg-white px-3 py-2 text-sm"
-                      key={`${payout.position}-${payout.description}`}
-                    >
-                      <span className="min-w-0">
-                        <span className="block truncate font-semibold text-zinc-950">
-                          {payout.description || `Posicion ${payout.position}`}
-                        </span>
-                        <span className="text-xs text-zinc-500">
-                          Puesto {payout.position} · {payout.percentage}%
-                        </span>
-                      </span>
-                      <span className="shrink-0 font-semibold text-emerald-800">
-                        {formatMoney(payout.estimated_amount_cents, prizeCurrency)}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="mt-3 text-sm text-emerald-900">
-                  Aun no hay premios de ranking configurados.
-                </p>
-              )}
-            </div>
-          </div>
           <div className="grid gap-4 border-b border-zinc-200 px-5 py-4">
             <div>
               <label className="text-sm font-medium text-zinc-800" htmlFor="ranking-search">
@@ -3017,48 +3060,33 @@ function RankingPanel({
                 autoComplete="off"
                 className="mt-2 min-h-10 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
                 id="ranking-search"
-                list="ranking-participant-options"
-                placeholder="Escribe nombre o usuario"
+                placeholder="Filtrar por nombre, usuario o posicion"
                 value={participantSearch}
-                onChange={(event) => updateParticipantSearch(event.target.value)}
+                onChange={(event) => setParticipantSearch(event.target.value)}
               />
-              <datalist id="ranking-participant-options">
-                {participantOptions.map(({ entry, value }) => (
-                  <option key={entry.user_id} value={value} />
-                ))}
-              </datalist>
-              <div className="mt-3 flex flex-wrap gap-2 text-xs text-zinc-600">
-                <span className="rounded-md bg-zinc-100 px-2 py-1">Busca y selecciona</span>
-                <span className="rounded-md bg-zinc-100 px-2 py-1">Ver puntos</span>
-                <span className="rounded-md bg-zinc-100 px-2 py-1">Solo pronosticos cerrados</span>
-              </div>
             </div>
           </div>
-          <div className="grid lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.8fr)]">
           <ol className="divide-y divide-zinc-100">
-            {ranking.map((entry) => {
+            {filteredRanking.map((entry) => {
               const isSelected = entry.user_id === selectedUserID;
               const isCurrentUser = entry.user_id === currentUserID;
               const displayName = rankingDisplayName(entry);
+              const entryDetails = isSelected ? selectedDetails : undefined;
+              const entryClosedPredictions = isSelected ? selectedClosedPredictions : undefined;
+
               return (
-                <li key={entry.user_id}>
+                <li className={isSelected ? "bg-emerald-50/60" : "bg-white"} key={entry.user_id}>
                   <button
+                    aria-expanded={isSelected}
                     aria-label={`Ver detalle de ${displayName}`}
-                    aria-pressed={isSelected}
-                    className={`grid min-h-16 w-full grid-cols-[3rem_minmax(0,1fr)_auto] items-center gap-3 px-5 py-3 text-left text-sm transition ${
-                      isSelected
-                        ? "bg-emerald-50 text-emerald-950"
-                        : "bg-white text-zinc-700 hover:bg-zinc-50"
-                    }`}
+                    className="grid min-h-20 w-full grid-cols-[3.5rem_minmax(0,1fr)_auto] items-center gap-3 px-5 py-4 text-left text-sm transition hover:bg-zinc-50"
                     onClick={() => onSelectUser(entry.user_id)}
                     type="button"
                   >
-                    <span className="text-lg font-semibold text-zinc-950">
-                      {entry.position}
-                    </span>
+                    <span className="text-2xl font-semibold text-zinc-950">#{entry.position}</span>
                     <span className="min-w-0">
                       <span className="flex min-w-0 flex-wrap items-center gap-2">
-                        <span className="truncate font-semibold text-zinc-950">
+                        <span className="truncate text-base font-semibold text-zinc-950">
                           {displayName}
                         </span>
                         {isCurrentUser ? (
@@ -3068,121 +3096,116 @@ function RankingPanel({
                         ) : null}
                       </span>
                       <span className="mt-1 block truncate text-xs text-zinc-500">
-                        {participantHandle(entry)} - {paymentStatusLabel(entry.payment_status)} -{" "}
-                        {entry.prize_eligible ? "Elegible a premio" : "Sin premio"}
+                        {participantHandle(entry)} · {entry.event_count} eventos puntuados
                       </span>
                     </span>
                     <span className="text-right">
-                      <span className="block text-xl font-semibold text-zinc-950">
+                      <span className="block text-2xl font-semibold text-zinc-950">
                         {entry.points}
                       </span>
                       <span className="text-xs font-medium text-zinc-500">pts</span>
                     </span>
                   </button>
+
+                  {isSelected ? (
+                    <div className="grid gap-4 border-t border-emerald-100 px-5 pb-5 pt-4 lg:grid-cols-2">
+                      <div className="rounded-md border border-zinc-200 bg-white p-4">
+                        <h3 className="text-sm font-semibold text-zinc-950">Detalle de puntos</h3>
+                        {message ? (
+                          <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                            {message}
+                          </p>
+                        ) : null}
+                        {isLoading ? (
+                          <p className="mt-3 text-sm text-zinc-600">Cargando detalle...</p>
+                        ) : null}
+                        {!isLoading && entryDetails?.length === 0 ? (
+                          <p className="mt-3 text-sm leading-6 text-zinc-600">
+                            Este participante aún no tiene puntos detallados.
+                          </p>
+                        ) : null}
+                        {!isLoading && entryDetails && entryDetails.length > 0 ? (
+                          <ul className="mt-4 divide-y divide-zinc-100 rounded-md border border-zinc-200">
+                            {entryDetails.map((detail) => (
+                              <li
+                                className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 px-3 py-3 text-sm"
+                                key={`${
+                                  detail.prediction_id ||
+                                  detail.standing_prediction_id ||
+                                  detail.global_prediction_id
+                                }-${detail.rule_code}-${detail.created_at}`}
+                              >
+                                <span className="min-w-0">
+                                  <span className="block font-semibold text-zinc-950">
+                                    {pointEventTitle(detail)}
+                                  </span>
+                                  <span className="mt-1 block text-xs text-zinc-500">
+                                    {scoringRuleLabel(detail.rule_code)} - {detail.explanation}
+                                  </span>
+                                </span>
+                                <span className="text-right">
+                                  <span className="block font-semibold text-emerald-800">
+                                    {formatRankingPoints(detail.points)}
+                                  </span>
+                                  <span className="text-xs text-zinc-500">pts</span>
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : null}
+                      </div>
+
+                      <div className="rounded-md border border-zinc-200 bg-white p-4">
+                        <h3 className="text-sm font-semibold text-zinc-950">
+                          Pronósticos cerrados
+                        </h3>
+                        <p className="mt-1 text-xs text-zinc-500">
+                          Solo se muestran partidos cuyo cierre ya paso.
+                        </p>
+                        {isLoading ? (
+                          <p className="mt-3 text-sm text-zinc-600">Cargando pronósticos...</p>
+                        ) : null}
+                        {!isLoading && entryClosedPredictions?.length === 0 ? (
+                          <p className="mt-3 text-sm leading-6 text-zinc-600">
+                            Este participante no tiene pronósticos cerrados visibles.
+                          </p>
+                        ) : null}
+                        {!isLoading &&
+                        entryClosedPredictions &&
+                        entryClosedPredictions.length > 0 ? (
+                          <ul className="mt-3 divide-y divide-zinc-100 rounded-md border border-zinc-200">
+                            {entryClosedPredictions.map((prediction) => (
+                              <li className="px-3 py-3 text-sm" key={prediction.id}>
+                                <div className="flex items-start justify-between gap-3">
+                                  <span className="min-w-0">
+                                    <span className="block font-semibold text-zinc-950">
+                                      {closedPredictionTitle(prediction)}
+                                    </span>
+                                    <span className="mt-1 block text-xs text-zinc-500">
+                                      {prediction.stage_name || prediction.group_name || "Partido"} -{" "}
+                                      {formatMatchDate(prediction.starts_at)}
+                                    </span>
+                                  </span>
+                                  <span className="shrink-0 rounded-md bg-zinc-100 px-2 py-1 text-xs font-semibold text-zinc-800">
+                                    {closedPredictionValue(prediction)}
+                                  </span>
+                                </div>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : null}
+                      </div>
+                    </div>
+                  ) : null}
                 </li>
               );
             })}
+            {filteredRanking.length === 0 ? (
+              <li className="px-5 py-5 text-sm text-zinc-600">
+                No encontramos participantes con ese filtro.
+              </li>
+            ) : null}
           </ol>
-
-          <div className="border-t border-zinc-200 px-5 py-4 lg:border-l lg:border-t-0">
-            <h3 className="text-sm font-semibold text-zinc-950">Detalle de puntos</h3>
-            {message ? (
-              <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                {message}
-              </p>
-            ) : null}
-            {!selectedEntry ? (
-              <p className="mt-3 text-sm leading-6 text-zinc-600">
-                Selecciona un participante para revisar de donde salieron sus puntos.
-              </p>
-            ) : null}
-            {selectedEntry ? (
-              <div className="mt-3">
-                <p className="text-sm font-semibold text-zinc-950">
-                  {rankingDisplayName(selectedEntry)}
-                </p>
-                <p className="text-xs text-zinc-500">
-                  {selectedEntry.event_count} eventos puntuados
-                </p>
-              </div>
-            ) : null}
-            {isLoading ? (
-              <p className="mt-3 text-sm text-zinc-600">Cargando detalle...</p>
-            ) : null}
-            {!isLoading && selectedEntry && selectedDetails?.length === 0 ? (
-              <p className="mt-3 text-sm leading-6 text-zinc-600">
-                Este participante aun no tiene puntos detallados.
-              </p>
-            ) : null}
-            {!isLoading && selectedDetails && selectedDetails.length > 0 ? (
-              <ul className="mt-4 divide-y divide-zinc-100 rounded-md border border-zinc-200">
-                {selectedDetails.map((detail) => (
-                  <li
-                    className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 px-3 py-3 text-sm"
-                    key={`${
-                      detail.prediction_id ||
-                      detail.standing_prediction_id ||
-                      detail.global_prediction_id
-                    }-${detail.rule_code}-${detail.created_at}`}
-                  >
-                    <span className="min-w-0">
-                      <span className="block font-semibold text-zinc-950">
-                        {pointEventTitle(detail)}
-                      </span>
-                      <span className="mt-1 block text-xs text-zinc-500">
-                        {scoringRuleLabel(detail.rule_code)} - {detail.explanation}
-                      </span>
-                    </span>
-                    <span className="text-right">
-                      <span className="block font-semibold text-emerald-800">
-                        {formatRankingPoints(detail.points)}
-                      </span>
-                      <span className="text-xs text-zinc-500">pts</span>
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-            {selectedEntry ? (
-              <div className="mt-5 border-t border-zinc-200 pt-4">
-                <h3 className="text-sm font-semibold text-zinc-950">Pronosticos cerrados</h3>
-                <p className="mt-1 text-xs text-zinc-500">
-                  Solo se muestran partidos cuyo cierre ya paso.
-                </p>
-                {isLoading ? (
-                  <p className="mt-3 text-sm text-zinc-600">Cargando pronosticos...</p>
-                ) : null}
-                {!isLoading && selectedClosedPredictions?.length === 0 ? (
-                  <p className="mt-3 text-sm leading-6 text-zinc-600">
-                    Este participante no tiene pronosticos cerrados visibles.
-                  </p>
-                ) : null}
-                {!isLoading && selectedClosedPredictions && selectedClosedPredictions.length > 0 ? (
-                  <ul className="mt-3 divide-y divide-zinc-100 rounded-md border border-zinc-200">
-                    {selectedClosedPredictions.map((prediction) => (
-                      <li className="px-3 py-3 text-sm" key={prediction.id}>
-                        <div className="flex items-start justify-between gap-3">
-                          <span className="min-w-0">
-                            <span className="block font-semibold text-zinc-950">
-                              {closedPredictionTitle(prediction)}
-                            </span>
-                            <span className="mt-1 block text-xs text-zinc-500">
-                              {prediction.stage_name || prediction.group_name || "Partido"} -{" "}
-                              {formatMatchDate(prediction.starts_at)}
-                            </span>
-                          </span>
-                          <span className="shrink-0 rounded-md bg-zinc-100 px-2 py-1 text-xs font-semibold text-zinc-800">
-                            {closedPredictionValue(prediction)}
-                          </span>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                ) : null}
-              </div>
-            ) : null}
-          </div>
-        </div>
         </div>
       )}
     </section>
@@ -3206,7 +3229,6 @@ function PredictionList({
   predictionGroups,
   predictionsByMatch,
   predictionStatusesByMatch,
-  saveMessage,
   savingMatchID,
   savingStandingGroupID,
   snapshotDownloadingMatchID,
@@ -3215,7 +3237,6 @@ function PredictionList({
   snapshotsByMatchID,
   standingDrafts,
   standingPredictionsByGroup,
-  standingSaveMessage,
   tournament,
 }: {
   clockTick: number;
@@ -3234,7 +3255,6 @@ function PredictionList({
   predictionGroups: PredictionGroup[];
   predictionsByMatch: Map<string, Prediction>;
   predictionStatusesByMatch: Map<string, PredictionMatchStatus>;
-  saveMessage: string;
   savingMatchID: string;
   savingStandingGroupID: string;
   snapshotDownloadingMatchID: string;
@@ -3243,7 +3263,6 @@ function PredictionList({
   snapshotsByMatchID: Record<string, PredictionSnapshot>;
   standingDrafts: StandingDrafts;
   standingPredictionsByGroup: Map<string, StandingPrediction>;
-  standingSaveMessage: string;
   tournament: Tournament | null;
 }) {
   const [open, setOpen] = useState(false);
@@ -3268,7 +3287,7 @@ function PredictionList({
       <StatusState
         id="pronosticos"
         title="Fixture sin partidos"
-        message="Este torneo aun no tiene partidos configurados para pronosticar."
+        message="Este torneo aún no tiene partidos configurados para pronosticar."
       />
     );
   }
@@ -3302,16 +3321,6 @@ function PredictionList({
           </p>
         </div>
         <span className="flex items-center gap-3 text-sm text-zinc-600">
-          {saveMessage ? (
-            <span className="hidden font-medium text-emerald-700 sm:inline" role="status">
-              {saveMessage}
-            </span>
-          ) : null}
-          {standingSaveMessage ? (
-            <span className="hidden font-medium text-emerald-700 sm:inline" role="status">
-              {standingSaveMessage}
-            </span>
-          ) : null}
           <span className="grid h-10 w-10 place-items-center rounded-full border border-zinc-200 text-base font-semibold">
             {open ? "⌃" : "⌄"}
           </span>
@@ -3425,6 +3434,11 @@ function PredictionList({
                       standingDrafts,
                     ),
                   )}
+                  showGoalColumns={shouldShowStandingGoalColumns(
+                    group,
+                    pool,
+                    effectiveMatchSettingsByMatch,
+                  )}
                 />
               </div>
             ) : null}
@@ -3446,6 +3460,7 @@ function StandingOrderEditor({
   onMove,
   onSave,
   rows,
+  showGoalColumns,
 }: {
   group: PredictionGroup;
   isClosed: boolean;
@@ -3453,6 +3468,7 @@ function StandingOrderEditor({
   onMove: (group: PredictionGroup, teamID: string, direction: -1 | 1) => void;
   onSave: (group: PredictionGroup) => void;
   rows: SuggestedStandingRow[];
+  showGoalColumns: boolean;
 }) {
   return (
     <div className="px-5 py-4">
@@ -3465,7 +3481,7 @@ function StandingOrderEditor({
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <span className="rounded-md bg-zinc-100 px-2 py-1 text-xs font-medium text-zinc-600">
-            PJ, PTS, GF, GC y DG sugeridos
+            {showGoalColumns ? "PJ, PTS, GF, GC y DG sugeridos" : "PJ y PTS sugeridos"}
           </span>
           <span
             className={`w-fit rounded-md px-2 py-1 text-xs font-medium ${
@@ -3500,9 +3516,13 @@ function StandingOrderEditor({
             <dl className="mt-3 grid grid-cols-5 gap-1 text-center text-xs">
               <StandingMobileMetric label="PJ" value={row.played} />
               <StandingMobileMetric label="Pts" value={row.points} />
-              <StandingMobileMetric label="GF" value={row.goalsFor} />
-              <StandingMobileMetric label="GC" value={row.goalsAgainst} />
-              <StandingMobileMetric label="DG" value={formatGoalDifference(row.goalDifference)} />
+              {showGoalColumns ? (
+                <>
+                  <StandingMobileMetric label="GF" value={row.goalsFor} />
+                  <StandingMobileMetric label="GC" value={row.goalsAgainst} />
+                  <StandingMobileMetric label="DG" value={formatGoalDifference(row.goalDifference)} />
+                </>
+              ) : null}
             </dl>
             <div className="mt-3 grid grid-cols-2 gap-2">
               <button
@@ -3528,16 +3548,20 @@ function StandingOrderEditor({
         ))}
       </div>
       <div className="hidden overflow-x-auto rounded-md border border-zinc-200 sm:block">
-        <table className="w-full min-w-[760px] border-collapse text-left text-sm">
+        <table className={`w-full border-collapse text-left text-sm ${showGoalColumns ? "min-w-[760px]" : "min-w-[600px]"}`}>
           <thead>
             <tr className="bg-zinc-50 text-xs uppercase text-zinc-500">
               <th className="w-12 px-3 py-3 font-medium">#</th>
               <th className="px-3 py-3 font-medium">Equipo</th>
               <th className="px-3 py-3 text-right font-medium">PJ</th>
               <th className="px-3 py-3 text-right font-medium">Pts</th>
-              <th className="px-3 py-3 text-right font-medium">GF</th>
-              <th className="px-3 py-3 text-right font-medium">GC</th>
-              <th className="px-3 py-3 text-right font-medium">DG</th>
+              {showGoalColumns ? (
+                <>
+                  <th className="px-3 py-3 text-right font-medium">GF</th>
+                  <th className="px-3 py-3 text-right font-medium">GC</th>
+                  <th className="px-3 py-3 text-right font-medium">DG</th>
+                </>
+              ) : null}
               <th className="px-3 py-3 text-right font-medium">Estado</th>
               <th className="px-3 py-3 text-right font-medium">Orden</th>
             </tr>
@@ -3554,11 +3578,15 @@ function StandingOrderEditor({
                 <td className="px-3 py-3 text-right font-semibold text-zinc-950">
                   {row.points}
                 </td>
-                <td className="px-3 py-3 text-right text-zinc-700">{row.goalsFor}</td>
-                <td className="px-3 py-3 text-right text-zinc-700">{row.goalsAgainst}</td>
-                <td className="px-3 py-3 text-right text-zinc-700">
-                  {formatGoalDifference(row.goalDifference)}
-                </td>
+                {showGoalColumns ? (
+                  <>
+                    <td className="px-3 py-3 text-right text-zinc-700">{row.goalsFor}</td>
+                    <td className="px-3 py-3 text-right text-zinc-700">{row.goalsAgainst}</td>
+                    <td className="px-3 py-3 text-right text-zinc-700">
+                      {formatGoalDifference(row.goalDifference)}
+                    </td>
+                  </>
+                ) : null}
                 <td className="px-3 py-3 text-right">
                   <span
                     className={`rounded-md px-2 py-1 text-xs font-medium ${
@@ -3618,6 +3646,17 @@ function StandingMobileMetric({ label, value }: { label: string; value: number |
       <dd className="mt-1 font-semibold text-zinc-950">{value}</dd>
     </div>
   );
+}
+
+function shouldShowStandingGoalColumns(
+  group: PredictionGroup,
+  pool: Pool | null,
+  effectiveMatchSettingsByMatch: Map<string, EffectiveMatchPredictionSettings>,
+) {
+  return group.matches.some((match) => {
+    const mode = effectiveMatchSettingsByMatch.get(match.id)?.prediction_mode ?? pool?.prediction_mode;
+    return mode !== "outcome";
+  });
 }
 
 function MetricItem({ label, value }: { label: string; value: number | string }) {
@@ -4013,11 +4052,11 @@ function PredictionSnapshotPanel({
     <div className="mt-4 rounded-md border border-zinc-200 bg-zinc-50 p-3">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h4 className="text-sm font-semibold text-zinc-950">Pronosticos cerrados</h4>
+          <h4 className="text-sm font-semibold text-zinc-950">Pronósticos cerrados</h4>
           <p className="mt-1 text-xs text-zinc-500">
             {snapshot
               ? `${snapshot.row_count} participantes - checksum ${snapshot.checksum.slice(0, 10)}`
-              : "Disponibles para auditoria cuando el partido ya cerro."}
+              : "Disponibles para auditoría cuando el partido ya cerró."}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -4027,7 +4066,7 @@ function PredictionSnapshotPanel({
             onClick={onLoad}
             type="button"
           >
-            {loadInProgress ? "Cargando..." : snapshot ? "Actualizar vista" : "Ver pronosticos"}
+            {loadInProgress ? "Cargando..." : snapshot ? "Actualizar vista" : "Ver pronósticos"}
           </button>
           <button
             className="rounded-md bg-zinc-950 px-3 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-400"
@@ -4057,7 +4096,7 @@ function PredictionSnapshotTable({ snapshot }: { snapshot: PredictionSnapshot })
           <tr className="border-y border-zinc-200 text-xs uppercase text-zinc-500">
             <th className="py-2 pr-3 font-medium">Participante</th>
             <th className="py-2 pr-3 font-medium">Estado</th>
-            <th className="py-2 pr-3 text-right font-medium">Pronostico</th>
+            <th className="py-2 pr-3 text-right font-medium">Pronóstico</th>
             <th className="py-2 text-right font-medium">Actualizado</th>
           </tr>
         </thead>
@@ -4078,7 +4117,7 @@ function PredictionSnapshotTable({ snapshot }: { snapshot: PredictionSnapshot })
                       : "bg-zinc-100 text-zinc-600"
                   }`}
                 >
-                  {entry.has_prediction ? "Pronosticado" : "Sin pronostico"}
+                  {entry.has_prediction ? "Pronosticado" : "Sin pronóstico"}
                 </span>
               </td>
               <td className="py-2 pr-3 text-right font-semibold text-zinc-950">
@@ -4099,7 +4138,7 @@ function LoadingState() {
   return (
     <StatusState
       title="Cargando tus pollas"
-      message="Estamos consultando tus pronosticos."
+      message="Estamos consultando tus pronósticos."
     />
   );
 }
@@ -4189,9 +4228,9 @@ function isPredictionClosedError(error: unknown) {
 
 function snapshotErrorMessage(error: unknown) {
   if (error instanceof PollavarAPIError && error.code === "prediction_open") {
-    return "Los pronosticos de este partido aun no han cerrado.";
+    return "Los pronósticos de este partido aún no han cerrado.";
   }
-  return "No pudimos cargar los pronosticos cerrados.";
+  return "No pudimos cargar los pronósticos cerrados.";
 }
 
 function predictionSnapshotScore(entry: PredictionSnapshot["entries"][number]) {
@@ -4552,7 +4591,8 @@ function buildSuggestedStandings(matches: Match[], predictionsByMatch: Map<strin
     ensureStandingRow(rowsByTeam, match.away_team, match.away_slot).expectedMatches += 1;
 
     const prediction = predictionsByMatch.get(match.id);
-    if (!prediction || !predictionHasScore(prediction)) {
+    const impliedScore = prediction ? standingScoreFromPrediction(prediction) : null;
+    if (!impliedScore) {
       continue;
     }
 
@@ -4564,14 +4604,14 @@ function buildSuggestedStandings(matches: Match[], predictionsByMatch: Map<strin
 
     homeRow.played += 1;
     awayRow.played += 1;
-    homeRow.goalsFor += prediction.home_score;
-    homeRow.goalsAgainst += prediction.away_score;
-    awayRow.goalsFor += prediction.away_score;
-    awayRow.goalsAgainst += prediction.home_score;
+    homeRow.goalsFor += impliedScore.home;
+    homeRow.goalsAgainst += impliedScore.away;
+    awayRow.goalsFor += impliedScore.away;
+    awayRow.goalsAgainst += impliedScore.home;
 
-    if (prediction.home_score > prediction.away_score) {
+    if (impliedScore.home > impliedScore.away) {
       homeRow.points += 3;
-    } else if (prediction.home_score < prediction.away_score) {
+    } else if (impliedScore.home < impliedScore.away) {
       awayRow.points += 3;
     } else {
       homeRow.points += 1;
@@ -4621,6 +4661,23 @@ function hasStandingContext(match: Match) {
     stageName.includes("regular") ||
     stageName.includes("round robin")
   );
+}
+
+function standingScoreFromPrediction(prediction: Prediction) {
+  if (predictionHasScore(prediction)) {
+    return { home: prediction.home_score, away: prediction.away_score };
+  }
+
+  switch (matchOutcomeValue(prediction.outcome)) {
+    case "home":
+      return { home: 1, away: 0 };
+    case "away":
+      return { home: 0, away: 1 };
+    case "draw":
+      return { home: 0, away: 0 };
+    default:
+      return null;
+  }
 }
 
 function uniqueStandingTeamKeys(matches: Match[]) {

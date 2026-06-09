@@ -6,7 +6,7 @@ export default function ParticipantsRegisterPage() {
       appName="PollaVAR Participantes"
       mode="register"
       alternateHref="/login"
-      alternateLabel="Iniciar sesion"
+      alternateLabel="Iniciar sesión"
     />
   );
 }
