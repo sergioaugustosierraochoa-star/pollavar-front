@@ -3,6 +3,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import ParticipantsLoginPage from "./login/page";
 import ParticipantsRegisterPage from "./register/page";
 
+const routerMock = vi.hoisted(() => ({
+  replace: vi.fn(),
+}));
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => routerMock,
+}));
+
 const authPayload = {
   data: {
     user: {
@@ -21,6 +29,7 @@ const authPayload = {
 describe("Participants auth form", () => {
   afterEach(() => {
     window.localStorage.clear();
+    routerMock.replace.mockClear();
     vi.unstubAllGlobals();
   });
 
@@ -32,16 +41,14 @@ describe("Participants auth form", () => {
     fireEvent.change(screen.getByLabelText("Usuario o correo"), {
       target: { value: "participante@example.com" },
     });
-    fireEvent.change(screen.getByLabelText("Contraseña"), {
+    fireEvent.change(screen.getByPlaceholderText("Contraseña"), {
       target: { value: "supersecret" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Iniciar sesión" }));
 
     expect(screen.getByRole("button", { name: "Enviando" })).toBeDisabled();
     await waitFor(() => {
-      expect(screen.getByRole("status")).toHaveTextContent(
-        "Sesion lista para participante.",
-      );
+      expect(routerMock.replace).toHaveBeenCalledWith("/");
     });
 
     expect(
@@ -83,15 +90,13 @@ describe("Participants auth form", () => {
     fireEvent.change(screen.getByLabelText("Correo"), {
       target: { value: "participante@example.com" },
     });
-    fireEvent.change(screen.getByLabelText("Contraseña"), {
+    fireEvent.change(screen.getByPlaceholderText("Contraseña"), {
       target: { value: "supersecret" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Crear cuenta" }));
 
     await waitFor(() => {
-      expect(screen.getByRole("alert")).toHaveTextContent(
-        "No pudimos completar la solicitud.",
-      );
+      expect(screen.getByRole("alert")).toHaveTextContent("Credenciales inválidas");
     });
 
     expect(window.localStorage.getItem("pollavar.participants.session")).toBeNull();

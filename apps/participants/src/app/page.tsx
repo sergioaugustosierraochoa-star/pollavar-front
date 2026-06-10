@@ -675,13 +675,17 @@ export function ParticipantsApp({
     setJoiningPool(true);
     setMessage("");
     try {
-      const joinedPool = await createPollavarClient().joinPool(session.token, {
+      const joinResult = await createPollavarClient().joinPool(session.token, {
         invite_code: inviteCode,
       });
       setJoinInviteCode("");
-      await loadDashboard(session.token, joinedPool.id);
-      setMessage("Te uniste a la polla.");
-      router.push(`/pools/${joinedPool.id}`);
+      if (joinResult.status === "approved") {
+        await loadDashboard(session.token, joinResult.request.pool_id);
+        setMessage("Ya tienes acceso a esta polla.");
+        router.push(`/pools/${joinResult.request.pool_id}`);
+        return;
+      }
+      setMessage("Solicitud enviada. El administrador debe aprobar tu ingreso.");
     } catch (error) {
       if (isUnauthorizedError(error)) {
         signOutParticipant();

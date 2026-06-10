@@ -18,6 +18,7 @@ import {
   type PaymentCollection,
   type PointEventDetail,
   type Pool,
+  type PoolJoinRequest,
   type EffectiveMatchPredictionSettings,
   type PredictionSettingsOverride,
   type PredictionMatchStatus,
@@ -162,6 +163,18 @@ const pool: Pool = {
     updated_at: "2026-05-27T01:00:00Z",
   },
   participants: [],
+};
+
+const poolJoinRequest: PoolJoinRequest = {
+  id: "join-request-id",
+  pool_id: "pool-id",
+  user_id: "user-id",
+  user_name: "Admin",
+  username: "admin",
+  status: "pending",
+  requested_at: "2026-05-27T01:00:00Z",
+  reviewed_at: null,
+  reviewed_by_id: "",
 };
 
 const predictionSummary: PredictionSummary = {
@@ -862,7 +875,16 @@ describe("createPollavarClient", () => {
         return jsonResponse({ data: pool });
       }
       if (value.endsWith("/api/v1/pools/join")) {
-        return jsonResponse({ data: pool });
+        return jsonResponse({ data: { status: "pending", request: poolJoinRequest } });
+      }
+      if (value.endsWith("/join-requests/join-request-id/approve")) {
+        return jsonResponse({ data: { ...poolJoinRequest, status: "approved" } });
+      }
+      if (value.endsWith("/join-requests/join-request-id/reject")) {
+        return jsonResponse({ data: { ...poolJoinRequest, status: "rejected" } });
+      }
+      if (value.endsWith("/join-requests")) {
+        return jsonResponse({ data: [poolJoinRequest] });
       }
       if (value.endsWith("/api/v1/pools")) {
         return jsonResponse({ data: [pool] });
@@ -1041,7 +1063,19 @@ describe("createPollavarClient", () => {
         prediction_close_hours_before: 6,
       }),
     ).resolves.toEqual(pool);
-    await expect(client.joinPool("token", { invite_code: "ABC123" })).resolves.toEqual(pool);
+    await expect(client.joinPool("token", { invite_code: "ABC123" })).resolves.toEqual({
+      status: "pending",
+      request: poolJoinRequest,
+    });
+    await expect(client.listPoolJoinRequests("token", "pool id")).resolves.toEqual([
+      poolJoinRequest,
+    ]);
+    await expect(
+      client.approvePoolJoinRequest("token", "pool id", "join-request-id"),
+    ).resolves.toMatchObject({ status: "approved" });
+    await expect(
+      client.rejectPoolJoinRequest("token", "pool id", "join-request-id"),
+    ).resolves.toMatchObject({ status: "rejected" });
 
     expect(fetcher).toHaveBeenCalledWith(
       "http://api.local/api/v1/pools",

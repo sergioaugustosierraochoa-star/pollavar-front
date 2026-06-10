@@ -683,6 +683,7 @@ describe("Admin home", () => {
     render(<AdminHome />);
 
     expect(await screen.findByRole("heading", { name: "Oficina FC" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "AAdmin" }));
     fireEvent.click(screen.getByRole("button", { name: "Salir" }));
 
     expect(window.localStorage.getItem("pollavar.admin.session")).toBeNull();
@@ -1357,7 +1358,7 @@ describe("Admin home", () => {
 
     fireEvent.click(
       within(standingsSection as HTMLElement).getByRole("button", {
-        name: "Ver auditoria",
+        name: "Ver auditoría",
       }),
     );
 
@@ -2111,7 +2112,7 @@ describe("Admin home", () => {
     for (const button of screen.getAllByRole("button", { name: "Confirmar" })) {
       expect(button).toBeDisabled();
     }
-    for (const button of screen.getAllByRole("button", { name: "Ver auditoria" })) {
+    for (const button of screen.getAllByRole("button", { name: "Ver auditoría" })) {
       expect(button).toBeDisabled();
     }
     expect(fetcher).not.toHaveBeenCalledWith(
@@ -2608,6 +2609,12 @@ async function adminFetch(url: RequestInfo | URL, init?: RequestInit) {
     return jsonResponse({ data: globalPrizePreview });
   }
   if (value.endsWith("/api/v1/pools/pool-id/ranking-tiebreakers") && init?.method === "GET") {
+    return jsonResponse({ data: [] });
+  }
+  if (
+    value.endsWith("/api/v1/pools/pool-id/join-requests") &&
+    (!init?.method || init.method === "GET")
+  ) {
     return jsonResponse({ data: [] });
   }
   if (

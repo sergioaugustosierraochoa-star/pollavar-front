@@ -283,6 +283,25 @@ export type JoinPoolInput = {
   invite_code: string;
 };
 
+export type PoolJoinRequestStatus = "pending" | "approved" | "rejected";
+
+export type PoolJoinRequest = {
+  id: string;
+  pool_id: string;
+  user_id: string;
+  user_name: string;
+  username: string;
+  status: PoolJoinRequestStatus;
+  requested_at: string;
+  reviewed_at: string | null;
+  reviewed_by_id: string;
+};
+
+export type JoinPoolResult = {
+  status: PoolJoinRequestStatus;
+  request: PoolJoinRequest;
+};
+
 export type PaymentMethod = "cash" | "bank_transfer" | "deposit";
 export type PaymentStatus = "pending" | "confirmed" | "rejected";
 
@@ -1073,11 +1092,41 @@ export function createPollavarClient(options: PollavarClientOptions = {}) {
       });
     },
     joinPool(token: string, input: JoinPoolInput) {
-      return request<Pool>(fetcher, `${baseURL}/api/v1/pools/join`, {
+      return request<JoinPoolResult>(fetcher, `${baseURL}/api/v1/pools/join`, {
         method: "POST",
         body: JSON.stringify(input),
         headers: authHeaders(token),
       });
+    },
+    listPoolJoinRequests(token: string, poolID: string) {
+      return request<PoolJoinRequest[]>(
+        fetcher,
+        `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/join-requests`,
+        {
+          method: "GET",
+          headers: authHeaders(token),
+        },
+      );
+    },
+    approvePoolJoinRequest(token: string, poolID: string, requestID: string) {
+      return request<PoolJoinRequest>(
+        fetcher,
+        `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/join-requests/${encodeURIComponent(requestID)}/approve`,
+        {
+          method: "POST",
+          headers: authHeaders(token),
+        },
+      );
+    },
+    rejectPoolJoinRequest(token: string, poolID: string, requestID: string) {
+      return request<PoolJoinRequest>(
+        fetcher,
+        `${baseURL}/api/v1/pools/${encodeURIComponent(poolID)}/join-requests/${encodeURIComponent(requestID)}/reject`,
+        {
+          method: "POST",
+          headers: authHeaders(token),
+        },
+      );
     },
     getPool(token: string, poolID: string) {
       return request<Pool>(

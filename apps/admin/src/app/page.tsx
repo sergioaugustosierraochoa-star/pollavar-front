@@ -33,6 +33,7 @@ import {
   type PaymentMethod,
   type PaymentStatus,
   type Pool,
+  type PoolJoinRequest,
   type PoolParticipant,
   type PoolTheme,
   type PredictionSettingsOverride,
@@ -341,6 +342,7 @@ export default function AdminHome() {
   const [tournament, setTournament] = useState<Tournament | null>(null);
   const [predictionStatuses, setPredictionStatuses] = useState<PredictionMatchStatus[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
+  const [joinRequests, setJoinRequests] = useState<PoolJoinRequest[]>([]);
   const [ranking, setRanking] = useState<RankingEntry[]>([]);
   const [rankingTiebreakers, setRankingTiebreakers] = useState<RankingTiebreaker[]>([]);
   const [rankingManualTiebreakers, setRankingManualTiebreakers] = useState<
@@ -422,6 +424,7 @@ export default function AdminHome() {
   const [loadingOfficialStandingAuditScope, setLoadingOfficialStandingAuditScope] = useState("");
   const [savingTiebreakers, setSavingTiebreakers] = useState(false);
   const [savingUserID, setSavingUserID] = useState("");
+  const [reviewingJoinRequestID, setReviewingJoinRequestID] = useState("");
   const [savingBonusMatchID, setSavingBonusMatchID] = useState("");
   const [savingGlobalDefinitions, setSavingGlobalDefinitions] = useState(false);
   const [savingGlobalTemplateCode, setSavingGlobalTemplateCode] = useState("");
@@ -544,6 +547,10 @@ export default function AdminHome() {
     () => filterParticipantsByPaymentStatus(pool?.participants ?? [], paymentsByUserID, paymentStatusFilter),
     [pool?.participants, paymentsByUserID, paymentStatusFilter],
   );
+  const pendingJoinRequests = useMemo(
+    () => joinRequests.filter((request) => request.status === "pending"),
+    [joinRequests],
+  );
   const rankingPrizePayouts = useMemo(
     () => buildRankingPrizePayouts(prizePreview, ranking),
     [prizePreview, ranking],
@@ -584,6 +591,7 @@ export default function AdminHome() {
     setTournament(null);
     setPredictionStatuses([]);
     setPayments([]);
+    setJoinRequests([]);
     setRanking([]);
     setPaymentCurrency("COP");
     setPaymentStatusFilter("all");
@@ -621,6 +629,7 @@ export default function AdminHome() {
     setGeneratingSnapshotMatchID("");
     setLoadingAuditMatchID("");
     setSavingUserID("");
+    setReviewingJoinRequestID("");
     setSavingBonusMatchID("");
     setSavingGlobalDefinitions(false);
     setSavingGlobalTemplateCode("");
@@ -631,6 +640,7 @@ export default function AdminHome() {
     setSavingPredictionSettings(false);
     setSavingPredictionOverrides(false);
     setSavingPrizes(false);
+    setReviewingJoinRequestID("");
     setSavingRankingTiePolicy(false);
     setSavingRankingTiebreakers(false);
     setSavingRankingManualTiebreakers(false);
@@ -700,6 +710,7 @@ export default function AdminHome() {
         setTournament(null);
         setPredictionStatuses([]);
         setPayments([]);
+        setJoinRequests([]);
         setRanking([]);
         setPaymentCurrency("COP");
         setPaymentStatusFilter("all");
@@ -751,6 +762,9 @@ export default function AdminHome() {
             confirmed_total_cents: 0,
             payments: [],
           });
+      const joinRequestsRequest = canManagePayments(poolDetail, userID)
+        ? client.listPoolJoinRequests(token, poolDetail.id)
+        : Promise.resolve([]);
       const canManagePredictionConfig = canManagePredictionSettings(poolDetail);
       const [
         nextPrizePreview,
@@ -770,6 +784,7 @@ export default function AdminHome() {
         nextGlobalDefinitions,
         nextGlobalResults,
         nextOfficialStandings,
+        nextJoinRequests,
       ] = await Promise.all([
         client.getPrizePreview(token, poolDetail.id),
         listRankingWithFallback(client, token, poolDetail.id),
@@ -794,6 +809,7 @@ export default function AdminHome() {
         client.listGlobalPredictionDefinitions(token, poolDetail.id),
         client.listGlobalPredictionResults(token, poolDetail.id),
         canManageResults(poolDetail) ? client.listOfficialStandings(token, poolDetail.id) : [],
+        joinRequestsRequest,
       ]);
       const nextPaymentCollection: PaymentCollection = paymentCollection ?? {
         pool_id: poolDetail.id,
@@ -812,6 +828,7 @@ export default function AdminHome() {
       setTournament(tournamentDetail);
       setPredictionStatuses(nextPredictionStatuses);
       setPayments(nextPaymentCollection.payments);
+      setJoinRequests(nextJoinRequests);
       setRanking(nextRanking);
       setRankingTiebreakers(nextRankingTiebreakers);
       setRankingManualTiebreakers(nextRankingManualTiebreakers);
@@ -1959,6 +1976,61 @@ export default function AdminHome() {
       setMessage("No pudimos actualizar el pago.");
     } finally {
       setSavingUserID("");
+    }
+  }
+
+  async function reviewJoinRequest(requestID: string, action: "approve" | "reject") {
+    if (!session || !pool || !canManageSelectedPool || reviewingJoinRequestID) {
+      return;
+    }
+
+    setReviewingJoinRequestID(requestID);
+    setMessage("");
+
+    try {
+      const client = createPollavarClient();
+      const reviewedRequest =
+        action === "approve"
+          ? await client.approvePoolJoinRequest(session.token, pool.id, requestID)
+          : await client.rejectPoolJoinRequest(session.token, pool.id, requestID);
+
+      setJoinRequests((current) =>
+        current.map((request) => (request.id === reviewedRequest.id ? reviewedRequest : request)),
+      );
+
+      if (action === "approve") {
+        const [nextPool, nextPaymentCollection] = await Promise.all([
+          client.getPool(session.token, pool.id),
+          client.listPayments(session.token, pool.id),
+        ]);
+        setPool(nextPool);
+        setPools((current) =>
+          current.map((item) => (item.id === nextPool.id ? nextPool : item)),
+        );
+        setPayments(nextPaymentCollection.payments);
+        setDrafts(hydratePaymentDrafts(nextPool, nextPaymentCollection.payments));
+        setPaymentCurrency(nextPaymentCollection.currency || nextPool.currency || "COP");
+        setMessage("Solicitud aprobada.");
+        return;
+      }
+
+      setMessage("Solicitud rechazada.");
+    } catch (error) {
+      if (isUnauthorized(error)) {
+        signOutAdmin();
+        return;
+      }
+      if (isForbidden(error)) {
+        setMessage("No tienes permisos para revisar solicitudes.");
+        return;
+      }
+      if (error instanceof PollavarAPIError && error.code === "payment_required") {
+        setMessage("Confirma el pago completo antes de aprobar la solicitud.");
+        return;
+      }
+      setMessage("No pudimos revisar la solicitud.");
+    } finally {
+      setReviewingJoinRequestID("");
     }
   }
 
@@ -3503,6 +3575,185 @@ export default function AdminHome() {
                     </span>
                   </div>
                 </div>
+
+                {canManageSelectedPool ? (
+                  <div className="border-b border-zinc-200 p-5">
+                    <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-4">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                          <h3 className="text-base font-semibold text-zinc-950">
+                            Solicitudes de ingreso
+                          </h3>
+                          <p className="mt-1 text-sm text-zinc-600">
+                            Aprueba o rechaza participantes que usaron el código de invitación.
+                          </p>
+                        </div>
+                        <span className="w-fit rounded-md bg-white px-3 py-2 text-xs font-semibold text-zinc-700 shadow-sm">
+                          {pendingJoinRequests.length} pendientes
+                        </span>
+                      </div>
+
+                      {pendingJoinRequests.length === 0 ? (
+                        <p className="mt-4 rounded-md bg-white px-4 py-3 text-sm text-zinc-600">
+                          No hay solicitudes pendientes.
+                        </p>
+                      ) : (
+                        <div className="mt-4 grid gap-3 lg:grid-cols-2">
+                          {pendingJoinRequests.map((request) => {
+                            const isReviewing = reviewingJoinRequestID === request.id;
+                            const payment = paymentsByUserID.get(request.user_id);
+                            const draft = {
+                              ...defaultDraft(pool, payment),
+                              ...drafts[request.user_id],
+                            };
+                            const amountCents = parseMoneyToCents(draft.amount) ?? 0;
+                            const fullyPaid =
+                              pool.entry_fee_cents === 0 ||
+                              (draft.status === "confirmed" && amountCents >= pool.entry_fee_cents);
+                            const isSavingPayment = savingUserID === request.user_id;
+                            return (
+                              <article
+                                className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm"
+                                key={request.id}
+                              >
+                                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                  <div>
+                                    <p className="font-semibold text-zinc-950">
+                                      {request.user_name || request.username || request.user_id}
+                                    </p>
+                                    <p className="mt-1 text-xs text-zinc-500">
+                                      {request.username ? `@${request.username}` : request.user_id}
+                                    </p>
+                                    <p className="mt-2 text-xs text-zinc-500">
+                                      Solicitó ingreso el {formatDateTime(request.requested_at)}
+                                    </p>
+                                  </div>
+                                  <span
+                                    className={`w-fit rounded-md px-2 py-1 text-xs font-semibold ${
+                                      fullyPaid
+                                        ? "bg-emerald-100 text-emerald-800"
+                                        : "bg-amber-100 text-amber-800"
+                                    }`}
+                                  >
+                                    {fullyPaid ? "Pago confirmado" : "Pago pendiente"}
+                                  </span>
+                                </div>
+
+                                <div className="mt-4 grid gap-3 border-t border-zinc-100 pt-4 sm:grid-cols-2">
+                                  <label className="grid gap-1 text-xs font-medium uppercase tracking-wide text-zinc-500">
+                                    Estado
+                                    <select
+                                      className="min-h-10 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm normal-case text-zinc-950"
+                                      disabled={isSavingPayment}
+                                      onChange={(event) =>
+                                        updateDraft(request.user_id, {
+                                          status: event.target.value as PaymentStatus,
+                                        })
+                                      }
+                                      value={draft.status}
+                                    >
+                                      {paymentStatuses.map((item) => (
+                                        <option key={item.value} value={item.value}>
+                                          {item.label}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </label>
+                                  <label className="grid gap-1 text-xs font-medium uppercase tracking-wide text-zinc-500">
+                                    Valor pagado
+                                    <input
+                                      className="min-h-10 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm normal-case text-zinc-950"
+                                      disabled={isSavingPayment}
+                                      inputMode="numeric"
+                                      onChange={(event) =>
+                                        updateDraft(request.user_id, { amount: event.target.value })
+                                      }
+                                      value={draft.amount}
+                                    />
+                                  </label>
+                                  <label className="grid gap-1 text-xs font-medium uppercase tracking-wide text-zinc-500">
+                                    Método
+                                    <select
+                                      className="min-h-10 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm normal-case text-zinc-950"
+                                      disabled={isSavingPayment}
+                                      onChange={(event) =>
+                                        updateDraft(request.user_id, {
+                                          method: event.target.value as PaymentMethod,
+                                        })
+                                      }
+                                      value={draft.method}
+                                    >
+                                      {paymentMethods.map((item) => (
+                                        <option key={item.value} value={item.value}>
+                                          {item.label}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </label>
+                                  <label className="grid gap-1 text-xs font-medium uppercase tracking-wide text-zinc-500">
+                                    Referencia
+                                    <input
+                                      className="min-h-10 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm normal-case text-zinc-950"
+                                      disabled={isSavingPayment}
+                                      onChange={(event) =>
+                                        updateDraft(request.user_id, { reference: event.target.value })
+                                      }
+                                      placeholder="Comprobante o nota"
+                                      value={draft.reference}
+                                    />
+                                  </label>
+                                </div>
+                                {!fullyPaid ? (
+                                  <p className="mt-3 text-xs text-amber-700">
+                                    Confirma {formatMoney(pool.entry_fee_cents, pool.currency)} antes
+                                    de aprobar esta solicitud.
+                                  </p>
+                                ) : null}
+
+                                <div className="mt-4 flex flex-wrap gap-2">
+                                  <button
+                                    className="rounded-md border border-zinc-300 px-3 py-2 text-xs font-semibold text-zinc-700 hover:border-zinc-400 disabled:cursor-not-allowed disabled:text-zinc-400"
+                                    disabled={isSavingPayment}
+                                    onClick={() => void savePayment(request.user_id)}
+                                    type="button"
+                                  >
+                                    {isSavingPayment ? "Guardando" : "Guardar pago"}
+                                  </button>
+                                  <button
+                                    className="rounded-md bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-zinc-300"
+                                    disabled={isSavingPayment || fullyPaid}
+                                    onClick={() => void savePayment(request.user_id, "confirmed")}
+                                    type="button"
+                                  >
+                                    Confirmar pago
+                                  </button>
+                                  <div className="ml-auto flex flex-wrap gap-2">
+                                    <button
+                                      className="rounded-md bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-zinc-300"
+                                      disabled={Boolean(reviewingJoinRequestID) || !fullyPaid}
+                                      onClick={() => void reviewJoinRequest(request.id, "approve")}
+                                      type="button"
+                                    >
+                                      {isReviewing ? "Revisando" : "Aprobar"}
+                                    </button>
+                                    <button
+                                      className="rounded-md border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:text-zinc-400"
+                                      disabled={Boolean(reviewingJoinRequestID)}
+                                      onClick={() => void reviewJoinRequest(request.id, "reject")}
+                                      type="button"
+                                    >
+                                      Rechazar
+                                    </button>
+                                  </div>
+                                </div>
+                              </article>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : null}
 
                 {pool.participants.length === 0 ? (
                   <div className="p-6 text-sm text-zinc-600">Sin participantes.</div>
