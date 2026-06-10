@@ -361,6 +361,7 @@ export default function AdminHome() {
   const [globalPrizePreview, setGlobalPrizePreview] =
     useState<GlobalPredictionPrizePreview | null>(null);
   const [prizeDrafts, setPrizeDrafts] = useState<PrizeRuleDraft[]>([]);
+  const [prizePoolPercentageDraft, setPrizePoolPercentageDraft] = useState("100");
   const [scoringRules, setScoringRules] = useState<ScoringRule[]>([]);
   const [globalPredictionDefinitions, setGlobalPredictionDefinitions] = useState<
     GlobalPredictionDefinition[]
@@ -705,6 +706,7 @@ export default function AdminHome() {
         setPrizePreview(null);
         setGlobalPrizePreview(null);
         setPrizeDrafts([]);
+        setPrizePoolPercentageDraft("100");
         setScoringRules([]);
         setGlobalPredictionDefinitions([]);
         setGlobalPredictionTemplates([]);
@@ -820,6 +822,7 @@ export default function AdminHome() {
       setPrizePreview(nextPrizePreview);
       setGlobalPrizePreview(nextGlobalPrizePreview);
       setPrizeDrafts(hydratePrizeDrafts(nextPrizePreview));
+      setPrizePoolPercentageDraft(formatPercentageInput(nextPrizePreview.prize_pool_percentage));
       setScoringRules(nextScoringRules);
       setGlobalPredictionTemplates(nextGlobalTemplates);
       setGlobalTemplateDrafts(hydrateGlobalTemplateDrafts(nextGlobalTemplates));
@@ -2120,16 +2123,25 @@ export default function AdminHome() {
       setMessage("Revisa los porcentajes de premios. Deben sumar 100%.");
       return;
     }
+    const parsedPrizePoolPercentage = parsePrizePoolPercentage(prizePoolPercentageDraft);
+    if (parsedPrizePoolPercentage === null) {
+      setMessage("La bolsa de premios debe ser mayor que 0% y maximo 100%.");
+      return;
+    }
 
     setSavingPrizes(true);
     setMessage("");
 
     try {
       const client = createPollavarClient();
-      await client.updatePrizeRules(session.token, pool.id, { rules: parsedRules });
+      await client.updatePrizeRules(session.token, pool.id, {
+        prize_pool_percentage: parsedPrizePoolPercentage,
+        rules: parsedRules,
+      });
       const nextPrizePreview = await client.getPrizePreview(session.token, pool.id);
       setPrizePreview(nextPrizePreview);
       setPrizeDrafts(hydratePrizeDrafts(nextPrizePreview));
+      setPrizePoolPercentageDraft(formatPercentageInput(nextPrizePreview.prize_pool_percentage));
       setMessage("Premios actualizados.");
     } catch (error) {
       if (isUnauthorized(error)) {
@@ -2833,9 +2845,11 @@ export default function AdminHome() {
                   <div>
                     <h2 className="text-lg font-semibold text-zinc-950">Premios</h2>
                     <p className="text-sm text-zinc-600">
-                      Bolsa confirmada:{" "}
+                      Bolsa de premios:{" "}
                       {formatMoney(
-                        prizePreview?.confirmed_total_cents ?? 0,
+                        prizePreview?.prize_pool_total_cents ??
+                          prizePreview?.confirmed_total_cents ??
+                          0,
                         prizePreview?.currency ?? paymentCurrency,
                       )}
                     </p>
@@ -2853,6 +2867,54 @@ export default function AdminHome() {
 
                 <div className="grid gap-5 p-5 lg:grid-cols-[minmax(0,1.15fr)_minmax(280px,0.85fr)]">
                   <div>
+                    <div className="mb-4 rounded-lg border border-zinc-200 bg-zinc-50 p-4">
+                      <div className="grid gap-3 lg:grid-cols-[minmax(220px,0.8fr)_repeat(3,minmax(0,1fr))] lg:items-end">
+                        <label
+                          className="grid gap-1 text-sm font-medium text-zinc-800"
+                          htmlFor="prize-pool-percentage"
+                        >
+                          <span>Bolsa para premios</span>
+                          <div className="relative">
+                            <input
+                              id="prize-pool-percentage"
+                              className="min-h-10 w-full rounded-md border border-zinc-300 px-3 py-2 pr-9 text-sm text-zinc-950"
+                              disabled={!canManageSelectedPoolPrizes || savingPrizes}
+                              inputMode="decimal"
+                              value={prizePoolPercentageDraft}
+                              onChange={(event) =>
+                                setPrizePoolPercentageDraft(event.target.value)
+                              }
+                            />
+                            <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm text-zinc-500">
+                              %
+                            </span>
+                          </div>
+                        </label>
+                        <Metric
+                          label="Recaudo confirmado"
+                          value={formatMoney(
+                            prizePreview?.confirmed_total_cents ?? 0,
+                            prizePreview?.currency ?? paymentCurrency,
+                          )}
+                        />
+                        <Metric
+                          label="Cuota administracion"
+                          value={formatMoney(
+                            prizePreview?.admin_fee_cents ?? 0,
+                            prizePreview?.currency ?? paymentCurrency,
+                          )}
+                        />
+                        <Metric
+                          label="Bolsa premios"
+                          value={formatMoney(
+                            prizePreview?.prize_pool_total_cents ??
+                              prizePreview?.confirmed_total_cents ??
+                              0,
+                            prizePreview?.currency ?? paymentCurrency,
+                          )}
+                        />
+                      </div>
+                    </div>
                     <div className="mb-4 grid gap-2 md:grid-cols-[minmax(0,1fr)_220px] md:items-end">
                       <div>
                         <label
@@ -3160,7 +3222,11 @@ export default function AdminHome() {
                           percentage === null
                             ? null
                             : Math.round(
-                                ((prizePreview?.confirmed_total_cents ?? 0) * percentage) / 100,
+                                ((prizePreview?.prize_pool_total_cents ??
+                                  prizePreview?.confirmed_total_cents ??
+                                  0) *
+                                  percentage) /
+                                  100,
                               );
 
                         return (
@@ -7522,7 +7588,11 @@ function GlobalPrizePreviewBlock({
       <div className="border-b border-zinc-200 px-4 py-3">
         <p className="text-sm font-semibold text-zinc-950">Premios globales</p>
         <p className="text-xs text-zinc-500">
-          Bolsa base: {formatMoney(preview?.confirmed_total_cents ?? 0, currency)}
+          Bolsa base:{" "}
+          {formatMoney(
+            preview?.prize_pool_total_cents ?? preview?.confirmed_total_cents ?? 0,
+            currency,
+          )}
         </p>
       </div>
       <div className="divide-y divide-zinc-200">
@@ -9417,6 +9487,11 @@ function parsePercentage(value: string) {
   return units / prizePercentageScale;
 }
 
+function parsePrizePoolPercentage(value: string) {
+  const percentage = parsePercentage(value);
+  return percentage === null ? null : percentage;
+}
+
 function formatPercentageInput(percentage: number) {
   return Number.isInteger(percentage) ? String(percentage) : String(percentage);
 }
@@ -9444,6 +9519,7 @@ function formatMoney(amountCents: number, currency: string) {
 
 type RankingPrizePayout = PrizePreview["payouts"][number] & {
   split: boolean;
+  occupied_positions: number[];
   winners: Array<RankingEntry & { estimated_amount_cents: number }>;
 };
 
@@ -9452,22 +9528,80 @@ function buildRankingPrizePayouts(
   ranking: RankingEntry[],
 ): RankingPrizePayout[] {
   const payouts = preview?.payouts ?? [];
-  return payouts.map((payout) => {
-    const winners =
-      preview?.ranking_tie_policy === "split_equal"
-        ? ranking.filter((entry) => entry.prize_eligible && entry.position === payout.position)
-        : [];
-    const winnerAmounts = splitCents(payout.estimated_amount_cents, winners.length);
-
-    return {
+  if (preview?.ranking_tie_policy !== "split_equal") {
+    return payouts.map((payout) => ({
       ...payout,
+      split: false,
+      occupied_positions: [payout.position],
+      winners: ranking
+        .filter((entry) => entry.prize_eligible && entry.position === payout.position)
+        .map((winner) => ({
+          ...winner,
+          estimated_amount_cents: payout.estimated_amount_cents,
+        })),
+    }));
+  }
+
+  const payoutByPosition = new Map(payouts.map((payout) => [payout.position, payout]));
+  const consumedPositions = new Set<number>();
+  const groupedRanking = new Map<number, RankingEntry[]>();
+  for (const entry of ranking.filter((rankingEntry) => rankingEntry.prize_eligible)) {
+    groupedRanking.set(entry.position, [...(groupedRanking.get(entry.position) ?? []), entry]);
+  }
+
+  const result: RankingPrizePayout[] = [];
+  for (const position of [...groupedRanking.keys()].sort((left, right) => left - right)) {
+    const winners = groupedRanking.get(position) ?? [];
+    const occupiedPayouts = Array.from({ length: winners.length }, (_, index) =>
+      payoutByPosition.get(position + index),
+    ).filter((payout): payout is PrizePreview["payouts"][number] => Boolean(payout));
+
+    if (occupiedPayouts.length === 0) {
+      continue;
+    }
+
+    for (const payout of occupiedPayouts) {
+      consumedPositions.add(payout.position);
+    }
+
+    const totalAmountCents = occupiedPayouts.reduce(
+      (total, payout) => total + payout.estimated_amount_cents,
+      0,
+    );
+    const totalPercentage = occupiedPayouts.reduce((total, payout) => total + payout.percentage, 0);
+    const winnerAmounts = splitCents(totalAmountCents, winners.length);
+    const firstPayout = occupiedPayouts[0];
+    const lastPayout = occupiedPayouts[occupiedPayouts.length - 1];
+
+    result.push({
+      ...firstPayout,
+      percentage: totalPercentage,
+      estimated_amount_cents: totalAmountCents,
+      description:
+        occupiedPayouts.length > 1
+          ? `Posiciones ${firstPayout.position}-${lastPayout.position}`
+          : firstPayout.description,
       split: winners.length > 1,
+      occupied_positions: occupiedPayouts.map((payout) => payout.position),
       winners: winners.map((winner, index) => ({
         ...winner,
         estimated_amount_cents: winnerAmounts[index] ?? 0,
       })),
-    };
-  });
+    });
+  }
+
+  for (const payout of payouts) {
+    if (!consumedPositions.has(payout.position)) {
+      result.push({
+        ...payout,
+        split: false,
+        occupied_positions: [payout.position],
+        winners: [],
+      });
+    }
+  }
+
+  return result.sort((left, right) => left.position - right.position);
 }
 
 function splitCents(amountCents: number, parts: number) {

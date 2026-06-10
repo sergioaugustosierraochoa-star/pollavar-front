@@ -132,6 +132,7 @@ const pool: Pool = {
   prediction_mode: "score_with_outcome",
   match_result_scoring_mode: "exclusive",
   ranking_tie_policy: "split_equal",
+  prize_pool_percentage: 100,
   created_by: "user-id",
   created_at: "2026-05-27T01:00:00Z",
   updated_at: "2026-05-27T01:00:00Z",
@@ -510,6 +511,9 @@ const prizePreview: PrizePreview = {
   pool_id: "pool-id",
   currency: "COP",
   confirmed_total_cents: 10000000,
+  prize_pool_percentage: 100,
+  prize_pool_total_cents: 10000000,
+  admin_fee_cents: 0,
   ranking_tie_policy: "split_equal",
   rules: prizeRules,
   payouts: [
@@ -532,6 +536,9 @@ const globalPrizePreview: GlobalPredictionPrizePreview = {
   pool_id: "pool-id",
   currency: "COP",
   confirmed_total_cents: 10000000,
+  prize_pool_percentage: 100,
+  prize_pool_total_cents: 10000000,
+  admin_fee_cents: 0,
   prizes: [
     {
       definition_id: "definition-id",

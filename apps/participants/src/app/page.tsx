@@ -2172,7 +2172,11 @@ function DashboardNavigation({
   const prizeCount = (prizePreview?.payouts.length ?? 0) + (globalPrizePreview?.prizes.length ?? 0);
   const prizeCurrency = prizePreview?.currency ?? globalPrizePreview?.currency ?? "COP";
   const prizeTotal =
-    prizePreview?.confirmed_total_cents ?? globalPrizePreview?.confirmed_total_cents ?? 0;
+    prizePreview?.prize_pool_total_cents ??
+    globalPrizePreview?.prize_pool_total_cents ??
+    prizePreview?.confirmed_total_cents ??
+    globalPrizePreview?.confirmed_total_cents ??
+    0;
   const links = [
     {
       section: "ranking" as const,
@@ -2235,7 +2239,11 @@ function PrizePanel({
   const globalPrizes = globalPreview?.prizes ?? [];
   const currency = preview?.currency ?? globalPreview?.currency ?? "COP";
   const confirmedTotalCents =
-    preview?.confirmed_total_cents ?? globalPreview?.confirmed_total_cents ?? 0;
+    preview?.prize_pool_total_cents ??
+    globalPreview?.prize_pool_total_cents ??
+    preview?.confirmed_total_cents ??
+    globalPreview?.confirmed_total_cents ??
+    0;
   const safeRankingTiebreakers = Array.isArray(rankingTiebreakers) ? rankingTiebreakers : [];
   const activeTiebreakers = safeRankingTiebreakers
     .filter((tiebreaker) => tiebreaker.enabled)
@@ -4461,6 +4469,9 @@ async function getPrizePreviewWithFallback(
         pool_id: poolID,
         currency: "COP",
         confirmed_total_cents: 0,
+        prize_pool_percentage: 100,
+        prize_pool_total_cents: 0,
+        admin_fee_cents: 0,
         ranking_tie_policy: "split_equal",
         rules: [],
         payouts: [],
@@ -4483,6 +4494,9 @@ async function getGlobalPrizePreviewWithFallback(
         pool_id: poolID,
         currency: "COP",
         confirmed_total_cents: 0,
+        prize_pool_percentage: 100,
+        prize_pool_total_cents: 0,
+        admin_fee_cents: 0,
         prizes: [],
       } satisfies GlobalPredictionPrizePreview;
     }
@@ -5185,6 +5199,7 @@ function effectiveUnderdogRule(
 
 type RankingPrizePayout = PrizePreview["payouts"][number] & {
   split: boolean;
+  occupied_positions: number[];
   winners: Array<RankingEntry & { estimated_amount_cents: number }>;
 };
 
@@ -5193,22 +5208,80 @@ function buildRankingPrizePayouts(
   ranking: RankingEntry[],
 ): RankingPrizePayout[] {
   const payouts = preview?.payouts ?? [];
-  return payouts.map((payout) => {
-    const winners =
-      preview?.ranking_tie_policy === "split_equal"
-        ? ranking.filter((entry) => entry.prize_eligible && entry.position === payout.position)
-        : [];
-    const winnerAmounts = splitCents(payout.estimated_amount_cents, winners.length);
-
-    return {
+  if (preview?.ranking_tie_policy !== "split_equal") {
+    return payouts.map((payout) => ({
       ...payout,
+      split: false,
+      occupied_positions: [payout.position],
+      winners: ranking
+        .filter((entry) => entry.prize_eligible && entry.position === payout.position)
+        .map((winner) => ({
+          ...winner,
+          estimated_amount_cents: payout.estimated_amount_cents,
+        })),
+    }));
+  }
+
+  const payoutByPosition = new Map(payouts.map((payout) => [payout.position, payout]));
+  const consumedPositions = new Set<number>();
+  const groupedRanking = new Map<number, RankingEntry[]>();
+  for (const entry of ranking.filter((rankingEntry) => rankingEntry.prize_eligible)) {
+    groupedRanking.set(entry.position, [...(groupedRanking.get(entry.position) ?? []), entry]);
+  }
+
+  const result: RankingPrizePayout[] = [];
+  for (const position of [...groupedRanking.keys()].sort((left, right) => left - right)) {
+    const winners = groupedRanking.get(position) ?? [];
+    const occupiedPayouts = Array.from({ length: winners.length }, (_, index) =>
+      payoutByPosition.get(position + index),
+    ).filter((payout): payout is PrizePreview["payouts"][number] => Boolean(payout));
+
+    if (occupiedPayouts.length === 0) {
+      continue;
+    }
+
+    for (const payout of occupiedPayouts) {
+      consumedPositions.add(payout.position);
+    }
+
+    const totalAmountCents = occupiedPayouts.reduce(
+      (total, payout) => total + payout.estimated_amount_cents,
+      0,
+    );
+    const totalPercentage = occupiedPayouts.reduce((total, payout) => total + payout.percentage, 0);
+    const winnerAmounts = splitCents(totalAmountCents, winners.length);
+    const firstPayout = occupiedPayouts[0];
+    const lastPayout = occupiedPayouts[occupiedPayouts.length - 1];
+
+    result.push({
+      ...firstPayout,
+      percentage: totalPercentage,
+      estimated_amount_cents: totalAmountCents,
+      description:
+        occupiedPayouts.length > 1
+          ? `Posiciones ${firstPayout.position}-${lastPayout.position}`
+          : firstPayout.description,
       split: winners.length > 1,
+      occupied_positions: occupiedPayouts.map((payout) => payout.position),
       winners: winners.map((winner, index) => ({
         ...winner,
         estimated_amount_cents: winnerAmounts[index] ?? 0,
       })),
-    };
-  });
+    });
+  }
+
+  for (const payout of payouts) {
+    if (!consumedPositions.has(payout.position)) {
+      result.push({
+        ...payout,
+        split: false,
+        occupied_positions: [payout.position],
+        winners: [],
+      });
+    }
+  }
+
+  return result.sort((left, right) => left.position - right.position);
 }
 
 function splitCents(amountCents: number, parts: number) {

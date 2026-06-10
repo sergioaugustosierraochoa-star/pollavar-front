@@ -250,6 +250,7 @@ export type Pool = {
   prediction_mode: PredictionMode;
   match_result_scoring_mode: MatchResultScoringMode;
   ranking_tie_policy: RankingTiePolicy;
+  prize_pool_percentage: number;
   created_by: string;
   created_at: string;
   updated_at: string;
@@ -330,6 +331,9 @@ export type PrizePreview = {
   pool_id: string;
   currency: string;
   confirmed_total_cents: number;
+  prize_pool_percentage: number;
+  prize_pool_total_cents: number;
+  admin_fee_cents: number;
   ranking_tie_policy: RankingTiePolicy;
   rules: PrizeRule[];
   payouts: PrizePayout[];
@@ -364,6 +368,9 @@ export type GlobalPredictionPrizePreview = {
   pool_id: string;
   currency: string;
   confirmed_total_cents: number;
+  prize_pool_percentage: number;
+  prize_pool_total_cents: number;
+  admin_fee_cents: number;
   prizes: GlobalPredictionPrize[];
 };
 
@@ -374,6 +381,7 @@ export type SavePrizeRuleInput = {
 };
 
 export type UpdatePrizeRulesInput = {
+  prize_pool_percentage?: number;
   rules: SavePrizeRuleInput[];
 };
 
