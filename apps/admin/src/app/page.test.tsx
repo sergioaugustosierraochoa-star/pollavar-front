@@ -727,9 +727,10 @@ describe("Admin home", () => {
     expect(metricValue("Pendientes")).toHaveTextContent("1");
     expect(metricValue("Recaudo confirmado")).toHaveTextContent("COP 50.000");
     expect(screen.getByRole("heading", { name: "Premios" })).toBeInTheDocument();
-    expect(screen.getByText(/Bolsa confirmada:/)).toHaveTextContent("COP 50.000");
-    expect(metricValue("Ganadores")).toHaveTextContent("2");
-    expect(metricValue("Total porcentajes")).toHaveTextContent("100%");
+    expect(screen.getByText("1. Bolsa para premios")).toBeInTheDocument();
+    expect(screen.getByText("Bolsa de premios")).toBeInTheDocument();
+    expect(screen.getByText("2. Distribución entre ganadores")).toBeInTheDocument();
+    expect(screen.getByText("2 premios")).toBeInTheDocument();
     expect(screen.getByText("COP 35.000")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Predicciones globales" })).toBeInTheDocument();
     expect(screen.getByText("3 activas de 3 configuradas.")).toBeInTheDocument();
@@ -1489,7 +1490,7 @@ describe("Admin home", () => {
     fireEvent.change(screen.getByLabelText("Descripcion del premio 1"), {
       target: { value: "Campeon" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Guardar premios" }));
+    fireEvent.click(screen.getByRole("button", { name: "Guardar bolsa y distribución" }));
 
     await waitFor(() => {
       expect(screen.getByRole("status")).toHaveTextContent("Premios actualizados.");
@@ -2042,7 +2043,7 @@ describe("Admin home", () => {
     fireEvent.change(screen.getByLabelText("Porcentaje del premio 2"), {
       target: { value: "30" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Guardar premios" }));
+    fireEvent.click(screen.getByRole("button", { name: "Guardar bolsa y distribución" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Revisa los porcentajes de premios. Deben sumar 100%.",

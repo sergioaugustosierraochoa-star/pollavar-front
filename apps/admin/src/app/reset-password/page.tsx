@@ -2,7 +2,7 @@
 
 import { PollavarAPIError, createPollavarClient } from "@pollavar/api-client";
 import Link from "next/link";
-import { type FormEvent, useMemo, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useState } from "react";
 
 export default function AdminResetPasswordPage() {
   const token = useMemo(() => {
@@ -13,6 +13,15 @@ export default function AdminResetPasswordPage() {
   }, []);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    if (!message) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => setMessage(""), 4200);
+    return () => window.clearTimeout(timeout);
+  }, [message]);
 
   async function resetPassword(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -72,13 +81,9 @@ export default function AdminResetPasswordPage() {
               Volver al login
             </Link>
           </div>
-          {message ? (
-            <p className="mt-4 rounded-md border border-zinc-200 bg-[#f1f5f9] px-3 py-2 text-sm text-slate-700" role="status">
-              {message}
-            </p>
-          ) : null}
         </form>
       </section>
+      <AuthToast message={message} type={toastType(message)} />
     </main>
   );
 }
@@ -105,7 +110,31 @@ function resetPasswordMessage(error: unknown) {
     return "La nueva contraseña debe tener entre 8 y 128 caracteres.";
   }
   if (error instanceof PollavarAPIError && error.status === 401) {
-    return "El enlace expiro o ya fue utilizado.";
+    return "El enlace expiró o ya fue utilizado.";
   }
   return "No pudimos actualizar la contraseña.";
+}
+
+function AuthToast({ message, type }: { message: string; type: "success" | "error" }) {
+  if (!message) {
+    return null;
+  }
+
+  return (
+    <div className="fixed bottom-5 right-5 z-50 max-w-sm" role="status">
+      <div
+        className={`rounded-md border px-4 py-3 text-sm shadow-xl ring-1 ring-slate-950/5 ${
+          type === "success"
+            ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+            : "border-orange-200 bg-orange-50 text-orange-900"
+        }`}
+      >
+        {message}
+      </div>
+    </div>
+  );
+}
+
+function toastType(message: string): "success" | "error" {
+  return message.toLowerCase().includes("actualizada") ? "success" : "error";
 }

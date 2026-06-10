@@ -222,5 +222,12 @@ function validateAuthFields(formData: FormData, isRegister: boolean): FieldError
     }
   }
 
+  if (isRegister && !errors.password) {
+    const password = String(formData.get("password") ?? "");
+    if (password.length < 8 || password.length > 128) {
+      errors.password = "La contraseña debe tener entre 8 y 128 caracteres.";
+    }
+  }
+
   return errors;
 }

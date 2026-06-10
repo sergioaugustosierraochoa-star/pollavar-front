@@ -1927,20 +1927,12 @@ export default function AdminHome() {
       return;
     }
 
+    const currentPayment = paymentsByUserID.get(userID);
     const draft = {
-      ...defaultDraft(pool, paymentsByUserID.get(userID)),
+      ...defaultDraft(pool, currentPayment),
       ...drafts[userID],
     };
     const nextStatus = statusOverride ?? draft.status;
-    const amountCents = parseMoneyToCents(draft.amount);
-    if (amountCents === null) {
-      setMessage("Revisa el valor del pago.");
-      return;
-    }
-    if (nextStatus === "confirmed" && amountCents < pool.entry_fee_cents) {
-      setMessage("Solo puedes confirmar cuando el saldo este en cero.");
-      return;
-    }
 
     setSavingUserID(userID);
     setMessage("");
@@ -1948,19 +1940,25 @@ export default function AdminHome() {
     try {
       const client = createPollavarClient();
       const savedPayment = await client.upsertPayment(session.token, pool.id, userID, {
-        amount_cents: amountCents,
         currency: paymentCurrency || pool.currency,
-        payment_method: draft.method,
-        reference: draft.reference,
+        payment_method: currentPayment?.payment_method ?? draft.method,
+        reference: currentPayment?.reference ?? draft.reference,
         status: nextStatus,
       });
+      const [nextPool, nextPaymentCollection, nextJoinRequests] = await Promise.all([
+        client.getPool(session.token, pool.id),
+        client.listPayments(session.token, pool.id),
+        client.listPoolJoinRequests(session.token, pool.id),
+      ]);
 
-      setPayments((current) => upsertPayment(current, savedPayment));
-      setPool((current) => updateParticipantPaymentStatus(current, userID, savedPayment.status));
+      setPayments(nextPaymentCollection.payments);
+      setPaymentCurrency(nextPaymentCollection.currency || nextPool.currency || "COP");
+      setPool(nextPool);
       setDrafts((current) => ({
         ...current,
         [userID]: draftFromPayment(savedPayment),
       }));
+      setJoinRequests(nextJoinRequests);
       void refreshPrizePreview(session.token, pool.id);
       void refreshGlobalPrizePreview(session.token, pool.id);
       setMessage("Pago actualizado.");
@@ -1976,6 +1974,65 @@ export default function AdminHome() {
       setMessage("No pudimos actualizar el pago.");
     } finally {
       setSavingUserID("");
+    }
+  }
+
+  async function confirmJoinRequestPayment(request: PoolJoinRequest) {
+    if (!session || !pool || !canManageSelectedPool || savingUserID || reviewingJoinRequestID) {
+      return;
+    }
+
+    setSavingUserID(request.user_id);
+    setReviewingJoinRequestID(request.id);
+    setMessage("");
+
+    try {
+      const client = createPollavarClient();
+      await client.upsertPayment(session.token, pool.id, request.user_id, {
+        currency: paymentCurrency || pool.currency,
+        payment_method: "cash",
+        reference: "",
+        status: "confirmed",
+      });
+      const reviewedRequest = await client.approvePoolJoinRequest(session.token, pool.id, request.id);
+      const [nextPool, nextPaymentCollection] = await Promise.all([
+        client.getPool(session.token, pool.id),
+        client.listPayments(session.token, pool.id),
+      ]);
+
+      setPayments(nextPaymentCollection.payments);
+      setPaymentCurrency(nextPaymentCollection.currency || nextPool.currency || "COP");
+      setPool(nextPool);
+      setDrafts(hydratePaymentDrafts(nextPool, nextPaymentCollection.payments));
+      setJoinRequests((current) =>
+        current.map((candidate) =>
+          candidate.id === reviewedRequest.id ? reviewedRequest : candidate,
+        ),
+      );
+      void refreshPrizePreview(session.token, pool.id);
+      void refreshGlobalPrizePreview(session.token, pool.id);
+      setMessage(
+        `Pago confirmado y solicitud aprobada para ${
+          request.user_name || request.username || "el participante"
+        }.`,
+      );
+    } catch (error) {
+      if (isUnauthorized(error)) {
+        signOutAdmin();
+        return;
+      }
+      if (isForbidden(error)) {
+        setMessage("No tienes permisos para aprobar solicitudes.");
+        return;
+      }
+      if (error instanceof PollavarAPIError && error.code === "payment_required") {
+        setMessage("Confirma el pago antes de aprobar la solicitud.");
+        return;
+      }
+      setMessage("No pudimos confirmar el pago y aprobar la solicitud.");
+    } finally {
+      setSavingUserID("");
+      setReviewingJoinRequestID("");
     }
   }
 
@@ -2197,7 +2254,7 @@ export default function AdminHome() {
     }
     const parsedPrizePoolPercentage = parsePrizePoolPercentage(prizePoolPercentageDraft);
     if (parsedPrizePoolPercentage === null) {
-      setMessage("La bolsa de premios debe ser mayor que 0% y maximo 100%.");
+      setMessage("La bolsa de premios debe ser mayor que 0% y máximo 100%.");
       return;
     }
 
@@ -2254,7 +2311,7 @@ export default function AdminHome() {
       setPrizePreview((current) =>
         current ? { ...current, ranking_tie_policy: updatedPool.ranking_tie_policy } : current,
       );
-      setMessage("Politica de desempates actualizada.");
+      setMessage("Política de desempates actualizada.");
     } catch (error) {
       if (isUnauthorized(error)) {
         signOutAdmin();
@@ -2264,38 +2321,38 @@ export default function AdminHome() {
         setMessage("No tienes permisos para actualizar premios.");
         return;
       }
-      setMessage("No pudimos actualizar la politica de desempates.");
+      setMessage("No pudimos actualizar la política de desempates.");
     } finally {
       setSavingRankingTiePolicy(false);
     }
   }
 
   function toggleRankingTiebreaker(code: RankingTiebreakerCode) {
-    setRankingTiebreakers((current) =>
-      current.map((tiebreaker) =>
-        tiebreaker.code === code ? { ...tiebreaker, enabled: !tiebreaker.enabled } : tiebreaker,
-      ),
+    const nextTiebreakers = rankingTiebreakers.map((tiebreaker) =>
+      tiebreaker.code === code ? { ...tiebreaker, enabled: !tiebreaker.enabled } : tiebreaker,
     );
+    setRankingTiebreakers(nextTiebreakers);
+    void saveRankingTiebreakers(nextTiebreakers);
   }
 
   function moveRankingTiebreaker(code: RankingTiebreakerCode, direction: -1 | 1) {
-    setRankingTiebreakers((current) => {
-      const ordered = [...current].sort((left, right) => left.priority - right.priority);
-      const index = ordered.findIndex((tiebreaker) => tiebreaker.code === code);
-      const nextIndex = index + direction;
-      if (index < 0 || nextIndex < 0 || nextIndex >= ordered.length) {
-        return current;
-      }
-      const [moved] = ordered.splice(index, 1);
-      ordered.splice(nextIndex, 0, moved);
-      return ordered.map((tiebreaker, priorityIndex) => ({
-        ...tiebreaker,
-        priority: priorityIndex + 1,
-      }));
-    });
+    const ordered = [...rankingTiebreakers].sort((left, right) => left.priority - right.priority);
+    const index = ordered.findIndex((tiebreaker) => tiebreaker.code === code);
+    const nextIndex = index + direction;
+    if (index < 0 || nextIndex < 0 || nextIndex >= ordered.length) {
+      return;
+    }
+    const [moved] = ordered.splice(index, 1);
+    ordered.splice(nextIndex, 0, moved);
+    const nextTiebreakers = ordered.map((tiebreaker, priorityIndex) => ({
+      ...tiebreaker,
+      priority: priorityIndex + 1,
+    }));
+    setRankingTiebreakers(nextTiebreakers);
+    void saveRankingTiebreakers(nextTiebreakers);
   }
 
-  async function saveRankingTiebreakers() {
+  async function saveRankingTiebreakers(nextRankingTiebreakers = rankingTiebreakers) {
     if (!session || !pool || !canManageSelectedPoolPrizes) {
       return;
     }
@@ -2308,7 +2365,7 @@ export default function AdminHome() {
         session.token,
         pool.id,
         {
-          tiebreakers: [...rankingTiebreakers]
+          tiebreakers: [...nextRankingTiebreakers]
             .sort((left, right) => left.priority - right.priority)
             .map((tiebreaker) => ({
               code: tiebreaker.code,
@@ -2904,26 +2961,22 @@ export default function AdminHome() {
                 savingScope={savingOfficialStandingScope}
                 scopes={officialStandingScopes}
                 standings={officialStandings}
-	                tiebreakers={tournament?.tiebreakers ?? []}
-	              />
-	            ) : null}
-	
-                  {renderAdminSection("premios") ? (
+                tiebreakers={tournament?.tiebreakers ?? []}
+              />
+            ) : null}
+
+            {renderAdminSection("premios") && (
               <section
                 className="scroll-mt-4 rounded-lg border border-zinc-200 bg-white shadow-sm"
                 id="premios"
               >
                 <div className="flex flex-col gap-3 border-b border-zinc-200 px-5 py-4 md:flex-row md:items-center md:justify-between">
                   <div>
-                    <h2 className="text-lg font-semibold text-zinc-950">Premios</h2>
-                    <p className="text-sm text-zinc-600">
-                      Bolsa de premios:{" "}
-                      {formatMoney(
-                        prizePreview?.prize_pool_total_cents ??
-                          prizePreview?.confirmed_total_cents ??
-                          0,
-                        prizePreview?.currency ?? paymentCurrency,
-                      )}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h2 className="text-lg font-semibold text-zinc-950">Premios</h2>
+                    </div>
+                    <p className="mt-1 text-sm text-zinc-600">
+                      Define cuánto se reparte, cómo se distribuye y cómo se resuelven empates.
                     </p>
                   </div>
                   <span
@@ -2937,15 +2990,22 @@ export default function AdminHome() {
                   </span>
                 </div>
 
-                <div className="grid gap-5 p-5 lg:grid-cols-[minmax(0,1.15fr)_minmax(280px,0.85fr)]">
-                  <div>
-                    <div className="mb-4 rounded-lg border border-zinc-200 bg-zinc-50 p-4">
-                      <div className="grid gap-3 lg:grid-cols-[minmax(220px,0.8fr)_repeat(3,minmax(0,1fr))] lg:items-end">
+                <div className="space-y-5 p-5">
+                  <div className="overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-sm">
+                    <div className="grid gap-5 p-4 lg:grid-cols-[minmax(260px,0.8fr)_minmax(0,1.2fr)] lg:items-center">
+                      <div>
+                        <p className="text-sm font-semibold text-zinc-950">
+                          1. Bolsa para premios
+                        </p>
+                        <p className="mt-1 text-xs text-zinc-500">
+                          Define qué parte del recaudo confirmado se entrega a los ganadores. El
+                          resto queda como cuota de administración.
+                        </p>
                         <label
-                          className="grid gap-1 text-sm font-medium text-zinc-800"
+                          className="mt-4 grid gap-1 text-sm font-medium text-zinc-800"
                           htmlFor="prize-pool-percentage"
                         >
-                          <span>Bolsa para premios</span>
+                          <span>Porcentaje para premios</span>
                           <div className="relative">
                             <input
                               id="prize-pool-percentage"
@@ -2962,76 +3022,311 @@ export default function AdminHome() {
                             </span>
                           </div>
                         </label>
-                        <Metric
-                          label="Recaudo confirmado"
-                          value={formatMoney(
-                            prizePreview?.confirmed_total_cents ?? 0,
-                            prizePreview?.currency ?? paymentCurrency,
-                          )}
-                        />
-                        <Metric
-                          label="Cuota administracion"
-                          value={formatMoney(
-                            prizePreview?.admin_fee_cents ?? 0,
-                            prizePreview?.currency ?? paymentCurrency,
-                          )}
-                        />
-                        <Metric
-                          label="Bolsa premios"
-                          value={formatMoney(
-                            prizePreview?.prize_pool_total_cents ??
-                              prizePreview?.confirmed_total_cents ??
-                              0,
-                            prizePreview?.currency ?? paymentCurrency,
-                          )}
-                        />
+                      </div>
+                      <div className="grid gap-3 sm:grid-cols-3">
+                        <div className="min-w-0 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3">
+                          <p className="truncate text-[11px] font-medium uppercase text-zinc-500">
+                            Recaudo confirmado
+                          </p>
+                          <p className="mt-2 truncate text-lg font-semibold text-zinc-950">
+                            {formatMoney(
+                              prizePreview?.confirmed_total_cents ?? 0,
+                              prizePreview?.currency ?? paymentCurrency,
+                            )}
+                          </p>
+                        </div>
+                        <div className="min-w-0 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3">
+                          <p className="truncate text-[11px] font-medium uppercase text-zinc-500">
+                            Cuota administración
+                          </p>
+                          <p className="mt-2 truncate text-lg font-semibold text-zinc-950">
+                            {formatMoney(
+                              prizePreview?.admin_fee_cents ?? 0,
+                              prizePreview?.currency ?? paymentCurrency,
+                            )}
+                          </p>
+                        </div>
+                        <div className="min-w-0 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3">
+                          <p className="truncate text-[11px] font-medium uppercase text-emerald-700">
+                            Bolsa de premios
+                          </p>
+                          <p className="mt-2 truncate text-lg font-semibold text-zinc-950">
+                            {formatMoney(
+                              prizePreview?.prize_pool_total_cents ??
+                                prizePreview?.confirmed_total_cents ??
+                                0,
+                              prizePreview?.currency ?? paymentCurrency,
+                            )}
+                          </p>
+                        </div>
                       </div>
                     </div>
-                    <div className="mb-4 grid gap-2 md:grid-cols-[minmax(0,1fr)_220px] md:items-end">
-                      <div>
-                        <label
-                          className="text-sm font-medium text-zinc-800"
-                          htmlFor="ranking-tie-policy"
+                  </div>
+                    <div className="overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-sm">
+                      <div className="flex flex-col gap-3 border-b border-zinc-200 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                          <p className="text-sm font-semibold text-zinc-950">
+                            2. Distribución entre ganadores
+                          </p>
+                          <p className="text-xs text-zinc-500">
+                            Define posiciones premiadas y qué porcentaje recibe cada una.{" "}
+                            {prizeDrafts.length} regla{prizeDrafts.length === 1 ? "" : "s"} ·{" "}
+                            {formatPercentageTotal(prizeDrafts)}% asignado.
+                          </p>
+                        </div>
+                        <button
+                          className="w-fit rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:border-zinc-400 disabled:cursor-not-allowed disabled:text-zinc-400"
+                          disabled={!canManageSelectedPoolPrizes || savingPrizes}
+                          type="button"
+                          onClick={addPrizeDraft}
                         >
-                          Empates en posiciones de premio
-                        </label>
-                        <p className="mt-1 text-xs text-zinc-500">
-                          Define como se maneja un empate dentro de una posicion premiada.
-                        </p>
+                          Agregar ganador
+                        </button>
                       </div>
-                      <select
-                        id="ranking-tie-policy"
-                        className="min-h-10 rounded-md border border-zinc-300 px-3 py-2 text-sm"
-                        disabled={!canManageSelectedPoolPrizes || savingRankingTiePolicy}
-                        value={pool.ranking_tie_policy}
-                        onChange={(event) =>
-                          void saveRankingTiePolicy(event.target.value as RankingTiePolicy)
-                        }
-                      >
-                        <option value="split_equal">Permitir empate y dividir</option>
-                        <option value="automatic">Desempate automatico</option>
-                        <option value="manual">Revision manual</option>
-                      </select>
+                      <div className="hidden border-b border-zinc-100 bg-zinc-50 px-4 py-2 text-[11px] font-semibold uppercase text-zinc-500 lg:grid lg:grid-cols-[90px_130px_160px_minmax(0,1fr)_96px] lg:gap-3">
+                        <span>Posición</span>
+                        <span>Porcentaje</span>
+                        <span>Valor estimado</span>
+                        <span>Descripción</span>
+                        <span>Acción</span>
+                      </div>
+                      <div className="divide-y divide-zinc-100">
+                        {prizeDrafts.map((draft, index) => {
+                          const percentage = parsePercentage(draft.percentage);
+                          const estimatedAmountCents =
+                            percentage === null
+                              ? null
+                              : Math.round(
+                                  ((prizePreview?.prize_pool_total_cents ??
+                                    prizePreview?.confirmed_total_cents ??
+                                    0) *
+                                    percentage) /
+                                    100,
+                                );
+
+                          return (
+                            <article
+                              className="grid gap-3 px-4 py-3 lg:grid-cols-[90px_130px_160px_minmax(0,1fr)_96px] lg:items-center"
+                              key={`${draft.position}-${index}`}
+                            >
+                              <label
+                                className="grid gap-1 text-xs font-medium uppercase text-zinc-500 lg:block"
+                                htmlFor={`prize-position-${index}`}
+                              >
+                                <span className="lg:hidden">Posición</span>
+                                <input
+                                  id={`prize-position-${index}`}
+                                  aria-label={`Posicion del premio ${index + 1}`}
+                                  className="min-h-10 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm normal-case text-zinc-950"
+                                  disabled={!canManageSelectedPoolPrizes || savingPrizes}
+                                  inputMode="numeric"
+                                  value={draft.position}
+                                  onChange={(event) =>
+                                    updatePrizeDraft(index, { position: event.target.value })
+                                  }
+                                />
+                              </label>
+                              <label
+                                className="grid gap-1 text-xs font-medium uppercase text-zinc-500 lg:block"
+                                htmlFor={`prize-percentage-${index}`}
+                              >
+                                <span className="lg:hidden">Porcentaje</span>
+                                <div className="relative">
+                                  <input
+                                    id={`prize-percentage-${index}`}
+                                    aria-label={`Porcentaje del premio ${index + 1}`}
+                                    className="min-h-10 w-full rounded-md border border-zinc-300 px-3 py-2 pr-9 text-sm normal-case text-zinc-950"
+                                    disabled={!canManageSelectedPoolPrizes || savingPrizes}
+                                    inputMode="decimal"
+                                    value={draft.percentage}
+                                    onChange={(event) =>
+                                      updatePrizeDraft(index, { percentage: event.target.value })
+                                    }
+                                  />
+                                  <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm normal-case text-zinc-500">
+                                    %
+                                  </span>
+                                </div>
+                              </label>
+                              <div className="grid gap-1 text-xs font-medium uppercase text-zinc-500 lg:block">
+                                <span className="lg:hidden">Valor estimado</span>
+                                <div className="flex min-h-10 items-center rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm font-semibold normal-case text-zinc-950">
+                                  {estimatedAmountCents === null
+                                    ? "-"
+                                    : formatMoney(
+                                        estimatedAmountCents,
+                                        prizePreview?.currency ?? paymentCurrency,
+                                      )}
+                                </div>
+                              </div>
+                              <label
+                                className="grid gap-1 text-xs font-medium uppercase text-zinc-500 lg:block"
+                                htmlFor={`prize-description-${index}`}
+                              >
+                                <span className="lg:hidden">Descripción</span>
+                                <input
+                                  id={`prize-description-${index}`}
+                                  aria-label={`Descripcion del premio ${index + 1}`}
+                                  className="min-h-10 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm normal-case text-zinc-950"
+                                  disabled={!canManageSelectedPoolPrizes || savingPrizes}
+                                  value={draft.description}
+                                  onChange={(event) =>
+                                    updatePrizeDraft(index, { description: event.target.value })
+                                  }
+                                />
+                              </label>
+                              <button
+                                className="min-h-10 rounded-md border border-rose-200 px-3 py-2 text-xs font-medium text-rose-700 hover:border-rose-300 disabled:cursor-not-allowed disabled:text-zinc-400"
+                                disabled={
+                                  !canManageSelectedPoolPrizes ||
+                                  savingPrizes ||
+                                  prizeDrafts.length <= 1
+                                }
+                                type="button"
+                                onClick={() => removePrizeDraft(index)}
+                              >
+                                Quitar
+                              </button>
+                            </article>
+                          );
+                        })}
+                      </div>
+                      <div className="flex flex-col gap-3 border-t border-zinc-200 bg-zinc-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                          <p className="text-sm font-semibold text-zinc-950">
+                            Guardar bolsa y distribución
+                          </p>
+                          <p className="text-xs text-zinc-500">
+                            Actualiza el porcentaje de bolsa, las posiciones premiadas y la vista
+                            previa guardada.
+                          </p>
+                        </div>
+                        <button
+                          className="rounded-md bg-[var(--pollavar-primary)] px-4 py-3 text-sm font-semibold text-white hover:brightness-95 disabled:cursor-not-allowed disabled:bg-zinc-300"
+                          disabled={!canManageSelectedPoolPrizes || savingPrizes}
+                          type="button"
+                          onClick={() => void savePrizeRules()}
+                        >
+                          {savingPrizes ? "Guardando..." : "Guardar bolsa y distribución"}
+                        </button>
+                      </div>
+                    </div>
+                    <div className="overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-sm">
+                      <div className="flex flex-col gap-2 border-b border-zinc-200 px-4 py-3 md:flex-row md:items-center md:justify-between">
+                        <div>
+                          <p className="text-sm font-semibold text-zinc-950">
+                            Vista previa guardada
+                          </p>
+                          <p className="mt-1 text-xs text-zinc-500">
+                            Se actualiza cuando guardas la bolsa y la distribución.
+                          </p>
+                        </div>
+                        <span className="w-fit rounded-md bg-zinc-100 px-2 py-1 text-xs font-medium text-zinc-600">
+                          {rankingPrizePayouts.length} premio
+                          {rankingPrizePayouts.length === 1 ? "" : "s"}
+                        </span>
+                      </div>
+                      <div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-3">
+                        {rankingPrizePayouts.length > 0 ? (
+                          rankingPrizePayouts.map((payout) => (
+                            <article
+                              key={`${payout.position}-${payout.description}`}
+                              className="rounded-lg border border-zinc-200 bg-zinc-50 p-4 text-sm"
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <p className="truncate font-semibold text-zinc-950">
+                                    {payout.description || `Posición ${payout.position}`}
+                                  </p>
+                                  <p className="mt-1 text-xs text-zinc-500">
+                                    {payout.percentage}% de la bolsa
+                                  </p>
+                                </div>
+                                <p className="shrink-0 font-semibold text-zinc-950">
+                                  {formatMoney(
+                                    payout.estimated_amount_cents,
+                                    prizePreview?.currency ?? paymentCurrency,
+                                  )}
+                                </p>
+                              </div>
+                              {payout.winners.length > 0 ? (
+                                <div className="mt-3 space-y-1 border-t border-zinc-200 pt-3 text-xs text-zinc-600">
+                                  {payout.split ? (
+                                    <p>Dividido entre {payout.winners.length} empatados.</p>
+                                  ) : null}
+                                  {payout.winners.map((winner) => (
+                                    <p key={`${payout.position}-${winner.user_id}`}>
+                                      {rankingDisplayName(winner)} ·{" "}
+                                      {formatMoney(
+                                        winner.estimated_amount_cents,
+                                        prizePreview?.currency ?? paymentCurrency,
+                                      )}
+                                    </p>
+                                  ))}
+                                </div>
+                              ) : null}
+                            </article>
+                          ))
+                        ) : (
+                          <p className="rounded-lg bg-zinc-50 px-4 py-3 text-sm text-zinc-600 md:col-span-2 xl:col-span-3">
+                            Sin reglas de premios configuradas.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    <GlobalPrizePreviewBlock
+                      currency={
+                        globalPrizePreview?.currency ?? prizePreview?.currency ?? paymentCurrency
+                      }
+                      preview={globalPrizePreview}
+                    />
+                    <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
+                      <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_260px] md:items-end">
+                        <div>
+                          <label
+                            className="text-sm font-semibold text-zinc-950"
+                            htmlFor="ranking-tie-policy"
+                          >
+                            Empates en posiciones de premio
+                          </label>
+                          <p className="mt-1 text-xs text-zinc-500">
+                            Define cómo se maneja un empate dentro de una posición premiada.
+                          </p>
+                        </div>
+                        <select
+                          id="ranking-tie-policy"
+                          className="min-h-10 rounded-md border border-zinc-300 px-3 py-2 text-sm"
+                          disabled={!canManageSelectedPoolPrizes || savingRankingTiePolicy}
+                          value={pool.ranking_tie_policy}
+                          onChange={(event) =>
+                            void saveRankingTiePolicy(event.target.value as RankingTiePolicy)
+                          }
+                        >
+                          <option value="split_equal">Permitir empate y dividir</option>
+                          <option value="automatic">Desempate automático</option>
+                          <option value="manual">Revisión manual</option>
+                        </select>
+                      </div>
+                      <p className="mt-3 text-xs text-zinc-500">
+                        Este cambio se aplica al seleccionar una opción.
+                      </p>
                     </div>
                     {rankingTiebreakers.length > 0 ? (
-                      <div className="mb-4 rounded-lg border border-zinc-200">
+                      <div className="rounded-lg border border-zinc-200">
                         <div className="flex flex-col gap-2 border-b border-zinc-200 px-4 py-3 md:flex-row md:items-center md:justify-between">
                           <div>
                             <p className="text-sm font-semibold text-zinc-950">
-                              Criterios de desempate automatico
+                              Criterios de desempate automático
                             </p>
                             <p className="text-xs text-zinc-500">
-                              Se aplican en este orden cuando la politica sea automatica.
+                              Se aplican en este orden cuando la política sea automática. Cada cambio se guarda al instante.
                             </p>
                           </div>
-                          <button
-                            className="w-fit rounded-md bg-[var(--pollavar-primary)] px-3 py-2 text-sm font-medium text-white hover:brightness-95 disabled:cursor-not-allowed disabled:bg-zinc-300"
-                            disabled={!canManageSelectedPoolPrizes || savingRankingTiebreakers}
-                            type="button"
-                            onClick={() => void saveRankingTiebreakers()}
-                          >
-                            Guardar criterios
-                          </button>
+                          {savingRankingTiebreakers ? (
+                            <span className="w-fit rounded-md bg-zinc-100 px-2 py-1 text-xs font-medium text-zinc-600">
+                              Guardando...
+                            </span>
+                          ) : null}
                         </div>
                         <div className="divide-y divide-zinc-200">
                           {[...rankingTiebreakers]
@@ -3085,7 +3380,7 @@ export default function AdminHome() {
                       </div>
                     ) : null}
                     {pool.ranking_tie_policy === "manual" ? (
-                      <div className="mb-4 rounded-lg border border-zinc-200">
+                      <div className="rounded-lg border border-zinc-200">
                         <div className="flex flex-col gap-2 border-b border-zinc-200 px-4 py-3 md:flex-row md:items-center md:justify-between">
                           <div>
                             <p className="text-sm font-semibold text-zinc-950">
@@ -3187,217 +3482,9 @@ export default function AdminHome() {
                         </div>
                       </div>
                     ) : null}
-                  </div>
-
-                  <div className="space-y-3">
-                    <Metric
-                      label="Ganadores"
-                      value={String(prizePreview?.payouts.length ?? prizeDrafts.length)}
-                    />
-                    <Metric
-                      label="Total porcentajes"
-                      value={`${formatPercentageTotal(prizeDrafts)}%`}
-                    />
-                    <div className="rounded-lg border border-zinc-200">
-                      <div className="border-b border-zinc-200 px-4 py-3">
-                        <p className="text-sm font-semibold text-zinc-950">Vista previa</p>
-                      </div>
-                      <div className="divide-y divide-zinc-200">
-                        {rankingPrizePayouts.length > 0 ? (
-                          rankingPrizePayouts.map((payout) => (
-                            <div
-                              key={`${payout.position}-${payout.description}`}
-                              className="px-4 py-3 text-sm"
-                            >
-                              <div className="flex items-center justify-between gap-3">
-                                <div>
-                                  <p className="font-medium text-zinc-950">
-                                    {payout.description || `Posicion ${payout.position}`}
-                                  </p>
-                                  <p className="text-xs text-zinc-500">{payout.percentage}%</p>
-                                </div>
-                                <p className="font-semibold text-zinc-950">
-                                  {formatMoney(
-                                    payout.estimated_amount_cents,
-                                    prizePreview?.currency ?? paymentCurrency,
-                                  )}
-                                </p>
-                              </div>
-                              {payout.winners.length > 0 ? (
-                                <div className="mt-2 space-y-1 text-xs text-zinc-600">
-                                  {payout.split ? (
-                                    <p>Premio dividido entre {payout.winners.length} empatados.</p>
-                                  ) : null}
-                                  {payout.winners.map((winner) => (
-                                    <p key={`${payout.position}-${winner.user_id}`}>
-                                      {rankingDisplayName(winner)} ·{" "}
-                                      {formatMoney(
-                                        winner.estimated_amount_cents,
-                                        prizePreview?.currency ?? paymentCurrency,
-                                      )}
-                                    </p>
-                                  ))}
-                                </div>
-                              ) : null}
-                            </div>
-                          ))
-                        ) : (
-                          <p className="px-4 py-3 text-sm text-zinc-600">
-                            Sin reglas de premios configuradas.
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                    <GlobalPrizePreviewBlock
-                      currency={
-                        globalPrizePreview?.currency ?? prizePreview?.currency ?? paymentCurrency
-                      }
-                      preview={globalPrizePreview}
-                    />
-                  </div>
-                  <div className="lg:col-span-2">
-                    <div className="mb-4 rounded-lg border border-zinc-200 bg-white/95 p-3 shadow-sm backdrop-blur lg:sticky lg:top-[11rem] lg:z-10">
-                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                        <div>
-                          <p className="text-sm font-semibold text-zinc-950">
-                            Reglas de ganadores
-                          </p>
-                          <p className="text-xs text-zinc-500">
-                            {prizeDrafts.length} regla{prizeDrafts.length === 1 ? "" : "s"} ·{" "}
-                            {formatPercentageTotal(prizeDrafts)}% asignado
-                          </p>
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                          <button
-                            className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:border-zinc-400 disabled:cursor-not-allowed disabled:text-zinc-400"
-                            disabled={!canManageSelectedPoolPrizes || savingPrizes}
-                            type="button"
-                            onClick={addPrizeDraft}
-                          >
-                            Agregar ganador
-                          </button>
-                          <button
-                            className="rounded-md bg-[var(--pollavar-primary)] px-3 py-2 text-sm font-medium text-white hover:brightness-95 disabled:cursor-not-allowed disabled:bg-zinc-300"
-                            disabled={!canManageSelectedPoolPrizes || savingPrizes}
-                            type="button"
-                            onClick={() => void savePrizeRules()}
-                          >
-                            Guardar premios
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="grid gap-3 xl:grid-cols-2">
-                      {prizeDrafts.map((draft, index) => {
-                        const percentage = parsePercentage(draft.percentage);
-                        const estimatedAmountCents =
-                          percentage === null
-                            ? null
-                            : Math.round(
-                                ((prizePreview?.prize_pool_total_cents ??
-                                  prizePreview?.confirmed_total_cents ??
-                                  0) *
-                                  percentage) /
-                                  100,
-                              );
-
-                        return (
-                          <article
-                            className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm"
-                            key={`${draft.position}-${index}`}
-                          >
-                            <div className="grid gap-3">
-                              <div className="grid gap-3 md:grid-cols-3 md:items-end">
-                                <label
-                                  className="grid gap-1 text-xs font-medium uppercase text-zinc-500"
-                                  htmlFor={`prize-position-${index}`}
-                                >
-                                  <span>Posicion</span>
-                                  <input
-                                    id={`prize-position-${index}`}
-                                    aria-label={`Posicion del premio ${index + 1}`}
-                                    className="min-h-10 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm normal-case text-zinc-950"
-                                    disabled={!canManageSelectedPoolPrizes || savingPrizes}
-                                    inputMode="numeric"
-                                    value={draft.position}
-                                    onChange={(event) =>
-                                      updatePrizeDraft(index, { position: event.target.value })
-                                    }
-                                  />
-                                </label>
-                                <label
-                                  className="grid gap-1 text-xs font-medium uppercase text-zinc-500"
-                                  htmlFor={`prize-percentage-${index}`}
-                                >
-                                  <span>Porcentaje</span>
-                                  <div className="relative">
-                                    <input
-                                      id={`prize-percentage-${index}`}
-                                      aria-label={`Porcentaje del premio ${index + 1}`}
-                                      className="min-h-10 w-full rounded-md border border-zinc-300 px-3 py-2 pr-9 text-sm normal-case text-zinc-950"
-                                      disabled={!canManageSelectedPoolPrizes || savingPrizes}
-                                      inputMode="decimal"
-                                      value={draft.percentage}
-                                      onChange={(event) =>
-                                        updatePrizeDraft(index, { percentage: event.target.value })
-                                      }
-                                    />
-                                    <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm normal-case text-zinc-500">
-                                      %
-                                    </span>
-                                  </div>
-                                </label>
-                                <div className="grid gap-1 text-xs font-medium uppercase text-zinc-500">
-                                  <span>Valor estimado</span>
-                                  <div className="flex min-h-10 items-center rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm font-semibold normal-case text-zinc-950">
-                                    {estimatedAmountCents === null
-                                      ? "-"
-                                      : formatMoney(
-                                          estimatedAmountCents,
-                                          prizePreview?.currency ?? paymentCurrency,
-                                        )}
-                                  </div>
-                                </div>
-                              </div>
-                              <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_112px] md:items-end">
-                                <label
-                                  className="grid gap-1 text-xs font-medium uppercase text-zinc-500"
-                                  htmlFor={`prize-description-${index}`}
-                                >
-                                  <span>Descripcion</span>
-                                  <input
-                                    id={`prize-description-${index}`}
-                                    aria-label={`Descripcion del premio ${index + 1}`}
-                                    className="min-h-10 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm normal-case text-zinc-950"
-                                    disabled={!canManageSelectedPoolPrizes || savingPrizes}
-                                    value={draft.description}
-                                    onChange={(event) =>
-                                      updatePrizeDraft(index, { description: event.target.value })
-                                    }
-                                  />
-                                </label>
-                                <button
-                                  className="min-h-10 rounded-md border border-rose-200 px-3 py-2 text-xs font-medium text-rose-700 hover:border-rose-300 disabled:cursor-not-allowed disabled:text-zinc-400"
-                                  disabled={
-                                    !canManageSelectedPoolPrizes ||
-                                    savingPrizes ||
-                                    prizeDrafts.length <= 1
-                                  }
-                                  type="button"
-                                  onClick={() => removePrizeDraft(index)}
-                                >
-                                  Quitar
-                                </button>
-                              </div>
-                            </div>
-                          </article>
-                        );
-                      })}
-                    </div>
-                  </div>
                 </div>
               </section>
-            ) : null}
+            )}
 
                   {renderAdminSection("reportes") ? (
                     <section
@@ -3598,38 +3685,31 @@ export default function AdminHome() {
                           No hay solicitudes pendientes.
                         </p>
                       ) : (
-                        <div className="mt-4 grid gap-3 lg:grid-cols-2">
+                        <div className="mt-4 overflow-hidden rounded-lg border border-zinc-200 bg-white">
                           {pendingJoinRequests.map((request) => {
                             const isReviewing = reviewingJoinRequestID === request.id;
                             const payment = paymentsByUserID.get(request.user_id);
-                            const draft = {
-                              ...defaultDraft(pool, payment),
-                              ...drafts[request.user_id],
-                            };
-                            const amountCents = parseMoneyToCents(draft.amount) ?? 0;
                             const fullyPaid =
                               pool.entry_fee_cents === 0 ||
-                              (draft.status === "confirmed" && amountCents >= pool.entry_fee_cents);
+                              payment?.status === "confirmed";
                             const isSavingPayment = savingUserID === request.user_id;
                             return (
-                              <article
-                                className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm"
+                              <div
+                                className="grid gap-4 border-b border-zinc-100 p-4 last:border-b-0 lg:grid-cols-[minmax(0,1.4fr)_170px_160px] lg:items-center"
                                 key={request.id}
                               >
-                                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                                  <div>
-                                    <p className="font-semibold text-zinc-950">
-                                      {request.user_name || request.username || request.user_id}
-                                    </p>
-                                    <p className="mt-1 text-xs text-zinc-500">
-                                      {request.username ? `@${request.username}` : request.user_id}
-                                    </p>
-                                    <p className="mt-2 text-xs text-zinc-500">
-                                      Solicitó ingreso el {formatDateTime(request.requested_at)}
-                                    </p>
-                                  </div>
+                                <div className="min-w-0">
+                                  <p className="truncate font-semibold text-zinc-950">
+                                    {request.user_name || request.username || request.user_id}
+                                  </p>
+                                  <p className="mt-1 truncate text-xs text-zinc-500">
+                                    {request.username ? `@${request.username}` : request.user_id}
+                                  </p>
+                                  <p className="mt-1 text-xs text-zinc-500">
+                                    Solicitó ingreso el {formatDateTime(request.requested_at)}
+                                  </p>
                                   <span
-                                    className={`w-fit rounded-md px-2 py-1 text-xs font-semibold ${
+                                    className={`mt-2 inline-flex w-fit rounded-md px-2 py-1 text-xs font-semibold ${
                                       fullyPaid
                                         ? "bg-emerald-100 text-emerald-800"
                                         : "bg-amber-100 text-amber-800"
@@ -3638,115 +3718,35 @@ export default function AdminHome() {
                                     {fullyPaid ? "Pago confirmado" : "Pago pendiente"}
                                   </span>
                                 </div>
-
-                                <div className="mt-4 grid gap-3 border-t border-zinc-100 pt-4 sm:grid-cols-2">
-                                  <label className="grid gap-1 text-xs font-medium uppercase tracking-wide text-zinc-500">
-                                    Estado
-                                    <select
-                                      className="min-h-10 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm normal-case text-zinc-950"
-                                      disabled={isSavingPayment}
-                                      onChange={(event) =>
-                                        updateDraft(request.user_id, {
-                                          status: event.target.value as PaymentStatus,
-                                        })
-                                      }
-                                      value={draft.status}
-                                    >
-                                      {paymentStatuses.map((item) => (
-                                        <option key={item.value} value={item.value}>
-                                          {item.label}
-                                        </option>
-                                      ))}
-                                    </select>
-                                  </label>
-                                  <label className="grid gap-1 text-xs font-medium uppercase tracking-wide text-zinc-500">
-                                    Valor pagado
-                                    <input
-                                      className="min-h-10 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm normal-case text-zinc-950"
-                                      disabled={isSavingPayment}
-                                      inputMode="numeric"
-                                      onChange={(event) =>
-                                        updateDraft(request.user_id, { amount: event.target.value })
-                                      }
-                                      value={draft.amount}
-                                    />
-                                  </label>
-                                  <label className="grid gap-1 text-xs font-medium uppercase tracking-wide text-zinc-500">
-                                    Método
-                                    <select
-                                      className="min-h-10 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm normal-case text-zinc-950"
-                                      disabled={isSavingPayment}
-                                      onChange={(event) =>
-                                        updateDraft(request.user_id, {
-                                          method: event.target.value as PaymentMethod,
-                                        })
-                                      }
-                                      value={draft.method}
-                                    >
-                                      {paymentMethods.map((item) => (
-                                        <option key={item.value} value={item.value}>
-                                          {item.label}
-                                        </option>
-                                      ))}
-                                    </select>
-                                  </label>
-                                  <label className="grid gap-1 text-xs font-medium uppercase tracking-wide text-zinc-500">
-                                    Referencia
-                                    <input
-                                      className="min-h-10 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm normal-case text-zinc-950"
-                                      disabled={isSavingPayment}
-                                      onChange={(event) =>
-                                        updateDraft(request.user_id, { reference: event.target.value })
-                                      }
-                                      placeholder="Comprobante o nota"
-                                      value={draft.reference}
-                                    />
-                                  </label>
-                                </div>
-                                {!fullyPaid ? (
-                                  <p className="mt-3 text-xs text-amber-700">
-                                    Confirma {formatMoney(pool.entry_fee_cents, pool.currency)} antes
-                                    de aprobar esta solicitud.
+                                <div>
+                                  <p className="text-xs font-semibold uppercase text-zinc-500">
+                                    Pago completo
                                   </p>
-                                ) : null}
-
-                                <div className="mt-4 flex flex-wrap gap-2">
-                                  <button
-                                    className="rounded-md border border-zinc-300 px-3 py-2 text-xs font-semibold text-zinc-700 hover:border-zinc-400 disabled:cursor-not-allowed disabled:text-zinc-400"
-                                    disabled={isSavingPayment}
-                                    onClick={() => void savePayment(request.user_id)}
-                                    type="button"
-                                  >
-                                    {isSavingPayment ? "Guardando" : "Guardar pago"}
-                                  </button>
-                                  <button
-                                    className="rounded-md bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-zinc-300"
-                                    disabled={isSavingPayment || fullyPaid}
-                                    onClick={() => void savePayment(request.user_id, "confirmed")}
-                                    type="button"
-                                  >
-                                    Confirmar pago
-                                  </button>
-                                  <div className="ml-auto flex flex-wrap gap-2">
-                                    <button
-                                      className="rounded-md bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-zinc-300"
-                                      disabled={Boolean(reviewingJoinRequestID) || !fullyPaid}
-                                      onClick={() => void reviewJoinRequest(request.id, "approve")}
-                                      type="button"
-                                    >
-                                      {isReviewing ? "Revisando" : "Aprobar"}
-                                    </button>
-                                    <button
-                                      className="rounded-md border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:text-zinc-400"
-                                      disabled={Boolean(reviewingJoinRequestID)}
-                                      onClick={() => void reviewJoinRequest(request.id, "reject")}
-                                      type="button"
-                                    >
-                                      Rechazar
-                                    </button>
+                                  <div className="mt-2">
+                                    <TogglePill
+                                      checked={fullyPaid}
+                                      disabled={isSavingPayment || isReviewing || fullyPaid}
+                                      labelOff={isSavingPayment || isReviewing ? "Procesando" : "Pendiente"}
+                                      labelOn="Pagó"
+                                      onChange={(checked) => {
+                                        if (checked) {
+                                          void confirmJoinRequestPayment(request);
+                                        }
+                                      }}
+                                    />
                                   </div>
                                 </div>
-                              </article>
+                                <div className="flex justify-start lg:justify-end">
+                                  <button
+                                    className="min-h-10 rounded-md border border-rose-200 px-4 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:text-zinc-400"
+                                    disabled={Boolean(reviewingJoinRequestID)}
+                                    onClick={() => void reviewJoinRequest(request.id, "reject")}
+                                    type="button"
+                                  >
+                                    {isReviewing ? "Revisando" : "Rechazar"}
+                                  </button>
+                                </div>
+                              </div>
                             );
                           })}
                         </div>
@@ -3762,7 +3762,7 @@ export default function AdminHome() {
                     Sin participantes con el estado seleccionado.
                   </div>
                 ) : (
-                  <div className="grid gap-4 p-5 2xl:grid-cols-2">
+                  <div className="overflow-hidden rounded-b-lg">
                     {filteredParticipants.map((participant) => {
                       const payment = paymentsByUserID.get(participant.user_id);
                       const draft = {
@@ -3771,216 +3771,50 @@ export default function AdminHome() {
                       };
                       const displayName = participantDisplayName(participant);
                       const isSaving = savingUserID === participant.user_id;
-                      const draftAmountCents = parseMoneyToCents(draft.amount);
-                      const paidAmountCents = draftAmountCents ?? 0;
-                      const balanceCents = Math.max(pool.entry_fee_cents - paidAmountCents, 0);
-                      const canConfirmPayment =
-                        canManageSelectedPool &&
-                        !isSaving &&
-                        draftAmountCents !== null &&
-                        balanceCents === 0;
-                      const paymentCoverageLabel =
-                        draftAmountCents === null
-                          ? "Valor invalido"
-                          : balanceCents === 0
-                            ? "Pago completo"
-                            : paidAmountCents > 0
-                              ? "Pago parcial"
-                              : "Sin abono";
-                      const paymentCoverageClass =
-                        draftAmountCents === null
-                          ? "bg-rose-100 text-rose-700"
-                          : balanceCents === 0
-                            ? "bg-emerald-100 text-emerald-800"
-                            : paidAmountCents > 0
-                              ? "bg-amber-100 text-amber-800"
-                              : "bg-zinc-100 text-zinc-700";
+                      const paid = draft.status === "confirmed";
 
                       return (
-                        <article
-                          className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm"
+                        <div
+                          className="grid gap-4 border-t border-zinc-100 p-4 lg:grid-cols-[minmax(0,1.4fr)_180px_180px] lg:items-center"
                           key={participant.user_id}
                           role="row"
                         >
-                          <div className="grid gap-4">
-                            <div role="cell">
-                              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                                <div>
-                                  <p className="font-medium text-zinc-950">{displayName}</p>
-                                  <p className="mt-1 break-all text-xs text-zinc-500">
-                                    {participant.username
-                                      ? `@${participant.username}`
-                                      : participant.user_id}
-                                  </p>
-                                </div>
-                                <span
-                                  className={`w-fit rounded-md px-2 py-1 text-xs font-medium ${paymentStatusClass(
-                                    draft.status,
-                                  )}`}
-                                >
-                                  {paymentStatusLabel(draft.status)}
-                                </span>
-                              </div>
-                            </div>
-
-                            <div className="grid gap-2 rounded-md bg-zinc-50 p-3 text-xs text-zinc-600 sm:grid-cols-3">
-                              <div>
-                                <p className="font-medium uppercase text-zinc-500">Entrada</p>
-                                <p className="mt-1 font-semibold text-zinc-950">
-                                  {formatMoney(pool.entry_fee_cents, paymentCurrency)}
-                                </p>
-                              </div>
-                              <div>
-                                <p className="font-medium uppercase text-zinc-500">Pagado</p>
-                                <p className="mt-1 font-semibold text-zinc-950">
-                                  {draftAmountCents === null
-                                    ? "-"
-                                    : formatMoney(paidAmountCents, paymentCurrency)}
-                                </p>
-                              </div>
-                              <div>
-                                <p className="font-medium uppercase text-zinc-500">Saldo</p>
-                                <div className="mt-1 flex flex-wrap items-center gap-2">
-                                  <span className="font-semibold text-zinc-950">
-                                    {draftAmountCents === null
-                                      ? "-"
-                                      : formatMoney(balanceCents, paymentCurrency)}
-                                  </span>
-                                  <span
-                                    className={`rounded-md px-2 py-1 text-xs font-medium ${paymentCoverageClass}`}
-                                  >
-                                    {paymentCoverageLabel}
-                                  </span>
-                                </div>
-                              </div>
-                            </div>
-
-                            <div
-                              className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(130px,0.8fr)_minmax(130px,0.7fr)_minmax(160px,1fr)]"
-                              role="cell"
+                          <div className="min-w-0" role="cell">
+                            <p className="truncate font-medium text-zinc-950">{displayName}</p>
+                            <p className="mt-1 break-all text-xs text-zinc-500">
+                              {participant.username ? `@${participant.username}` : participant.user_id}
+                            </p>
+                          </div>
+                          <div role="cell">
+                            <p className="text-xs font-semibold uppercase text-zinc-500">Estado</p>
+                            <span
+                              className={`mt-2 inline-flex w-fit rounded-md px-2 py-1 text-xs font-medium ${paymentStatusClass(
+                                draft.status,
+                              )}`}
                             >
-                              <label className="grid gap-1 text-xs font-medium uppercase text-zinc-500">
-                                <span>Estado</span>
-                                <select
-                                  aria-label={`Estado de pago de ${displayName}`}
-                                  className="min-h-10 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm normal-case text-zinc-950"
-                                  disabled={!canManageSelectedPool || isSaving}
-                                  value={draft.status}
-                                  onChange={(event) =>
-                                    updateDraft(participant.user_id, {
-                                      status: event.target.value as PaymentStatus,
-                                    })
-                                  }
-                                >
-                                  {paymentStatuses.map((item) => (
-                                    <option key={item.value} value={item.value}>
-                                      {item.label}
-                                    </option>
-                                  ))}
-                                </select>
-                              </label>
-                              <label className="grid gap-1 text-xs font-medium uppercase text-zinc-500">
-                                <span>Valor</span>
-                                <div className="relative">
-                                  <input
-                                    id={`amount-${participant.user_id}`}
-                                    aria-label={`Valor de pago de ${displayName}`}
-                                    className="min-h-10 w-full rounded-md border border-zinc-300 px-3 py-2 pr-14 text-sm normal-case text-zinc-950"
-                                    disabled={!canManageSelectedPool || isSaving}
-                                    inputMode="decimal"
-                                    value={draft.amount}
-                                    onChange={(event) =>
-                                      updateDraft(participant.user_id, {
-                                        amount: event.target.value,
-                                      })
-                                    }
-                                  />
-                                  <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs font-semibold normal-case text-zinc-500">
-                                    {paymentCurrency}
-                                  </span>
-                                </div>
-                              </label>
-                              <label className="grid gap-1 text-xs font-medium uppercase text-zinc-500">
-                                <span>Metodo</span>
-                                <select
-                                  aria-label={`Metodo de pago de ${displayName}`}
-                                  className="min-h-10 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm normal-case text-zinc-950"
-                                  disabled={!canManageSelectedPool || isSaving}
-                                  value={draft.method}
-                                  onChange={(event) =>
-                                    updateDraft(participant.user_id, {
-                                      method: event.target.value as PaymentMethod,
-                                    })
-                                  }
-                                >
-                                  {paymentMethods.map((item) => (
-                                    <option key={item.value} value={item.value}>
-                                      {item.label}
-                                    </option>
-                                  ))}
-                                </select>
-                              </label>
-                              <label className="grid gap-1 text-xs font-medium uppercase text-zinc-500 sm:col-span-2 xl:col-span-3">
-                                <span>Referencia</span>
-                                <input
-                                  id={`reference-${participant.user_id}`}
-                                  aria-label={`Referencia de pago de ${displayName}`}
-                                  className="min-h-10 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm normal-case text-zinc-950"
-                                  disabled={!canManageSelectedPool || isSaving}
-                                  value={draft.reference}
-                                  onChange={(event) =>
-                                    updateDraft(participant.user_id, {
-                                      reference: event.target.value,
-                                    })
-                                  }
-                                />
-                              </label>
-                            </div>
-
-                            <div
-                              className="grid gap-2 sm:grid-cols-4"
-                              role="cell"
-                            >
-                              <button
-                                className="rounded-md bg-[var(--pollavar-primary)] px-3 py-2 text-xs font-medium text-white hover:brightness-95 disabled:cursor-not-allowed disabled:bg-zinc-300"
-                                disabled={!canConfirmPayment}
-                                type="button"
-                                title={
-                                  canConfirmPayment
-                                    ? undefined
-                                    : "Disponible cuando el saldo este en cero."
+                              {paymentStatusLabel(draft.status)}
+                            </span>
+                          </div>
+                          <div role="cell">
+                            <p className="text-xs font-semibold uppercase text-zinc-500">
+                              Pago completo
+                            </p>
+                            <div className="mt-2">
+                              <TogglePill
+                                checked={paid}
+                                disabled={!canManageSelectedPool || isSaving}
+                                labelOff={isSaving ? "Guardando" : "Pendiente"}
+                                labelOn={isSaving ? "Guardando" : "Pagó"}
+                                onChange={(checked) =>
+                                  void savePayment(
+                                    participant.user_id,
+                                    checked ? "confirmed" : "pending",
+                                  )
                                 }
-                                onClick={() => void savePayment(participant.user_id, "confirmed")}
-                              >
-                                Confirmar
-                              </button>
-                              <button
-                                className="rounded-md border border-zinc-300 px-3 py-2 text-xs font-medium text-zinc-700 hover:border-zinc-400 disabled:cursor-not-allowed disabled:text-zinc-400"
-                                disabled={!canManageSelectedPool || isSaving}
-                                type="button"
-                                onClick={() => void savePayment(participant.user_id, "pending")}
-                              >
-                                Pendiente
-                              </button>
-                              <button
-                                className="rounded-md border border-rose-200 px-3 py-2 text-xs font-medium text-rose-700 hover:border-rose-300 disabled:cursor-not-allowed disabled:text-zinc-400"
-                                disabled={!canManageSelectedPool || isSaving}
-                                type="button"
-                                onClick={() => void savePayment(participant.user_id, "rejected")}
-                              >
-                                Rechazar
-                              </button>
-                              <button
-                                className="rounded-md border border-zinc-300 px-3 py-2 text-xs font-medium text-zinc-700 hover:border-zinc-400 disabled:cursor-not-allowed disabled:text-zinc-400"
-                                disabled={!canManageSelectedPool || isSaving}
-                                type="button"
-                                onClick={() => void savePayment(participant.user_id)}
-                              >
-                                Guardar
-                              </button>
+                              />
                             </div>
                           </div>
-                        </article>
+                        </div>
                       );
                     })}
                   </div>
@@ -9633,31 +9467,6 @@ function draftFromPayment(payment: Payment) {
     reference: payment.reference,
     status: payment.status,
   } satisfies PaymentDrafts[string];
-}
-
-function upsertPayment(payments: Payment[], nextPayment: Payment) {
-  const nextPayments = payments.filter((payment) => payment.user_id !== nextPayment.user_id);
-  nextPayments.push(nextPayment);
-  return nextPayments;
-}
-
-function updateParticipantPaymentStatus(
-  pool: Pool | null,
-  userID: string,
-  status: PaymentStatus,
-) {
-  if (!pool) {
-    return pool;
-  }
-
-  return {
-    ...pool,
-    participants: pool.participants.map((participant) =>
-      participant.user_id === userID
-        ? { ...participant, payment_status: status }
-        : participant,
-    ),
-  };
 }
 
 function defaultCreatePoolDraft(tournament: TournamentSummary | null): CreatePoolDraft {

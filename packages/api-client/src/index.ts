@@ -405,7 +405,7 @@ export type UpdatePrizeRulesInput = {
 };
 
 export type UpsertPaymentInput = {
-  amount_cents: number;
+  amount_cents?: number;
   currency?: string;
   payment_method?: PaymentMethod;
   reference?: string;

@@ -2,11 +2,20 @@
 
 import { PollavarAPIError, createPollavarClient } from "@pollavar/api-client";
 import Link from "next/link";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 
 export default function ParticipantsForgotPasswordPage() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    if (!message) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => setMessage(""), 4200);
+    return () => window.clearTimeout(timeout);
+  }, [message]);
 
   async function requestReset(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -59,13 +68,9 @@ export default function ParticipantsForgotPasswordPage() {
               Volver al login
             </Link>
           </div>
-          {message ? (
-            <p className="mt-4 rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-700" role="status">
-              {message}
-            </p>
-          ) : null}
         </form>
       </section>
+      <AuthToast message={message} type={toastType(message)} />
     </main>
   );
 }
@@ -75,4 +80,28 @@ function requestResetMessage(error: unknown) {
     return "Ingresa un usuario o correo válido.";
   }
   return "No pudimos generar el enlace de recuperación.";
+}
+
+function AuthToast({ message, type }: { message: string; type: "success" | "error" }) {
+  if (!message) {
+    return null;
+  }
+
+  return (
+    <div className="fixed bottom-5 right-5 z-50 max-w-sm" role="status">
+      <div
+        className={`rounded-md border px-4 py-3 text-sm shadow-xl ring-1 ring-slate-950/5 ${
+          type === "success"
+            ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+            : "border-orange-200 bg-orange-50 text-orange-900"
+        }`}
+      >
+        {message}
+      </div>
+    </div>
+  );
+}
+
+function toastType(message: string): "success" | "error" {
+  return message.toLowerCase().includes("generamos") ? "success" : "error";
 }

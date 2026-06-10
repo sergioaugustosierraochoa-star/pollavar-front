@@ -39,7 +39,7 @@ export default function AdminProfilePage() {
         clearStoredSession();
         setSession(null);
         setUser(null);
-        setStatus("Tu sesion ya no es valida. Inicia sesión nuevamente.");
+        setStatus("Tu sesión ya no es válida. Inicia sesión nuevamente.");
         redirectToLogin();
       });
   }, [session]);
@@ -70,6 +70,19 @@ export default function AdminProfilePage() {
       document.removeEventListener("keydown", closeMenuOnEscape);
     };
   }, [userMenuOpen]);
+
+  useEffect(() => {
+    if (!status && !message && !profileMessage) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      setStatus("");
+      setMessage("");
+      setProfileMessage("");
+    }, 4200);
+    return () => window.clearTimeout(timeout);
+  }, [message, profileMessage, status]);
 
   function signOutProfile() {
     setUserMenuOpen(false);
@@ -234,11 +247,6 @@ export default function AdminProfilePage() {
                   </button>
                 </div>
               </form>
-              {profileMessage ? (
-                <p className="mx-4 mb-4 rounded-md bg-[#f1f5f9] px-3 py-2 text-sm text-slate-700 ring-1 ring-slate-950/10" role="status">
-                  {profileMessage}
-                </p>
-              ) : null}
             </section>
 
             <section className="overflow-hidden rounded-xl bg-white text-sm shadow-[0_10px_40px_rgba(15,23,42,0.08),0_1px_3px_rgba(15,23,42,0.04)] ring-1 ring-slate-950/10">
@@ -259,15 +267,19 @@ export default function AdminProfilePage() {
                   </button>
                 </div>
               </form>
-              {message ? (
-                <p className="mx-4 mb-4 rounded-md bg-[#f1f5f9] px-3 py-2 text-sm text-slate-700 ring-1 ring-slate-950/10" role="status">
-                  {message}
-                </p>
-              ) : null}
             </section>
           </>
         ) : null}
       </section>
+      <ProfileToastStack
+        items={[
+          status ? { id: "status", message: status, type: "error" as const } : null,
+          profileMessage
+            ? { id: "profile", message: profileMessage, type: profileToastType(profileMessage) }
+            : null,
+          message ? { id: "password", message, type: profileToastType(message) } : null,
+        ].filter((item): item is ProfileToastItem => item !== null)}
+      />
     </main>
   );
 }
@@ -357,7 +369,7 @@ function formatDateTime(value: string) {
 
 function passwordErrorMessage(error: unknown) {
   if (error instanceof PollavarAPIError && error.status === 401) {
-    return "La contraseña actual no es correcta o la sesion expiro.";
+    return "La contraseña actual no es correcta o la sesión expiró.";
   }
   if (error instanceof PollavarAPIError && error.status === 400) {
     return "La nueva contraseña debe tener entre 8 y 128 caracteres y ser diferente a la actual.";
@@ -367,13 +379,47 @@ function passwordErrorMessage(error: unknown) {
 
 function profileErrorMessage(error: unknown) {
   if (error instanceof PollavarAPIError && error.status === 409) {
-    return "Ese usuario o correo ya esta en uso.";
+    return "Ese usuario o correo ya está en uso.";
   }
   if (error instanceof PollavarAPIError && error.status === 400) {
     return "Revisa nombre, usuario y correo.";
   }
   if (error instanceof PollavarAPIError && error.status === 401) {
-    return "Tu sesion expiro. Inicia sesión nuevamente.";
+    return "Tu sesión expiró. Inicia sesión nuevamente.";
   }
   return "No pudimos actualizar el perfil.";
+}
+
+type ProfileToastItem = {
+  id: string;
+  message: string;
+  type: "success" | "error";
+};
+
+function ProfileToastStack({ items }: { items: ProfileToastItem[] }) {
+  if (items.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="fixed bottom-5 right-5 z-50 grid max-w-sm gap-2" role="status">
+      {items.map((item) => (
+        <div
+          className={`rounded-md border px-4 py-3 text-sm shadow-xl ring-1 ring-slate-950/5 ${
+            item.type === "success"
+              ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+              : "border-orange-200 bg-orange-50 text-orange-900"
+          }`}
+          key={item.id}
+        >
+          {item.message}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function profileToastType(message: string): "success" | "error" {
+  const normalized = message.toLowerCase();
+  return normalized.includes("actualizad") ? "success" : "error";
 }
